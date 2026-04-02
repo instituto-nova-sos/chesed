@@ -1,0 +1,53 @@
+# Go
+backend/server
+backend/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# React / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+frontend/coverage/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.sqlite3
+*.db
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Coverage
+coverage/
+*.cover
+*.coverprofile
+
+# Temporary
+tmp/
+temp/

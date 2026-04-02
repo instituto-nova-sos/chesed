@@ -1,0 +1,243 @@
+# 13 - Security and Compliance
+
+## LGPD Compliance
+
+### Overview
+
+Brazil's Lei Geral de Proteção de Dados (LGPD - Law 13.709/2018) governs personal data processing. The system handles sensitive personal data of vulnerable populations, making compliance both a legal requirement and an ethical obligation.
+
+### Legal Basis for Data Processing
+
+| Data Category | Legal Basis (LGPD Art. 7) | Justification |
+|---------------|--------------------------|---------------|
+| Person basic data (name, document, phone) | Legitimate interest (Art. 7, IX) + Consent (Art. 7, I) | Necessary for NGO service delivery |
+| Health data | Explicit consent (Art. 11, I) | Sensitive data requires specific consent |
+| Social vulnerability data | Explicit consent (Art. 11, I) | Sensitive data |
+| Image/photo data | Explicit consent (Art. 7, I) | Separate consent for image usage |
+| Minor data | Guardian consent (Art. 14) | Children and adolescents require special protection |
+
+### Data Subject Rights (LGPD Art. 18)
+
+The system must support:
+
+| Right | Implementation |
+|-------|---------------|
+| Access (Art. 18, II) | `GET /persons/:id` returns all stored data for a person |
+| Correction (Art. 18, III) | `PUT /persons/:id` allows updating personal data |
+| Anonymization (Art. 18, IV) | Anonymize or delete sensitive fields while preserving aggregate statistics |
+| Deletion (Art. 18, VI) | Logical deletion + anonymization of PII; audit records retained with anonymized references |
+| Information about sharing (Art. 18, VII) | System does not share data with third parties |
+| Consent revocation (Art. 18, IX) | `PATCH /consents/:id/revoke` revokes active consent |
+| Portability (Art. 18, V) | CSV export of person's complete data |
+
+### Consent Management
+
+```
+Consent Lifecycle:
+  1. Consent presented → Purpose explained (LGPD Art. 8)
+  2. Person signs on device → Signature + timestamp captured
+  3. Consent stored → Linked to person, type, version, purpose
+  4. Consent revoked → Sensitive data anonymized; audit trail preserved
+```
+
+**Consent types:**
+- `DATA_PROCESSING`: General personal data processing
+- `IMAGE_USAGE`: Use of photos/images in publications
+- `HEALTH_DATA`: Processing of health-related information
+- `MINOR_GUARDIAN`: Guardian consent for minors
+
+**Consent versioning**: When consent terms change, a new version is created. Existing consents remain valid under their original version. New interactions require consent under the current version.
+
+---
+
+## Sensitive Data Classification
+
+### Classification Tiers
+
+| Tier | Data Type | Examples | Protection Level |
+|------|-----------|----------|-----------------|
+| **Critical** | Health data, social vulnerability | Medical records, income, housing status | Encrypted at rest; explicit consent required; access logged; anonymizable |
+| **High** | Personal identification | CPF, SSN, full name, address, phone | Encrypted at rest; access logged; anonymizable |
+| **Medium** | Operational data | Attendance records, triage notes | Access controlled by RBAC; audit logged |
+| **Low** | Reference data | Service types, campaigns, campus info | Standard access control |
+
+### Data Handling Rules
+
+1. **Critical and High tier data** must be:
+   - Encrypted at rest in the database
+   - Encrypted in transit (TLS)
+   - Encrypted in local storage (IndexedDB) when browser supports Web Crypto API
+   - Accessible only to users with explicit permission
+   - Logged in the audit trail when accessed
+   - Anonymizable upon consent revocation
+
+2. **Audit log data** must be:
+   - Append-only (no modifications or deletions)
+   - Retained for minimum 5 years
+   - Anonymized references when the source record is deleted (replace person name with hash)
+
+---
+
+## Access Logging
+
+### What Gets Logged
+
+| Action | Logged | Details Captured |
+|--------|--------|-----------------|
+| Login success | Yes | User, IP, user agent, timestamp |
+| Login failure | Yes | Email attempted, IP, user agent, timestamp |
+| View person record | Yes | User, person_id, timestamp |
+| Edit person record | Yes | User, person_id, old values, new values |
+| View attendance | Yes | User, attendance_id, timestamp |
+| Create/edit attendance | Yes | User, attendance_id, changes |
+| Export report | Yes | User, report type, parameters, timestamp |
+| Permission change | Yes | User, target user, permissions changed |
+| Sync push | Yes | User, device_id, record count |
+| Consent creation | Yes | User, person_id, consent type |
+| Consent revocation | Yes | User, person_id, consent type, reason |
+| Data deletion/anonymization | Yes | User, person_id, fields affected |
+
+### Audit Log Schema
+
+See `10-data-model.md` for the `audit_log` table. Key fields:
+- `user_id`: Who performed the action
+- `action_type`: What was done (CREATE, READ, UPDATE, DELETE, LOGIN, LOGOUT, EXPORT, PERMISSION_CHANGE)
+- `entity_type` + `entity_id`: What was affected
+- `old_values` / `new_values`: JSONB diff of changes
+- `ip_address`: Source IP (with proxy-aware extraction)
+- `user_agent`: Browser/device identification
+- `timestamp`: When it happened
+- `success`: Whether the action succeeded
+
+---
+
+## Encryption
+
+### In Transit
+- TLS 1.3 enforced via reverse proxy (Caddy auto-HTTPS or Nginx with Let's Encrypt)
+- HSTS header with 1-year max-age
+- No HTTP endpoints (redirect to HTTPS)
+
+### At Rest (Server)
+- PostgreSQL: Enable Transparent Data Encryption (TDE) or use encrypted storage volumes
+- Object storage (S3): Server-side encryption (SSE-S3 or SSE-KMS)
+- Backup files: Encrypted with AES-256
+
+### At Rest (Client)
+- IndexedDB: Encrypt sensitive fields (person names, document numbers) using Web Crypto API
+- Service Worker cache: App shell only; no PII in cache storage
+- JWT tokens: Stored in httpOnly cookies (preferred) or encrypted in IndexedDB
+
+### Key Management
+- Database encryption keys managed by cloud provider KMS
+- JWT signing key: Environment variable, rotated periodically
+- Application secrets: Environment variables, never in code
+
+---
+
+## Retention and Deletion Policies
+
+| Data Type | Retention Period | Deletion Method |
+|-----------|-----------------|-----------------|
+| Person records | Until consent revocation + 30 days | Anonymize PII; retain aggregate data |
+| Attendance records | 10 years (regulatory) | Anonymize person references after retention |
+| Audit logs | 5 years minimum | No deletion; archive to cold storage after 2 years |
+| Consent records | Indefinite | Never deleted (legal proof) |
+| Donation records | 10 years (fiscal) | Anonymize donor PII after retention |
+| Login sessions | 90 days | Auto-purge expired tokens |
+| File attachments | Until consent revocation + 30 days | Physical deletion from object storage |
+| Local device data | Until logout or manual clear | Full wipe on logout |
+
+### Data Anonymization Process
+
+When a person exercises their right to deletion:
+
+1. Verify identity and consent revocation request
+2. Replace PII in `person` table:
+   - `full_name` → `"ANONYMIZED-{hash}"`
+   - `document_number` → `NULL`
+   - `email` → `NULL`
+   - `phone` → `NULL`
+   - `photo_url` → Delete file, set `NULL`
+3. Delete related `address` records
+4. Delete related `document` files from object storage
+5. Anonymize references in `audit_log` (`old_values`, `new_values` with PII → redacted)
+6. Retain `attendance` and `triage` records with anonymized person reference (for aggregate statistics)
+7. Log the anonymization action in `audit_log`
+8. Confirm deletion to the data subject
+
+---
+
+## RBAC Security Model
+
+### Permission Matrix
+
+| Resource | Volunteer | Secretary | Professional | Coordinator | Admin |
+|----------|-----------|-----------|-------------|-------------|-------|
+| Create person | Yes | Yes | Yes | Yes | Yes |
+| View person (own campus) | Limited | Yes | Yes | Yes | Yes |
+| Edit person | No | Yes | No | Yes | Yes |
+| Create triage | Yes | Yes | Yes | Yes | Yes |
+| Create attendance | No | Yes | Yes | Yes | Yes |
+| Edit attendance | No | No | Own only | Yes | Yes |
+| View reports | No | No | No | Yes | Yes |
+| Export data | No | No | No | Yes | Yes |
+| Manage users | No | No | No | No | Yes |
+| View audit logs | No | No | No | No | Yes |
+| Manage campaigns | No | No | No | Yes | Yes |
+| Manage donations | No | Secretary | No | Yes | Yes |
+
+### Session Security
+
+- Access token TTL: 15 minutes
+- Refresh token TTL: 7 days
+- Concurrent sessions: Allowed (multi-device support)
+- Token revocation: Refresh tokens can be revoked per-user or per-session
+- Password policy: Minimum 8 characters, at least 1 number, 1 letter
+- Account lockout: After 10 failed attempts, lock for 15 minutes
+
+---
+
+## Infrastructure Security
+
+### Network
+- Reverse proxy handles TLS termination
+- Backend API not directly exposed to internet
+- Database accessible only from API server (private network)
+- CORS: Explicit origin whitelist
+
+### Application
+- Input validation on all endpoints (struct tags + custom validators)
+- SQL injection prevention: Parameterized queries (pgx)
+- XSS prevention: React auto-escapes output; CSP headers
+- CSRF: Not applicable (JWT-based API; no cookies for auth in API)
+- Rate limiting: 100 requests/minute per user; 20 login attempts/hour per IP
+- File upload validation: Type checking, size limits (10MB), virus scanning (future)
+
+### Dependencies
+- Minimal dependency footprint (Go stdlib-first approach)
+- Dependabot or Renovate for automated vulnerability alerts
+- No `npm audit` high/critical vulnerabilities in production builds
+
+---
+
+## Multi-Region Compliance Considerations
+
+| Region | Law | Key Requirements | Implementation |
+|--------|-----|-----------------|----------------|
+| Brazil | LGPD | Consent, data subject rights, breach notification | Primary compliance target |
+| USA | CCPA (California) | Notice, opt-out, deletion | Covered by LGPD compliance (LGPD is more restrictive) |
+| Europe | GDPR | Consent, DPO, data portability, right to erasure | Largely covered by LGPD compliance; may need DPO designation |
+
+**Data residency**: Campus data should be stored in the region where the campus operates. For MVP, all data in a single region (Brazil). For Phase 3, consider region-specific database instances or schemas.
+
+---
+
+## Incident Response Plan
+
+1. **Detection**: Audit log monitoring for anomalous access patterns
+2. **Assessment**: Determine scope (what data, how many people affected)
+3. **Containment**: Revoke affected tokens; disable compromised accounts
+4. **Notification**: LGPD requires notification to ANPD and affected persons within "reasonable time" for high-risk breaches
+5. **Remediation**: Fix vulnerability; rotate credentials; update security controls
+6. **Post-mortem**: Document incident; update security policies; audit log review
