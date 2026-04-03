@@ -4,7 +4,7 @@
 
 | Environment | Purpose | Infrastructure | Database |
 |-------------|---------|----------------|----------|
-| **Local** | Development | Docker Compose (Go + PostgreSQL + React dev server) | Local PostgreSQL in container |
+| **Local** | Development | Docker Compose (Go + PostgreSQL + Keycloak + React dev server) | Local PostgreSQL in container |
 | **CI** | Automated testing | GitHub Actions + PostgreSQL service container | Ephemeral test database |
 | **Staging** | Pre-production testing | Cloud hosting (same as production, smaller instance) | Separate database with test data |
 | **Production** | Live system | Cloud hosting | Managed PostgreSQL with backups |
@@ -28,28 +28,31 @@
 ### Recommended Initial Setup (Phase 1)
 
 ```
-React PWA → Cloudflare Pages (free)
-Go API    → Railway ($5/month)
-PostgreSQL → Supabase free tier or Railway add-on
-Storage   → Cloudflare R2 (free tier)
-Domain    → Cloudflare DNS (free)
-SSL       → Automatic (Cloudflare + Railway)
+React PWA     → Cloudflare Pages (free)
+Go API        → Railway ($5/month)
+Keycloak      → Railway ($5-7/month, ~512MB RAM)
+PostgreSQL    → Supabase free tier or Railway add-on
+Storage       → Cloudflare R2 (free tier)
+Domain        → Cloudflare DNS (free)
+SSL           → Automatic (Cloudflare + Railway)
+WAF           → Cloudflare (free tier)
 
-Estimated monthly cost: $5-10
+Estimated monthly cost: $10-17/month
 ```
 
 ### Production Setup (Phase 2+)
 
 ```
-React PWA → Cloudflare Pages (free)
-Go API    → Railway or Render ($10-20/month)
+React PWA  → Cloudflare Pages (free)
+Go API     → Railway or Render ($10-20/month)
+Keycloak   → Railway ($10-15/month, ~1GB RAM)
 PostgreSQL → Supabase Pro or Railway ($25/month)
-Storage   → Cloudflare R2 ($5/month)
-Redis     → Railway or Upstash (free tier)
-Domain    → Cloudflare DNS (free)
+Storage    → Cloudflare R2 ($5/month)
+Redis      → Railway or Upstash (free tier)
+Domain     → Cloudflare DNS (free)
 Monitoring → Grafana Cloud (free tier)
 
-Estimated monthly cost: $40-50
+Estimated monthly cost: $55-70/month
 ```
 
 ---
@@ -112,9 +115,21 @@ jobs:
       - run: cd frontend && npm run test
       - run: cd frontend && npm run build
 
+  # Keycloak image scan
+  keycloak-image-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'quay.io/keycloak/keycloak:26-alpine'
+          exit-code: '1'
+          severity: 'CRITICAL'
+          format: 'table'
+
   # Deploy to staging (on push to develop)
   deploy-staging:
-    needs: [backend-test, frontend-test]
+    needs: [backend-test, frontend-test, keycloak-image-scan]
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
@@ -125,7 +140,7 @@ jobs:
 
   # Deploy to production (on push to main)
   deploy-production:
-    needs: [backend-test, frontend-test]
+    needs: [backend-test, frontend-test, keycloak-image-scan]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -218,6 +233,26 @@ services:
       - ./frontend/src:/app/src
     env_file: .env
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26-alpine
+    command: start-dev --import-realm
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/chesed_keycloak
+      KC_DB_USERNAME: ${DB_USER}
+      KC_DB_PASSWORD: ${DB_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     ports:
@@ -238,6 +273,8 @@ volumes:
   pgdata:
 ```
 
+> **Note:** Keycloak can share the same PostgreSQL instance (separate database/schema) to reduce cost. In production with high load, consider a dedicated database.
+
 ---
 
 ## Backup and Disaster Recovery
@@ -254,6 +291,10 @@ volumes:
 
 - Monthly: Restore backup to test environment and verify data integrity
 - Quarterly: Full disaster recovery drill
+
+### Keycloak Backup
+
+Keycloak realm configuration is exported as JSON and version-controlled in `keycloak/realm-export.json`. Database backup covers Keycloak data (users, sessions). Recovery: import realm JSON into a fresh Keycloak instance, restore database.
 
 ### Recovery Procedure
 
@@ -313,10 +354,12 @@ DB_USER=sos_user
 DB_PASSWORD=<secure_password>
 DB_SSL_MODE=require         # disable for local dev
 
-# JWT
-JWT_SECRET=<random_64_char_string>
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=168h        # 7 days
+# Keycloak (OIDC)
+KEYCLOAK_URL=http://keycloak:8080       # Keycloak base URL
+KEYCLOAK_REALM=chesed                    # Realm name
+KEYCLOAK_CLIENT_ID=chesed-api            # OIDC client ID for the Go API
+KEYCLOAK_CLIENT_SECRET=<secret>          # Client secret for Keycloak Admin API access
+KEYCLOAK_ADMIN_PASSWORD=<secure_password> # Keycloak admin console password
 
 # Storage
 STORAGE_TYPE=s3             # local, s3

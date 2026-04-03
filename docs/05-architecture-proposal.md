@@ -10,44 +10,52 @@
 │  │  PWA (React)  │  │  Desktop Web │  │  WordPress    │  │
 │  │  Mobile-first │  │  (same PWA)  │  │  Portal (API) │  │
 │  │  Offline-first│  │              │  │               │  │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬────────┘  │
-│         │                  │                  │           │
-└─────────┼──────────────────┼──────────────────┼───────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────┐
-│                   API GATEWAY / REVERSE PROXY             │
-│                   (Nginx / Caddy)                         │
-│                   TLS termination, rate limiting           │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│                   GO API SERVER                           │
-│                                                           │
-│  ┌─────────────┐ ┌──────────────┐ ┌──────────────────┐  │
-│  │    Auth      │ │   REST API   │ │  Sync Engine     │  │
-│  │  (JWT/RBAC)  │ │  (Handlers)  │ │  (Offline sync)  │  │
-│  └──────┬──────┘ └──────┬───────┘ └──────┬───────────┘  │
-│         │               │                 │              │
-│  ┌──────┴───────────────┴─────────────────┴──────────┐  │
-│  │              Domain / Service Layer                 │  │
-│  │  Person │ Attendance │ Campaign │ Donation │ Audit  │  │
-│  └──────────────────────┬────────────────────────────┘  │
-│                         │                                │
-│  ┌──────────────────────┴────────────────────────────┐  │
-│  │              Repository Layer (Data Access)         │  │
-│  └──────────────────────┬────────────────────────────┘  │
-└─────────────────────────┼───────────────────────────────┘
-                          │
-          ┌───────────────┼───────────────┐
-          ▼               ▼               ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│  PostgreSQL   │ │  Object      │ │  Redis       │
-│  (Primary DB) │ │  Storage     │ │  (Cache +    │
-│               │ │  (S3/MinIO)  │ │   Sessions)  │
-└──────────────┘ └──────────────┘ └──────────────┘
+│  └──┬────────┬──┘  └──┬────────┬──┘  └──────┬────────┘  │
+│     │        │         │        │             │           │
+└─────┼────────┼─────────┼────────┼─────────────┼───────────┘
+      │  ▲     │         │  ▲     │             │
+      │  │     │         │  │     │             │
+      ▼  │     ▼         ▼  │     ▼             ▼
+┌─────────┴──────────┐  ┌─────────────────────────────────┐
+│  KEYCLOAK (IAM)     │  │  API GATEWAY / REVERSE PROXY    │
+│  OIDC Provider      │  │  (Nginx / Caddy)                │
+│  Auth Code + PKCE   │  │  TLS termination, rate limiting  │
+│  MFA, password      │  └──────────────┬──────────────────┘
+│  policies, brute-   │                  │
+│  force protection   │                  ▼
+└─────────────────────┘  ┌─────────────────────────────────┐
+                         │         GO API SERVER             │
+                         │                                   │
+  Token validation       │  ┌────────────┐ ┌─────────────┐  │
+  via JWKS ◄─────────────│  │ OIDC Token │ │ REST API    │  │
+  (Keycloak endpoint)    │  │ Validation │ │ (Handlers)  │  │
+                         │  │ Middleware │ │             │  │
+                         │  └─────┬──────┘ └──────┬──────┘  │
+                         │        │               │         │
+                         │  ┌─────┴───────────────┴──────┐  │
+                         │  │   Sync Engine (Offline)     │  │
+                         │  └─────────────┬──────────────┘  │
+                         │                │                  │
+                         │  ┌─────────────┴──────────────┐  │
+                         │  │  Domain / Service Layer      │  │
+                         │  │  Person │ Attendance │ ...   │  │
+                         │  └─────────────┬──────────────┘  │
+                         │                │                  │
+                         │  ┌─────────────┴──────────────┐  │
+                         │  │  Repository Layer            │  │
+                         │  └─────────────┬──────────────┘  │
+                         └────────────────┼──────────────────┘
+                                          │
+                          ┌───────────────┼───────────────┐
+                          ▼               ▼               ▼
+                ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+                │  PostgreSQL   │ │  Object      │ │  Redis       │
+                │  (Primary DB) │ │  Storage     │ │  (Cache +    │
+                │               │ │  (S3/MinIO)  │ │   Sessions)  │
+                └──────────────┘ └──────────────┘ └──────────────┘
 ```
+
+**Authentication flow**: The React PWA redirects users to Keycloak for authentication (Authorization Code Flow with PKCE). After successful login, the PWA receives tokens and sends the `access_token` as a Bearer header to the Go API. The Go API validates tokens by fetching Keycloak's JWKS endpoint (cached) and extracts user claims (sub, roles, campus_id). Keycloak sits alongside the Go API as a separate service — it does not proxy API requests.
 
 ---
 
@@ -124,7 +132,8 @@ backend/
 | HTTP Router | `net/http` + `chi` | Lightweight, stdlib-compatible |
 | Database | `pgx` | High-performance PostgreSQL driver |
 | Migrations | `golang-migrate` | SQL-based migrations |
-| JWT | `golang-jwt` | Standard JWT handling |
+| OIDC Validation | `coreos/go-oidc` | OIDC token validation against Keycloak JWKS endpoint |
+| JWT | `golang-jwt` | Indirect dependency for JWT parsing; primary validation via `coreos/go-oidc` |
 | Validation | `go-playground/validator` | Struct tag validation |
 | Logging | `slog` (stdlib) | Structured logging, built-in since Go 1.21 |
 | Configuration | `envconfig` or `viper` | Environment-based config |
@@ -208,6 +217,7 @@ frontend/
 | Charts | Recharts | Simple, React-native charts |
 | Signature | react-signature-canvas | Touch signature capture for consent |
 | HTTP | fetch (native) | No axios needed |
+| OIDC Auth | keycloak-js | Official Keycloak adapter for OIDC authentication |
 
 ---
 
@@ -245,17 +255,25 @@ For document and file attachments (consent forms, medical records, ID copies):
 
 ## Authentication and Authorization
 
-### Auth Flow
+### Auth Flow (OIDC via Keycloak)
 
 ```
-1. User submits email + password
-2. Server validates credentials
-3. Server issues JWT access token (15min) + refresh token (7 days)
-4. Client stores tokens (httpOnly cookie or secure storage)
-5. Each API request includes access token in Authorization header
-6. Middleware validates token and extracts user/campus/role
-7. Handler checks role-based permissions before processing
+1. User clicks login in the React PWA
+2. React redirects to Keycloak login page (Authorization Code Flow with PKCE)
+3. User authenticates at Keycloak (email + password, optionally MFA)
+4. Keycloak redirects back to React with an authorization code
+5. React exchanges the code for tokens (access_token + refresh_token + id_token)
+6. React sends access_token as Bearer header in every request to the Go API
+7. Go middleware validates the token signature via Keycloak JWKS endpoint (cached)
+8. Go middleware extracts claims (sub, realm_roles, campus_id custom claim)
+9. Handler checks role-based permissions before processing
 ```
+
+**Key design points:**
+- The Go API never handles user credentials — Keycloak owns the login experience.
+- Token refresh is handled by `keycloak-js` in the React app transparently.
+- `campus_id` is stored as a custom claim in Keycloak, mapped from user attributes.
+- The Go API validates tokens statelessly via JWKS — no session storage required.
 
 ### RBAC Model
 
@@ -276,7 +294,8 @@ Each access_profile maps to a permission set:
 | Layer | Mechanism |
 |-------|-----------|
 | Transport | TLS 1.3 via reverse proxy |
-| Authentication | JWT with short-lived tokens |
+| Authentication | OIDC via Keycloak with Authorization Code Flow + PKCE |
+| Identity Management | Keycloak (external IAM) — credential storage, MFA, password policies, brute-force protection |
 | Authorization | RBAC middleware on every handler |
 | Data isolation | Campus-scoped queries |
 | Audit | Every authenticated request logged |
@@ -333,6 +352,12 @@ See `12-offline-sync-strategy.md` for the full strategy. Summary:
 │  │  (static files    │   │           │
 │  │   on CDN/proxy)   │   │           │
 │  └──────────────────┘   │           │
+│                          │           │
+│  ┌──────────────────────┴────────┐  │
+│  │  Keycloak (IAM)               │  │
+│  │  Container (port 8443)        │  │
+│  │  + own PostgreSQL schema      │  │
+│  └───────────────────────────────┘  │
 │                          │           │
 │  ┌──────────────────────┴────────┐  │
 │  │  PostgreSQL (managed)          │  │

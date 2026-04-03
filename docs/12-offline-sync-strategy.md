@@ -138,15 +138,16 @@ This enables person search and form population while offline.
 
 When the device comes online (or user taps "Sync Now"):
 
-1. Read all items from `syncQueue` ordered by `createdAt`
-2. Batch into groups of 50 records
-3. Send `POST /api/v1/sync/push` with batch
-4. Process server response:
+1. Attempt a silent Keycloak access token refresh via the keycloak-js adapter. If refresh fails (token expired), defer sync until the user re-authenticates at the Keycloak login page.
+2. Read all items from `syncQueue` ordered by `createdAt`
+3. Batch into groups of 50 records
+4. Send `POST /api/v1/sync/push` with batch, including the valid Keycloak access token in the `Authorization: Bearer <token>` header
+5. Process server response:
    - `created`: Mark local record as synced; store server-assigned metadata
    - `conflict`: Mark local record as conflict; store both versions
    - `error`: Increment retry count; leave in queue
-5. Remove successfully synced items from queue
-6. Retry failed items (max 5 retries; exponential backoff)
+6. Remove successfully synced items from queue
+7. Retry failed items (max 5 retries; exponential backoff)
 
 ```
 Client                          Server
@@ -170,13 +171,14 @@ Client                          Server
 After push completes (or periodically):
 
 1. Read `lastSyncTimestamp` from `syncMeta`
-2. Send `GET /api/v1/sync/pull?since=<timestamp>&entity_types=person,triage,attendance`
-3. Merge received records into IndexedDB:
+2. Ensure a valid Keycloak access token is available (refresh if needed via keycloak-js adapter). If refresh fails, defer pull until the user re-authenticates.
+3. Send `GET /api/v1/sync/pull?since=<timestamp>&entity_types=person,triage,attendance` with the Keycloak access token in the `Authorization: Bearer <token>` header
+4. Merge received records into IndexedDB:
    - New records: Insert
    - Updated records: Replace if server version is newer
    - Deleted records: Mark as inactive locally
-4. Update `lastSyncTimestamp` with server timestamp from response
-5. If `has_more` is true, repeat with the returned timestamp
+5. Update `lastSyncTimestamp` with server timestamp from response
+6. If `has_more` is true, repeat with the returned timestamp
 
 ---
 
@@ -346,11 +348,19 @@ const checkConnectivity = async (): Promise<boolean> => {
 
 ## Security Considerations
 
-1. **Local data encryption**: Use the Web Crypto API to encrypt sensitive fields in IndexedDB (person names, CPF numbers) when the device supports it
-2. **Token storage**: JWT refresh token stored in IndexedDB, encrypted
-3. **Session expiry**: If refresh token expires while offline, user must re-authenticate when online
-4. **Data wipe**: Provide "Clear local data" option for shared devices
-5. **Audit**: Log sync events (push/pull) in the server audit trail
+1. **Local data encryption**: Local data encryption is MANDATORY. All sensitive fields in IndexedDB (names, CPF/document numbers, health data, contact information, income data) MUST be encrypted using the Web Crypto API (AES-256-GCM). All modern browsers supported by this application support Web Crypto API. If Web Crypto API is unavailable, the application MUST refuse to enter offline mode and display a warning to the user.
+2. **Keycloak token management**: The keycloak-js adapter manages token storage internally. Refresh tokens are used to re-authenticate when connectivity returns. If the refresh token has expired during the offline period, the user must re-authenticate via the Keycloak login page. For extended offline scenarios, use Keycloak's `offline_access` scope.
+3. **Offline session expiry**: If the Keycloak refresh token expires while offline (default 7 days), the user must re-authenticate at the Keycloak login page when connectivity returns. For field workers who may be offline for extended periods (multi-day social action events), configure Keycloak offline tokens via the `offline_access` scope with a 14-day idle timeout. Offline tokens survive Keycloak server restarts.
+4. **Offline token support**: For field events lasting multiple days, the React app requests the `offline_access` scope during initial authentication. Keycloak issues an offline token with a configurable idle timeout (recommended: 14 days). This is critical for the volunteer use case where connectivity may not return for days. Offline tokens are revocable via Keycloak Admin API if a device is lost.
+5. **Data wipe**: Provide "Clear local data" option for shared devices
+6. **Audit**: Log sync events (push/pull) in the server audit trail
+7. **Replay protection**: Each sync push request includes a unique `sync_id` (UUID v4) per record. The server checks for duplicate `sync_id` values and returns the existing record if found (idempotent). This prevents duplicate record creation from network retries. Additionally, sync timestamps are validated server-side to prevent replaying old sync batches.
+8. **Device loss/theft mitigation**:
+   - Offline tokens can be revoked remotely via Keycloak Admin API, preventing re-authentication on stolen devices
+   - "Clear local data" button available in app settings for shared devices
+   - Automatic IndexedDB wipe on logout
+   - Encrypted sensitive fields in IndexedDB protect data at rest even if device storage is accessed directly
+   - Consider MDM (Mobile Device Management) for organization-owned devices in Phase 3
 
 ---
 
@@ -362,4 +372,4 @@ const checkConnectivity = async (): Promise<boolean> => {
 | Pre-cached data may be stale | Accept | Freshness check on next sync |
 | IndexedDB size limits | Monitor | Browsers allow ~50MB+; sufficient for event data |
 | No real-time updates | Accept | Polling on sync pull is sufficient |
-| Shared device data leakage | Mitigate | Clear local data on logout; encrypt sensitive fields |
+| Shared device data leakage | Mitigate | Clear local data on logout; mandatory encryption of sensitive fields; automatic IndexedDB wipe on logout |

@@ -23,6 +23,31 @@
 6. **Form validation**: Use React Hook Form with Zod schemas for type-safe validation.
 7. **Error boundaries**: Wrap route-level components with error boundaries.
 8. **Accessibility**: All interactive elements must be keyboard-navigable. Use semantic HTML.
+9. **Authentication**: Authentication is handled by the Keycloak JS adapter. No custom login forms. No custom token management code. The adapter handles login redirect, token refresh, and logout.
+
+### Approved Go Dependencies
+
+| Dependency | Purpose |
+|------------|---------|
+| `go-chi/chi` | HTTP routing |
+| `jackc/pgx` | PostgreSQL driver |
+| `golang-migrate` | Database migrations |
+| `coreos/go-oidc` | OIDC token validation (Keycloak) |
+| `golang-jwt` | Indirect dependency via go-oidc; not used directly for token issuance |
+| `go-playground/validator` | Struct tag validation |
+| `slog` (stdlib) | Structured logging |
+
+### Approved React Dependencies
+
+| Dependency | Purpose |
+|------------|---------|
+| `keycloak-js` | Official Keycloak JavaScript adapter for OIDC authentication |
+| `react-hook-form` | Form state management |
+| `zod` | Schema validation |
+| `dexie` | IndexedDB wrapper (offline support) |
+| `recharts` | Charts (Phase 2) |
+| `react-router` | Client-side routing |
+| `zustand` | Global state management |
 
 ---
 
@@ -50,6 +75,7 @@ backend/
 - `service` depends on `repository` interfaces (defined in `service` package)
 - `repository` depends on `domain` structs and database driver
 - `domain` has zero dependencies (pure structs)
+- `middleware/auth.go`: Validates Keycloak OIDC tokens by verifying the JWT signature against Keycloak's JWKS endpoint (cached with TTL). Extracts `sub`, `realm_access.roles`, and `campus_id` custom claim from the token. No token issuance logic exists in the application.
 - `middleware` depends on `config` and may call `service` for auth validation
 - No circular dependencies
 
@@ -92,7 +118,7 @@ frontend/src/
 | Constants | PascalCase | `StatusCompleted`, `RoleAdmin` |
 | Database columns | snake_case | `full_name`, `campus_id`, `created_at` |
 | API endpoints | kebab-case | `/forgot-password`, `/check-duplicate` |
-| Environment variables | UPPER_SNAKE_CASE | `DB_HOST`, `JWT_SECRET` |
+| Environment variables | UPPER_SNAKE_CASE | `DB_HOST`, `KEYCLOAK_URL` |
 | File names | snake_case.go | `person_handler.go`, `attendance_service.go` |
 | Test files | snake_case_test.go | `person_handler_test.go` |
 | Migration files | `NNNNNN_description.up.sql` | `000001_create_campus.up.sql` |
@@ -193,6 +219,8 @@ Before merging any PR:
 - [ ] Campus scoping applied to new queries
 - [ ] Mobile-first responsive design verified
 - [ ] Offline behavior considered (does this feature work without internet?)
+- [ ] No custom authentication or credential handling code (all auth delegated to Keycloak)
+- [ ] Keycloak realm changes exported and committed to `keycloak/realm-export.json`
 
 ---
 

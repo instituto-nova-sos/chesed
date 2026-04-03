@@ -12,52 +12,46 @@ All endpoints are versioned under `/api/v1`. Future breaking changes will use `/
 
 ## Authentication
 
-### Auth Endpoints
+### Overview
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/auth/login` | None | Authenticate with email + password |
-| POST | `/auth/refresh` | Refresh token | Get new access token |
-| POST | `/auth/forgot-password` | None | Request password reset email |
-| POST | `/auth/reset-password` | Reset token | Set new password |
-| POST | `/auth/logout` | Access token | Revoke refresh token |
+Authentication is handled externally by **Keycloak** using the **OpenID Connect (OIDC)** protocol. The Chesed API does not implement login, token issuance, or credential management. Instead, it validates access tokens issued by Keycloak.
 
-#### POST /auth/login
+- **Protocol**: Authorization Code Flow with PKCE (for the React SPA)
+- **Keycloak realm URL**: Configurable via `KEYCLOAK_REALM_URL` environment variable
+- **Token validation**: The Go API validates the `access_token` signature using Keycloak's JWKS endpoint (`{KEYCLOAK_REALM_URL}/protocol/openid-connect/certs`)
+- **Header**: `Authorization: Bearer <keycloak_access_token>`
+
+### Expected Access Token Claims
+
+The API expects the following claims in the Keycloak-issued JWT access token:
+
 ```json
-// Request
 {
-  "email": "user@example.com",
-  "password": "secure_password"
-}
-
-// Response 200
-{
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
-  "expires_in": 900,
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "person_id": "uuid",
-    "full_name": "Maria Silva",
-    "access_profile": "PROFESSIONAL",
-    "campus_id": "uuid",
-    "campus_name": "São Paulo"
-  }
-}
-
-// Response 401
-{
-  "error": "invalid_credentials",
-  "message": "Email or password is incorrect"
+  "sub": "<keycloak-user-id>",
+  "email": "<email>",
+  "realm_access": { "roles": ["COORDINATOR"] },
+  "campus_id": "<uuid>",
+  "person_id": "<uuid>",
+  "preferred_username": "<email>",
+  "iss": "https://keycloak.example.com/realms/chesed",
+  "aud": "chesed-api"
 }
 ```
 
-### Auth Model
+Custom claims (`campus_id`, `person_id`) are mapped via Keycloak protocol mappers from user attributes.
 
-- **Access token**: JWT, 15-minute TTL, contains user_id, access_profile, campus_id
-- **Refresh token**: Opaque token stored hashed in database, 7-day TTL
-- **Headers**: `Authorization: Bearer <access_token>`
+### Authentication Flows (Handled by Keycloak)
+
+The following authentication flows are **not** implemented as API endpoints. They are handled entirely by Keycloak and the frontend `keycloak-js` SDK:
+
+| Flow | Mechanism |
+|------|-----------|
+| **Login** | React SPA redirects to Keycloak login page via `keycloak-js` SDK |
+| **Token refresh** | Handled by `keycloak-js` SDK (silent refresh via hidden iframe) |
+| **Password reset** | Keycloak built-in "Forgot Password" flow (configured in realm settings) |
+| **Logout** | Keycloak end-session endpoint (front-channel logout); React calls `keycloak.logout()` |
+
+No `/auth/*` endpoints exist in the Chesed API.
 
 ---
 
@@ -403,11 +397,16 @@ Returns: `Content-Type: text/csv` with attendance detail rows.
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
-| POST | `/users` | Yes | Admin | Create user account |
+| POST | `/users` | Yes | Admin | Create user in Keycloak + local app_user |
 | GET | `/users` | Yes | Admin | List users |
 | PATCH | `/users/:id` | Yes | Admin | Update user profile/role |
-| PATCH | `/users/:id/deactivate` | Yes | Admin | Deactivate user |
+| PATCH | `/users/:id/deactivate` | Yes | Admin | Deactivate user in Keycloak + local app_user |
 | GET | `/users/me` | Yes | All | Get current user profile |
+
+**Keycloak Admin API Integration**:
+- `POST /users` creates the user in Keycloak first (via Keycloak Admin REST API), then stores the local `app_user` record with the returned `keycloak_subject_id`. If Keycloak user creation fails, no local record is created.
+- `PATCH /users/:id/deactivate` disables the user in Keycloak (sets `enabled: false` via Admin API) and sets `is_active = FALSE` locally.
+- The API authenticates to Keycloak Admin API using a **service account** (client credentials grant) configured via `KEYCLOAK_ADMIN_CLIENT_ID` and `KEYCLOAK_ADMIN_CLIENT_SECRET` environment variables.
 
 ---
 
@@ -470,4 +469,4 @@ Filter parameters are query strings: `?status=COMPLETED&service_type_id=uuid&sta
 ```
 
 ### Campus Scoping
-All data queries are automatically filtered by the user's `campus_id` from the JWT. Admin users can add `?campus_id=uuid` to query other campuses.
+All data queries are automatically filtered by the user's `campus_id` from the Keycloak access token claims. Admin users can add `?campus_id=uuid` to query other campuses.

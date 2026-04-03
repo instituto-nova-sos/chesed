@@ -16,7 +16,7 @@ This document defines the security testing approach for Chesed. The system handl
 ├──────────────────────────────────────┤
 │  Layer 2: Integration Security Tests │  Auth, RBAC, data isolation
 ├──────────────────────────────────────┤
-│  Layer 1: Unit Security Tests        │  Input validation, crypto, sanitization
+│  Layer 1: Unit Security Tests        │  Input validation, OIDC, sanitization
 └──────────────────────────────────────┘
 ```
 
@@ -45,38 +45,47 @@ func TestPersonInput_Validation(t *testing.T) {
 }
 ```
 
-### Password Hashing
+### OIDC Token Validation (Keycloak)
 
 ```go
-func TestPasswordHashing(t *testing.T) {
-    password := "secure_password_123"
-    hash, err := HashPassword(password)
-    assert.NoError(t, err)
-    assert.NotEqual(t, password, hash)
-    assert.True(t, CheckPassword(password, hash))
-    assert.False(t, CheckPassword("wrong_password", hash))
-}
-```
-
-### JWT Token Security
-
-```go
-func TestJWT_ExpiredToken(t *testing.T) {
-    token := generateToken(userID, -1*time.Hour) // Already expired
-    _, err := ValidateToken(token)
+func TestOIDC_ExpiredKeycloakToken(t *testing.T) {
+    token := generateExpiredKeycloakToken(t, testKeycloakClaims)
+    _, err := oidcValidator.ValidateToken(ctx, token)
     assert.ErrorIs(t, err, ErrTokenExpired)
 }
 
-func TestJWT_TamperedToken(t *testing.T) {
-    token := generateToken(userID, 15*time.Minute)
-    tampered := token[:len(token)-5] + "XXXXX"
-    _, err := ValidateToken(tampered)
+func TestOIDC_InvalidIssuer(t *testing.T) {
+    token := generateKeycloakToken(t, withIssuer("https://wrong-issuer.example.com"))
+    _, err := oidcValidator.ValidateToken(ctx, token)
+    assert.ErrorIs(t, err, ErrInvalidIssuer)
+}
+
+func TestOIDC_InvalidAudience(t *testing.T) {
+    token := generateKeycloakToken(t, withAudience("wrong-client-id"))
+    _, err := oidcValidator.ValidateToken(ctx, token)
+    assert.ErrorIs(t, err, ErrInvalidAudience)
+}
+
+func TestOIDC_MissingCampusClaim(t *testing.T) {
+    token := generateKeycloakToken(t, withoutClaim("campus_id"))
+    _, err := oidcValidator.ValidateToken(ctx, token)
+    assert.ErrorIs(t, err, ErrMissingCampusClaim)
+}
+
+func TestOIDC_MissingRealmRoles(t *testing.T) {
+    token := generateKeycloakToken(t, withoutRealmRoles())
+    _, err := oidcValidator.ValidateToken(ctx, token)
+    assert.ErrorIs(t, err, ErrMissingRealmRoles)
+}
+
+func TestOIDC_InvalidSignature(t *testing.T) {
+    token := generateKeycloakToken(t, signedWithWrongKey())
+    _, err := oidcValidator.ValidateToken(ctx, token)
     assert.Error(t, err)
 }
 
-func TestJWT_WrongSigningKey(t *testing.T) {
-    token := generateTokenWithKey(userID, 15*time.Minute, "wrong_key")
-    _, err := ValidateToken(token)
+func TestOIDC_MalformedToken(t *testing.T) {
+    _, err := oidcValidator.ValidateToken(ctx, "not.a.valid.jwt.token")
     assert.Error(t, err)
 }
 ```
@@ -101,15 +110,12 @@ Tests that verify security behavior across components, using a real database.
 
 | Test Case | Description | Expected |
 |-----------|------------|----------|
-| Login with valid credentials | Email + password match | 200 + tokens |
-| Login with wrong password | Correct email, wrong password | 401 |
-| Login with non-existent email | Unknown email | 401 (same error as wrong password) |
-| Login with deactivated account | Valid credentials, is_active=false | 401 |
-| Access with expired token | Expired JWT | 401 |
+| Access with valid Keycloak token | Properly signed token with correct issuer, audience, and claims | 200 |
+| Access with token from wrong realm/issuer | Token issued by a different Keycloak realm or external IdP | 401 |
+| Access with token missing campus_id claim | Valid Keycloak token but without the required `campus_id` custom claim | 401 |
+| Access with token for disabled local user (is_active=false) | Valid Keycloak token, but corresponding `app_user` record has `is_active=false` | 401 |
+| Access with expired token | Expired Keycloak JWT | 401 |
 | Access with no token | Missing Authorization header | 401 |
-| Refresh with valid refresh token | Non-expired refresh | 200 + new access token |
-| Refresh with revoked token | Previously revoked | 401 |
-| Account lockout after 10 failures | 10 wrong passwords | 429 (locked) |
 
 ### RBAC Tests
 
@@ -153,7 +159,7 @@ Tests that verify security behavior across components, using a real database.
 | **Dependabot** (GitHub) | Go modules + npm packages | Daily check; auto-creates PRs |
 | **govulncheck** | Go vulnerability database | CI pipeline on every PR |
 | **npm audit** | Node.js dependency vulnerabilities | CI pipeline on every PR |
-| **Trivy** | Docker image vulnerabilities | CI pipeline on image build |
+| **Trivy** | Docker image vulnerabilities (including Keycloak container image) | CI pipeline on image build |
 
 ### CI Integration
 
@@ -165,12 +171,23 @@ Tests that verify security behavior across components, using a real database.
 - name: npm audit
   run: cd frontend && npm audit --audit-level=high
 
-- name: Docker image scan
+- name: Docker image scan (API)
   uses: aquasecurity/trivy-action@master
   with:
     image-ref: 'chesed-api:latest'
     severity: 'HIGH,CRITICAL'
+
+- name: Docker image scan (Keycloak)
+  uses: aquasecurity/trivy-action@master
+  with:
+    image-ref: 'quay.io/keycloak/keycloak:latest'
+    severity: 'HIGH,CRITICAL'
 ```
+
+### SBOM Generation (Phase 2)
+
+- Generate Software Bill of Materials (SBOM) for all container images (API and Keycloak) using Trivy or Syft
+- SBOMs are stored as CI artifacts and can be used for compliance audits
 
 ### Policy
 
@@ -188,15 +205,21 @@ Tests that verify security behavior across components, using a real database.
 | # | Vulnerability | Test Approach | Implementation Defense |
 |---|--------------|--------------|----------------------|
 | A01 | Broken Access Control | RBAC tests + campus isolation tests | Middleware-enforced RBAC; campus filter on all queries |
-| A02 | Cryptographic Failures | Token security tests; TLS verification | bcrypt passwords; JWT with HS256; TLS 1.3 |
+| A02 | Cryptographic Failures | Token security tests; TLS verification | Keycloak-managed credentials; RS256 token signatures; JWKS-based validation; TLS 1.3 |
 | A03 | Injection | Input validation tests; parameterized query verification | pgx parameterized queries; struct validation |
 | A04 | Insecure Design | Architecture review | Threat model (doc 18); defense-in-depth |
 | A05 | Security Misconfiguration | Infrastructure scan; header checks | CSP, HSTS, X-Frame-Options headers |
 | A06 | Vulnerable Components | Dependency scanning (Layer 3) | Automated scanning + policy |
-| A07 | Auth Failures | Authentication test suite | Lockout, token expiry, secure password storage |
+| A07 | Auth Failures | Authentication test suite | Keycloak brute-force detection; Keycloak-managed token lifecycle; no local credential storage |
 | A08 | Software/Data Integrity | Supply chain verification | Lock files; hash verification |
 | A09 | Logging Failures | Audit log tests | Comprehensive audit logging |
 | A10 | SSRF | API input validation | No user-controlled URLs in backend requests |
+
+### Keycloak-Specific Tests
+
+- Verify that the Keycloak admin console is not publicly accessible (restricted to internal network or VPN)
+- Verify that the OIDC discovery endpoint (`/.well-known/openid-configuration`) is properly configured and returns correct issuer, JWKS URI, and supported scopes
+- Verify that unused Keycloak flows (e.g., direct access grants in production clients) are disabled
 
 ### Manual Testing Scope
 
@@ -207,6 +230,78 @@ When resources allow, conduct manual testing focused on:
 4. Offline sync data manipulation (can a crafted sync payload inject data?)
 5. File upload abuse (oversized files, malicious content types)
 6. Rate limit bypass
+
+---
+
+## Security Headers Validation
+
+The CI pipeline validates that all HTTP responses from the API include the required security headers. This check runs on every PR and blocks merge on failure.
+
+### Required Headers
+
+| Header | Expected Value |
+|--------|---------------|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+
+### Sample Validation Script
+
+```bash
+#!/usr/bin/env bash
+# security-headers-check.sh — Run against a live or test server
+set -euo pipefail
+
+BASE_URL="${1:-http://localhost:8080}"
+ENDPOINT="${BASE_URL}/api/v1/health"
+FAILED=0
+
+check_header() {
+    local header_name="$1"
+    local expected="$2"
+    local actual
+    actual=$(curl -sI "$ENDPOINT" | grep -i "^${header_name}:" | sed "s/^${header_name}: //i" | tr -d '\r')
+
+    if [[ -z "$actual" ]]; then
+        echo "FAIL: Missing header '${header_name}'"
+        FAILED=1
+    elif [[ "$actual" != *"$expected"* ]]; then
+        echo "FAIL: Header '${header_name}' expected to contain '${expected}', got '${actual}'"
+        FAILED=1
+    else
+        echo "PASS: ${header_name}"
+    fi
+}
+
+check_header "Strict-Transport-Security" "max-age=31536000"
+check_header "Content-Security-Policy" "default-src 'self'"
+check_header "X-Content-Type-Options" "nosniff"
+check_header "X-Frame-Options" "DENY"
+check_header "Referrer-Policy" "strict-origin-when-cross-origin"
+check_header "Permissions-Policy" "camera=()"
+
+if [[ $FAILED -ne 0 ]]; then
+    echo "Security headers check FAILED"
+    exit 1
+fi
+
+echo "All security headers OK"
+```
+
+### CI Integration
+
+```yaml
+- name: Security headers check
+  run: |
+    # Start the API server in test mode
+    ./chesed-api &
+    sleep 2
+    bash scripts/security-headers-check.sh http://localhost:8080
+    kill %1
+```
 
 ---
 
@@ -224,6 +319,15 @@ var securityTestUsers = []TestUser{
     {Email: "other-campus@test.com", Profile: "COORDINATOR", CampusID: campusB},
 }
 ```
+
+### Test Authentication Setup
+
+Integration tests requiring authentication should use one of the following approaches:
+
+1. **Keycloak Admin API**: Create test users programmatically via the Keycloak Admin REST API before test execution, and clean them up afterward.
+2. **Pre-configured test realm**: Use a dedicated test realm with test fixtures exported as JSON (`keycloak/test-realm-export.json`), imported into a test Keycloak instance at CI startup.
+
+Both approaches ensure tests are self-contained and do not depend on manual Keycloak configuration.
 
 ### Test Isolation
 

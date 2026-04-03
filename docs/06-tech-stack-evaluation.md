@@ -41,7 +41,7 @@
 | **HTTP Router** | chi | Lightweight, stdlib-compatible, middleware-friendly |
 | **Database Driver** | pgx | High-performance native PostgreSQL driver for Go |
 | **Migrations** | golang-migrate | SQL-file-based migrations; no ORM magic |
-| **Auth** | golang-jwt | Standard JWT token handling |
+| **Auth** | Keycloak (OIDC) + coreos/go-oidc | External IAM with standard OIDC token validation |
 | **Frontend Framework** | React 18+ | Component model, massive ecosystem, excellent PWA support |
 | **Frontend Language** | TypeScript | Type safety, better IDE support, fewer runtime errors |
 | **Build Tool** | Vite | Fast development server, excellent PWA plugin |
@@ -115,6 +115,26 @@
 | AI code generation | Excellent | Good | Moderate | Good |
 
 **Decision: Tailwind CSS** — Smallest bundle, best mobile-first support, excellent AI code generation (utility classes are unambiguous).
+
+### Identity Provider
+
+| Criteria | Custom JWT | Keycloak | Auth0 | AWS Cognito |
+|----------|-----------|----------|-------|-------------|
+| Cost | Free (dev time risk) | Free (self-hosted) | Free tier limited (7k MAU) | Pay-per-MAU |
+| MFA support | Must build | Built-in (TOTP, WebAuthn) | Built-in | Built-in |
+| Password policy | Must build | Built-in (configurable) | Built-in | Built-in |
+| Account lockout | Must build | Built-in | Built-in | Built-in |
+| SSO readiness | None | Built-in (SAML, OIDC) | Built-in | Built-in |
+| OIDC/OAuth2 | Must build | Native | Native | Native |
+| Self-hosted | N/A | Yes | No | No |
+| Open source | N/A | Yes (Apache 2.0) | No | No |
+| RAM requirement | N/A | 512MB-1GB | N/A | N/A |
+| Vendor lock-in | None | Low (OIDC standard) | Medium | High (AWS) |
+| NGO budget fit | Risky (dev cost) | Yes | Risky (growth) | Risky (growth) |
+| Brute-force protection | Must build | Built-in | Built-in | Built-in |
+| User federation | Must build | Built-in (LDAP, social) | Built-in | Built-in |
+
+**Decision: Keycloak** — The only open-source, self-hosted option that is free at any scale. Fits the $5-50/month NGO budget. Standard OIDC protocol means the application is not locked to Keycloak and can migrate to any OIDC provider in the future.
 
 ---
 

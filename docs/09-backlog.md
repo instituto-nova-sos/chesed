@@ -28,7 +28,7 @@
 - Acceptance criteria:
   - `cmd/server/main.go` with HTTP server startup
   - `internal/` package structure (config, domain, handler, service, repository, middleware)
-  - `go.mod` with initial dependencies (chi, pgx, golang-jwt, golang-migrate)
+  - `go.mod` with initial dependencies (chi, pgx, coreos/go-oidc, golang-migrate)
   - Health check endpoint (`GET /api/v1/health`)
   - Structured logging with slog
   - Configuration loading from environment variables
@@ -84,40 +84,45 @@
 **S02.1 - User registration (admin-initiated)**
 - As an admin, I can create system users associated with registered persons so they can access the system.
 - Acceptance criteria:
-  - `POST /api/v1/users` creates a user linked to a person_id
+  - `POST /api/v1/users` creates a user in Keycloak via Admin API and a local `app_user` record
   - Requires admin role
-  - Sets access profile (admin, coordinator, professional, secretary, volunteer)
-  - Assigns campus
-  - Sends no email (MVP); credentials provided by admin
+  - Sets access profile as Keycloak realm role (admin, coordinator, professional, secretary, volunteer)
+  - Sets `campus_id` and `person_id` as Keycloak user attributes
+  - Sets required action: `UPDATE_PASSWORD` (user sets password on first login)
+  - Sends password setup email if SMTP is configured in Keycloak
 
-**S02.2 - Login with email and password**
-- As a user, I can log in with my email and password to access the system.
+**S02.2 - Keycloak OIDC integration**
+- As a user, I am redirected to the Keycloak login page to authenticate.
 - Acceptance criteria:
-  - `POST /api/v1/auth/login` accepts email + password
-  - Returns JWT access token (15min TTL) + refresh token (7 days)
-  - Invalid credentials return 401 with generic error
-  - Successful login creates audit log entry
-  - Failed login creates audit log entry
+  - React app uses `keycloak-js` adapter to redirect to Keycloak
+  - Authorization Code Flow with PKCE
+  - Keycloak handles credential validation, account lockout, and brute-force protection
+  - On successful auth, user is redirected back with OIDC tokens
+  - Successful login is logged by Keycloak event listener
+  - On first login, Go API auto-creates local `app_user` record from `sub` claim
 
-**S02.3 - Token refresh**
+**S02.3 - Token refresh (Keycloak-managed)**
 - As a user, my session stays active without re-entering credentials.
 - Acceptance criteria:
-  - `POST /api/v1/auth/refresh` accepts refresh token
-  - Returns new access token
-  - Expired refresh token returns 401
+  - `keycloak-js` adapter handles silent token refresh automatically
+  - No custom refresh endpoint in the Go API
+  - Expired refresh token redirects to Keycloak login page
+  - For field workers, `offline_access` scope provides 14-day offline tokens
 
-**S02.4 - Password recovery**
+**S02.4 - Password recovery (Keycloak-managed)**
 - As a user, I can reset my password if I forget it.
 - Acceptance criteria:
-  - `POST /api/v1/auth/forgot-password` accepts email
-  - Generates secure reset token (1 hour TTL)
-  - `POST /api/v1/auth/reset-password` accepts token + new password
-  - Always returns 200 (no email enumeration)
+  - Keycloak built-in "Forgot Password" flow handles password reset
+  - No custom password reset endpoints in the Go API
+  - Requires SMTP configuration in Keycloak
+  - Keycloak sends reset email with secure link
 
 **S02.5 - RBAC middleware**
 - As the system, I enforce role-based access on every request.
 - Acceptance criteria:
-  - Middleware extracts user, role, campus from JWT
+  - Go middleware validates Keycloak token via JWKS endpoint (`coreos/go-oidc`)
+  - Extracts `realm_access.roles` from Keycloak token claims
+  - Extracts `campus_id` from custom token claim
   - Each handler declares required role(s)
   - Unauthorized access returns 403
   - Unauthorized access creates audit log entry
@@ -125,26 +130,43 @@
 **S02.6 - Campus data isolation**
 - As the system, I ensure users only see data from their campus.
 - Acceptance criteria:
-  - All list/detail queries include `campus_id` filter from JWT
+  - All list/detail queries include `campus_id` filter from Keycloak token claims
   - Admins can optionally query across campuses
   - Cross-campus access attempts are logged
 
-**S02.7 - React login page**
-- As a user, I see a clean login form on my mobile phone.
+**S02.7 - React OIDC integration**
+- As a user, I am redirected to the Keycloak login page (themed with NGO branding).
 - Acceptance criteria:
-  - Email and password fields with validation
-  - Error message on failed login
-  - Redirect to dashboard on success
-  - Token stored securely (httpOnly cookie preferred, fallback to secure storage)
-  - "Forgot password" link
+  - `keycloak-js` adapter initialized on app startup
+  - Login redirects to Keycloak (no custom login form in React)
+  - OIDC callback route handles token receipt
+  - Logout calls Keycloak end-session endpoint
+  - Token stored and managed by `keycloak-js` adapter
 
 **S02.8 - React auth context**
 - As the frontend, I manage authentication state across the app.
 - Acceptance criteria:
-  - Auth context provides current user, role, campus
-  - Automatic token refresh before expiry
-  - Redirect to login on 401
+  - Auth context wraps `keycloak-js` adapter
+  - Provides current user (email, role, campus_id) from token claims
+  - Auto-attaches access token to API calls via interceptor
+  - Silent token refresh handled by `keycloak-js`
+  - Redirect to Keycloak login on 401
   - Protected route wrapper component
+
+**S02.9 - Keycloak realm configuration as code**
+- As the team, we have reproducible Keycloak configuration.
+- Acceptance criteria:
+  - Realm configuration exported to `keycloak/realm-export.json`
+  - Includes realm roles, client configs, protocol mappers, password policy, brute-force settings
+  - Import on Docker Compose startup via `--import-realm`
+  - Changes to realm config reviewed in pull requests
+
+**S02.10 - MFA for admin accounts**
+- As an admin, I am required to use TOTP two-factor authentication.
+- Acceptance criteria:
+  - Keycloak conditional authentication flow requires TOTP for ADMIN role
+  - Zero application code needed
+  - TOTP enrollment prompted on first admin login
 
 ---
 

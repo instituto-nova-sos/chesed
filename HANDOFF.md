@@ -100,6 +100,56 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 
 ---
 
+## Session 3: Security Architecture Review (2026-04-02)
+
+### What Was Done
+1. **Comprehensive security review** of all 19 documentation files from a cybersecurity-first perspective
+2. **Critical finding**: Custom JWT authentication identified as the highest-risk architectural decision
+3. **IAM decision**: Keycloak selected as external identity provider (OIDC)
+4. **14 documents updated** to replace custom auth with Keycloak and strengthen security controls
+5. **1 new document created**: `docs/20-keycloak-configuration.md`
+
+### Key Decision: Keycloak as IAM Provider
+- **Rationale**: Open-source (Apache 2.0), self-hosted ($5-7/month), zero licensing cost at any scale, standard OIDC (no vendor lock-in), provides MFA/SSO/password policies/brute-force protection out of the box
+- **Alternatives rejected**: Auth0/Okta (cost grows with users), AWS Cognito (vendor lock-in), custom JWT (highest security risk)
+- **Protocol**: OIDC Authorization Code Flow with PKCE
+- **Impact**: Removed 5 custom auth API endpoints, removed `refresh_token` table, removed `password_hash` from `app_user`, added `keycloak_subject_id`
+
+### Documents Updated
+| File | Change Type |
+|------|-------------|
+| `docs/16-iam-and-access-control.md` | Full rewrite — Keycloak OIDC architecture |
+| `docs/11-api-design.md` | Major — removed auth endpoints, added OIDC flow |
+| `docs/10-data-model.md` | Major — schema changes for Keycloak |
+| `docs/05-architecture-proposal.md` | Major — Keycloak in architecture diagram |
+| `docs/06-tech-stack-evaluation.md` | Moderate — IAM provider comparison table |
+| `docs/13-security-and-compliance.md` | Moderate — session management, WAF, logging, LGPD timeline |
+| `docs/18-threat-model.md` | Moderate — updated T1/T7, added T10-T12 |
+| `docs/17-security-test-strategy.md` | Moderate — OIDC validation tests |
+| `docs/19-secure-development-standard.md` | Moderate — prohibited custom auth, updated deps |
+| `docs/14-deployment-strategy.md` | Moderate — Keycloak container, costs, env vars |
+| `docs/12-offline-sync-strategy.md` | Moderate — offline tokens, mandatory encryption |
+| `docs/15-implementation-guidelines.md` | Minor — approved deps, middleware description |
+| `CLAUDE.md` | Minor — Keycloak guardrails |
+| `CODEX.md` | Minor — mirrored CLAUDE.md changes |
+
+### New Documents Created
+| File | Description |
+|------|-------------|
+| `docs/20-keycloak-configuration.md` | Realm setup, protocol mappers, MFA config, branding, troubleshooting |
+
+### Security Enhancements Beyond Keycloak
+- MFA moved from Phase 3 to Phase 1 (free with Keycloak)
+- Mandatory IndexedDB encryption (was optional)
+- LGPD breach notification timeline specified (2 business days to ANPD)
+- Three new threat scenarios: Keycloak compromise (T10), supply chain (T11), DDoS (T12)
+- WAF recommendation (Cloudflare free tier)
+- Centralized logging recommendation (Grafana Loki)
+- Security headers CI validation
+- Keycloak container image scanning in CI
+
+---
+
 ## Open Questions
 
 These need stakeholder input before implementation begins:
@@ -109,7 +159,7 @@ These need stakeholder input before implementation begins:
 3. **Consent form content**: Who designs consent form text? System-managed templates or uploaded PDFs?
 4. **Donation receipt format**: Legal requirements per country?
 5. **Data retention period**: How long to keep records?
-6. **Hosting budget**: Confirmed budget? (Estimates: $5-10/month MVP, $40-50/month production)
+6. **Hosting budget**: Confirmed budget? (Estimates: $10-17/month MVP with Keycloak, $55-70/month production)
 7. **Multi-region priority**: When is multi-region operation needed?
 8. **Volunteer testing**: Can real volunteers test the MVP during development?
 
@@ -124,33 +174,45 @@ These need stakeholder input before implementation begins:
    - `internal/` package structure (config, domain, handler, service, repository, middleware)
    - Health check endpoint (`GET /api/v1/health`)
    - Makefile with standard commands
-   - Docker Compose for Go + PostgreSQL
+   - Docker Compose for Go + PostgreSQL + Keycloak
 
-2. **Create the React project skeleton** (`frontend/`)
+2. **Set up Keycloak**
+   - Keycloak container in Docker Compose with `chesed` realm
+   - Configure OIDC client for React PWA (public client, PKCE)
+   - Configure OIDC client for Go API (confidential, for Admin API access)
+   - Add realm roles (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER)
+   - Add custom protocol mappers for `campus_id` and `person_id`
+   - Export realm configuration to `keycloak/realm-export.json`
+
+3. **Create the React project skeleton** (`frontend/`)
    - Vite + React + TypeScript
    - Tailwind CSS configured
    - PWA manifest and service worker shell
+   - keycloak-js adapter integration
    - Base layout component (responsive sidebar + header)
    - ESLint + Prettier configured
 
-3. **Write the first database migrations**
+4. **Write the first database migrations**
    - `campus` table
    - `person` and `address` tables
-   - `app_user` table
+   - `app_user` table (with `keycloak_subject_id`, no `password_hash`)
    - `audit_log` table
    - `service_type` table
 
-4. **Set up CI/CD**
+5. **Set up CI/CD**
    - GitHub Actions: Go test + lint, React build + lint
    - PostgreSQL service container for integration tests
+   - Trivy scanning for Keycloak container image
 
 ### Short-Term (Phase 1 Sprint 1)
 
-5. Implement JWT authentication (login, refresh, password recovery)
-6. Implement RBAC middleware
-7. Implement audit logging middleware
-8. Build React login page and auth context
-9. Build React layout shell
+6. Implement Go OIDC middleware using `coreos/go-oidc` (validate Keycloak tokens via JWKS)
+7. Implement local user auto-provisioning (first login creates `app_user` from Keycloak `sub` claim)
+8. Implement RBAC middleware (roles from Keycloak token claims)
+9. Implement audit logging middleware
+10. Build React OIDC integration (keycloak-js adapter, protected routes, auth context)
+11. Build React layout shell
+12. Configure MFA for ADMIN role in Keycloak
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 

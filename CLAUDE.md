@@ -11,6 +11,7 @@ This file defines permanent rules for Claude Code when working on this repositor
 - **Backend**: Go (Golang) with chi router, pgx, golang-migrate
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
 - **Database**: PostgreSQL 16
+- **IAM**: Keycloak (OIDC) — external identity provider
 - **Architecture**: API-first, offline-first PWA, mobile-first design
 
 ---
@@ -21,11 +22,14 @@ This file defines permanent rules for Claude Code when working on this repositor
 1. Backend code goes in `backend/`. Frontend code goes in `frontend/`. Never mix.
 2. All API endpoints are versioned under `/api/v1/`.
 3. All database access goes through repository interfaces. Services never import database drivers directly.
-4. All data queries MUST include `campus_id` filter from the authenticated user's JWT claims.
+4. All data queries MUST include `campus_id` filter from the authenticated user's Keycloak token claims.
 5. All data mutations MUST create an audit log entry.
 6. All records use UUID primary keys (for offline-safe creation).
 7. All timestamps use `timestamptz` in PostgreSQL and `time.Time` in Go.
 8. Every SQL migration has both `.up.sql` and `.down.sql` files.
+9. All authentication is delegated to Keycloak. The Go API validates Keycloak-issued OIDC tokens via JWKS. No custom login/registration endpoints.
+10. User provisioning goes through Keycloak Admin API. The `app_user` table is a local projection, not the source of truth for identity.
+11. Keycloak realm configuration changes must be exported to `keycloak/realm-export.json` and committed.
 
 ### MUST NOT do:
 1. Never use global mutable state or singletons.
@@ -35,6 +39,9 @@ This file defines permanent rules for Claude Code when working on this repositor
 5. Never create API endpoints without RBAC middleware.
 6. Never modify the audit_log table schema to allow updates or deletes.
 7. Never store PII in logs, error messages, or client-visible error responses.
+8. Never implement custom login forms, password hashing, or token issuance. All credential handling is Keycloak's responsibility.
+9. Never store Keycloak client secrets or admin passwords in source code or Docker images.
+10. Never bypass Keycloak for authentication (e.g., creating backdoor endpoints that accept raw credentials).
 
 ---
 
@@ -85,7 +92,7 @@ types: Shared TypeScript interfaces
 - Use `chi` for HTTP routing
 - Use `pgx` for PostgreSQL (not `database/sql` with driver)
 - Use `golang-migrate` for migrations (SQL files, not Go code)
-- Use `golang-jwt` for JWT handling
+- Use `coreos/go-oidc` for Keycloak OIDC token validation (not `golang-jwt` directly for token issuance)
 - Use `go-playground/validator` for struct validation
 - Test with `testing` + `testify` (table-driven tests)
 - Format with `gofmt`; lint with `golangci-lint`
@@ -99,6 +106,7 @@ types: Shared TypeScript interfaces
 - Use React Router for routing
 - Use Zustand or Context API for global state (no Redux)
 - Use Vitest for testing
+- Use `keycloak-js` for OIDC authentication flow (no custom login forms)
 
 ### Database
 - PostgreSQL 16
@@ -150,6 +158,9 @@ Types: feat, fix, refactor, test, docs, chore, ci
 - IAM: `docs/16-iam-and-access-control.md`
 - Threat model: `docs/18-threat-model.md`
 - Implementation: `docs/15-implementation-guidelines.md`
+- Keycloak config: `docs/20-keycloak-configuration.md`
+- Security tests: `docs/17-security-test-strategy.md`
+- Secure dev: `docs/19-secure-development-standard.md`
 
 ---
 

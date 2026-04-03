@@ -35,16 +35,18 @@ rows, err := db.Query(ctx, query, name)
 
 ### 2. Authentication Security
 
-**Rule**: Authentication logic must be centralized in middleware, never duplicated in handlers.
+**Rule**: The application NEVER handles credentials directly. All authentication is delegated to Keycloak via OIDC.
 
-- All passwords hashed with bcrypt (minimum cost 12)
-- JWT signed with HS256 using a secret from environment variables
-- No sensitive data in JWT payload (no passwords, no PII beyond what's needed for auth)
-- Refresh tokens stored hashed in the database (not in plaintext)
-- Generic error messages for auth failures (no user enumeration)
+- Never implement custom login forms. All login flows redirect to Keycloak.
+- Never store or process user passwords in the application.
+- Never issue or sign JWT tokens from the application. Keycloak is the sole token issuer.
+- Never store Keycloak tokens server-side. They are validated statelessly.
+- The Go API validates Keycloak-issued tokens by verifying the RS256 signature against the JWKS endpoint. Token issuer (`iss`) and audience (`aud`) claims MUST be validated.
+- Custom claims (`campus_id`, realm roles) are extracted from the validated token and used for authorization decisions.
+- Generic error messages for auth failures (no user enumeration).
 
 ```go
-// NEVER: Different error messages for "user not found" vs "wrong password"
+// NEVER: Different error messages that reveal user existence
 if user == nil {
     return errors.New("user not found")  // WRONG: reveals existence
 }
@@ -63,7 +65,7 @@ r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
     Get("/reports/attendances", handler.GetAttendanceReport)
 ```
 
-- Role is extracted from JWT claims, never from request body or query params
+- Role is extracted from Keycloak JWT realm roles, never from request body or query params
 - Campus scoping is applied automatically by middleware
 - No "admin backdoors" or hidden endpoints
 
@@ -161,8 +163,9 @@ Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 | Secret | Source | Rotation |
 |--------|--------|----------|
-| `JWT_SECRET` | Random 64+ characters | Every 6 months |
 | `DB_PASSWORD` | Strong random password | Every 6 months |
+| `KEYCLOAK_CLIENT_SECRET` | Keycloak client credentials (for Admin API access) | Every 6 months |
+| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin account password | Every 6 months |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | Cloud provider IAM | Every 12 months |
 | `ENCRYPTION_KEY` (Phase 2) | Random 32 bytes | Every 12 months |
 
@@ -182,8 +185,13 @@ DB_USER=chesed_user
 DB_PASSWORD=CHANGE_ME
 DB_SSL_MODE=disable
 
-# JWT
-JWT_SECRET=CHANGE_ME_TO_RANDOM_64_CHARS
+# Keycloak (OIDC)
+KEYCLOAK_URL=http://localhost:8180
+KEYCLOAK_REALM=chesed
+KEYCLOAK_CLIENT_ID=chesed-api
+KEYCLOAK_CLIENT_SECRET=CHANGE_ME
+KEYCLOAK_ADMIN_USER=admin
+KEYCLOAK_ADMIN_PASSWORD=CHANGE_ME
 
 # Storage
 STORAGE_TYPE=local
@@ -214,7 +222,7 @@ Only the following third-party dependencies are pre-approved. Adding new ones re
 - `go-chi/chi` — HTTP router
 - `jackc/pgx` — PostgreSQL driver
 - `golang-migrate/migrate` — Migrations
-- `golang-jwt/jwt` — JWT
+- `coreos/go-oidc` — OIDC token validation (Keycloak)
 - `go-playground/validator` — Validation
 - `google/uuid` — UUID
 - `stretchr/testify` — Test assertions
@@ -222,6 +230,7 @@ Only the following third-party dependencies are pre-approved. Adding new ones re
 **React:**
 - `react`, `react-dom`, `react-router-dom`
 - `react-hook-form`, `zod`
+- `keycloak-js` — Official Keycloak JavaScript adapter
 - `dexie` — IndexedDB
 - `tailwindcss`
 - `vite`, `vite-plugin-pwa`
@@ -245,6 +254,8 @@ The CI pipeline must enforce these gates before allowing merge:
 | TypeScript tests | `vitest` | Yes |
 | npm audit | `npm audit --audit-level=high` | Yes (high/critical) |
 | Docker image scan | `trivy` | Yes (critical) |
+| Keycloak image scan | `trivy` | Yes (critical) |
+| Security headers check | Custom script | Yes |
 | Secret detection | `trufflehog` or `gitleaks` | Yes |
 
 ---
@@ -263,6 +274,9 @@ For every PR that touches security-sensitive code (auth, RBAC, data access, sync
 - [ ] New dependencies justified and scanned
 - [ ] Error responses are generic (no internal details exposed)
 - [ ] Tests cover both authorized and unauthorized access attempts
+- [ ] No custom authentication or credential handling code
+- [ ] Keycloak realm configuration changes are reviewed and exported to version control (`keycloak/realm-export.json`)
+- [ ] No sensitive data in Keycloak custom user attributes beyond `campus_id` and `person_id`
 
 ---
 

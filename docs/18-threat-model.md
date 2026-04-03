@@ -18,6 +18,8 @@ Chesed is a web application handling sensitive personal data (health records, id
 | Attendance records | Medium | Service history tampering; privacy violation |
 | Donation records | Medium | Financial fraud; trust erosion |
 | Offline device data | High | Unencrypted PII on lost/stolen devices |
+| Keycloak realm configuration | High | Identity infrastructure compromise; authentication bypass |
+| Keycloak admin credentials | Critical | Complete identity takeover; impersonation of any user |
 
 ---
 
@@ -48,6 +50,8 @@ Internet
   │   ├── Report/export endpoints
   │   └── File upload/download endpoints
   │
+  ├── Keycloak login page (OIDC endpoints)
+  │
   ├── PWA static assets (CDN)
   │   └── Service Worker + cached app shell
   │
@@ -63,6 +67,14 @@ Authenticated user
   ├── Data exfiltration via export/reports
   └── Sync endpoint abuse (inject/modify offline data)
 
+Keycloak Admin Console
+  ├── Realm and client configuration changes
+  └── User and role management
+
+Keycloak Admin API
+  ├── Programmatic access to identity management
+  └── Token introspection and revocation
+
 Mobile device
   ├── IndexedDB with PII (unencrypted by default)
   ├── Cached API responses
@@ -75,20 +87,22 @@ Mobile device
 
 ### T1: Credential Stuffing / Brute Force Login
 
-**Scenario**: Attacker uses stolen credential lists or brute-force against the login endpoint.
+**Scenario**: Attacker uses stolen credential lists or brute-force against the Keycloak login page.
 
 | Aspect | Detail |
 |--------|--------|
-| Target | `POST /api/v1/auth/login` |
+| Target | Keycloak login page (OIDC authorization endpoint) |
 | Impact | Unauthorized access to user accounts |
 | Likelihood | Medium |
+| Risk | **Medium** (Keycloak built-in protections significantly reduce risk) |
 
 **Mitigations**:
-- Account lockout after 10 failed attempts (15-minute cooldown)
-- Rate limiting: 20 login attempts per IP per hour
-- bcrypt with cost factor 12 (slow hash)
+- Keycloak brute-force detection (built-in, configurable: 10 failures, 15-minute lockout)
+- MFA for admin accounts (blocks credential stuffing even with correct password)
+- Cloudflare WAF rate limiting on Keycloak login URL
+- Keycloak account lockout is automatic, no custom code required
 - Generic error messages (no user enumeration)
-- Audit logging of all login attempts (IP, user agent)
+- Audit logging of all login attempts (Keycloak event logging: IP, user agent)
 
 ---
 
@@ -198,11 +212,13 @@ Mobile device
 | Likelihood | Low (React auto-escapes; CSP headers) |
 
 **Mitigations**:
+- Keycloak access tokens are short-lived (15 minutes)
+- keycloak-js adapter can use `response_mode=fragment` to avoid tokens in URL
 - Store tokens in httpOnly cookies (inaccessible to JavaScript)
 - Content Security Policy (CSP) headers to prevent inline scripts
 - React auto-escapes all rendered content
-- Short access token TTL (15 minutes limits exposure window)
-- Token binding to IP/user-agent (optional, Phase 2)
+- Token binding: Keycloak supports DPoP (Demonstrating Proof of Possession) for token binding (Phase 3)
+- Keycloak supports token revocation via Admin API for compromised tokens
 
 ---
 
@@ -246,11 +262,77 @@ Mobile device
 
 ---
 
+### T10: Keycloak Server Compromise
+
+**Scenario**: Attacker gains access to Keycloak admin console or Keycloak database.
+
+| Aspect | Detail |
+|--------|--------|
+| Target | Keycloak admin console / Keycloak database |
+| Impact | Critical — complete identity compromise; ability to impersonate any user, create admin accounts, access all data |
+| Likelihood | Low |
+| Risk | **Medium** |
+
+**Mitigations**:
+- Keycloak admin credentials stored in secrets manager, rotated every 6 months
+- Keycloak admin console restricted to internal network (not exposed to public internet)
+- Keycloak deployed on private network, accessible only via reverse proxy for user-facing flows
+- Keycloak database credentials separate from application database credentials
+- Keycloak admin audit events monitored and alerted
+- Regular Keycloak version updates (security patches within 7 days of release)
+- Principle of least privilege for Keycloak service accounts
+
+---
+
+### T11: Supply Chain Attack
+
+**Scenario**: Compromised dependency in Go modules, npm packages, Docker base images, or Keycloak extensions.
+
+| Aspect | Detail |
+|--------|--------|
+| Target | Application dependencies and container images |
+| Impact | High — code execution, data exfiltration, backdoor installation |
+| Likelihood | Low |
+| Risk | **Medium** |
+
+**Mitigations**:
+- Lock file verification (`go.sum`, `package-lock.json`) enforced in CI
+- Docker image pinning by digest (not just tag)
+- Trivy scanning on all container images (including Keycloak)
+- Dependabot/Renovate for automated dependency update PRs
+- Minimal dependency footprint (Go stdlib-first philosophy)
+- SBOM (Software Bill of Materials) generation for Docker images (Phase 2)
+- No custom Keycloak SPIs or extensions unless security-reviewed
+- Approved dependency list maintained in docs/19-secure-development-standard.md
+
+---
+
+### T12: DDoS / Service Availability Attack
+
+**Scenario**: Volumetric or application-layer attack overwhelms the Chesed application or Keycloak during a social action event.
+
+| Aspect | Detail |
+|--------|--------|
+| Target | Chesed API / Keycloak OIDC endpoints |
+| Impact | High — service unavailable during critical field operations |
+| Likelihood | Low (NGO is not a typical high-value DDoS target) |
+| Risk | **Low-Medium** |
+
+**Mitigations**:
+- Cloudflare free tier provides basic DDoS protection and CDN
+- Keycloak and Go API behind Cloudflare proxy
+- Rate limiting at reverse proxy level (100 req/min per IP)
+- Offline-first PWA continues to function during outage (key mitigation)
+- Keycloak offline tokens (14-day TTL) allow continued authenticated offline work
+- Application designed to degrade gracefully (offline mode is a first-class feature)
+
+---
+
 ## Risk Summary Matrix
 
 | Threat | Likelihood | Impact | Risk | Primary Mitigation |
 |--------|-----------|--------|------|-------------------|
-| T1: Brute force login | Medium | High | **High** | Lockout + rate limiting |
+| T1: Brute force login | Medium | High | **Medium** | Keycloak brute-force detection + MFA |
 | T2: RBAC escalation | Low-Medium | High | **Medium** | Middleware enforcement |
 | T3: Campus isolation breach | Low | High | **Medium** | JWT-based campus filter |
 | T4: Device theft | Medium | High | **High** | IndexedDB encryption + session timeout |
@@ -259,6 +341,9 @@ Mobile device
 | T7: XSS token theft | Low | High | **Medium** | httpOnly cookies + CSP |
 | T8: Social engineering | Medium | Medium | **Medium** | Role-based data minimization |
 | T9: Database compromise | Low | Critical | **Medium** | Network isolation + encryption |
+| T10: Keycloak compromise | Low | Critical | **Medium** | Network isolation + secrets management |
+| T11: Supply chain attack | Low | High | **Medium** | Lock files + image scanning + minimal deps |
+| T12: DDoS / availability | Low | High | **Low-Medium** | Cloudflare + offline-first PWA |
 
 ---
 
@@ -267,3 +352,4 @@ Mobile device
 - **Quarterly**: Review threat model for new threats based on system changes
 - **Per phase**: Update when new features (donations, file upload, multi-region) change the attack surface
 - **After incidents**: Immediate review and update after any security event
+- **After Keycloak version upgrades**: Review for new attack vectors or deprecated security features

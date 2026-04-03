@@ -100,14 +100,17 @@ System access account linked to a Person. Not all persons have user accounts.
 User
 ├── id (UUID)
 ├── person_id (FK → Person, unique)
+├── keycloak_subject_id (unique, links to Keycloak identity)
 ├── email (unique, used for login)
-├── password_hash
 ├── access_profile (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER)
+├── campus_id (FK → Campus)
 ├── is_active
 ├── last_login
 ├── created_at
 └── updated_at
 ```
+
+> **Note**: Credentials (passwords, MFA tokens) are managed by Keycloak, not stored locally. The `keycloak_subject_id` is the foreign key into the external identity provider. The `app_user` table is a local projection of Keycloak identity.
 
 ### 5. Campus
 

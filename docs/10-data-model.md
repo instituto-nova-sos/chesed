@@ -133,25 +133,26 @@ CREATE TABLE assisted_profile (
 
 ### app_user
 
-System user account linked to a person.
+Local projection of a Keycloak identity. Credentials are NOT stored locally. The `keycloak_subject_id` links to the external identity provider (Keycloak `sub` claim).
 
 ```sql
 CREATE TABLE app_user (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    person_id       UUID NOT NULL UNIQUE REFERENCES person(id),
-    email           VARCHAR(255) NOT NULL UNIQUE,
-    password_hash   VARCHAR(255) NOT NULL,
-    access_profile  VARCHAR(30) NOT NULL
-                    CHECK (access_profile IN ('ADMIN', 'COORDINATOR', 'PROFESSIONAL', 'SECRETARY', 'VOLUNTEER')),
-    campus_id       UUID NOT NULL REFERENCES campus(id),
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    last_login      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    person_id             UUID NOT NULL UNIQUE REFERENCES person(id),
+    email                 VARCHAR(255) NOT NULL UNIQUE,
+    keycloak_subject_id   VARCHAR(255) NOT NULL UNIQUE,
+    access_profile        VARCHAR(30) NOT NULL
+                          CHECK (access_profile IN ('ADMIN', 'COORDINATOR', 'PROFESSIONAL', 'SECRETARY', 'VOLUNTEER')),
+    campus_id             UUID NOT NULL REFERENCES campus(id),
+    is_active             BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login            TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_user_email ON app_user(email);
 CREATE INDEX idx_user_campus ON app_user(campus_id);
+CREATE UNIQUE INDEX idx_user_keycloak_sub ON app_user(keycloak_subject_id);
 ```
 
 ### service_type
@@ -426,23 +427,9 @@ CREATE INDEX idx_audit_campus ON audit_log(campus_id);
 
 **Note**: This table is append-only. No UPDATE or DELETE operations. Consider partitioning by month for large volumes.
 
-### refresh_token
+### ~~refresh_token~~ (Removed)
 
-JWT refresh token storage.
-
-```sql
-CREATE TABLE refresh_token (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-    token_hash  VARCHAR(255) NOT NULL UNIQUE,
-    expires_at  TIMESTAMPTZ NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    revoked_at  TIMESTAMPTZ
-);
-
-CREATE INDEX idx_refresh_token_user ON refresh_token(user_id);
-CREATE INDEX idx_refresh_token_hash ON refresh_token(token_hash);
-```
+Refresh tokens are managed by Keycloak. No application-level token storage is needed.
 
 ---
 
@@ -453,6 +440,7 @@ CREATE INDEX idx_refresh_token_hash ON refresh_token(token_hash);
 3. **Immutable audit table**: No updates or deletes allowed (enforced by application layer and optionally by DB trigger)
 4. **Retention**: Audit logs retained indefinitely for compliance; partitioned by month for performance
 5. **Query patterns**: Filter by user, entity, timestamp, module, campus
+6. **Keycloak event integration**: Login/logout events are captured by Keycloak's event listener. Events can be forwarded to the application's audit_log table via Keycloak SPI event listener or Admin Events API polling for a unified audit trail.
 
 ---
 

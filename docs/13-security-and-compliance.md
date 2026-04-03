@@ -61,6 +61,10 @@ Consent Lifecycle:
 | **Medium** | Operational data | Attendance records, triage notes | Access controlled by RBAC; audit logged |
 | **Low** | Reference data | Service types, campaigns, campus info | Standard access control |
 
+Data classification must be enforced programmatically. Sensitive fields (CPF, health data, income) must have access restricted by role in the service layer, not just the UI.
+
+Consent signatures and health data are classified as CRITICAL and must be encrypted at rest in both server storage and local IndexedDB.
+
 ### Data Handling Rules
 
 1. **Critical and High tier data** must be:
@@ -130,7 +134,7 @@ See `10-data-model.md` for the `audit_log` table. Key fields:
 
 ### Key Management
 - Database encryption keys managed by cloud provider KMS
-- JWT signing key: Environment variable, rotated periodically
+- Keycloak realm keys: RS256 signing keys managed by Keycloak with automatic key rotation support. Go API fetches public keys from JWKS endpoint and caches them with TTL.
 - Application secrets: Environment variables, never in code
 
 ---
@@ -144,9 +148,13 @@ See `10-data-model.md` for the `audit_log` table. Key fields:
 | Audit logs | 5 years minimum | No deletion; archive to cold storage after 2 years |
 | Consent records | Indefinite | Never deleted (legal proof) |
 | Donation records | 10 years (fiscal) | Anonymize donor PII after retention |
-| Login sessions | 90 days | Auto-purge expired tokens |
+| Login sessions | 90 days | Auto-purge expired sessions |
 | File attachments | Until consent revocation + 30 days | Physical deletion from object storage |
 | Local device data | Until logout or manual clear | Full wipe on logout |
+
+**Audit logs**: Minimum 5-year retention. Audit log records must be tamper-resistant (append-only enforcement at database level via triggers or application-level controls).
+
+**LGPD breach notification**: 2 business days to ANPD for incidents involving personal data that may cause significant risk or damage to data subjects (Lei 13.709/2018, Art. 48).
 
 ### Data Anonymization Process
 
@@ -189,12 +197,15 @@ When a person exercises their right to deletion:
 
 ### Session Security
 
-- Access token TTL: 15 minutes
-- Refresh token TTL: 7 days
-- Concurrent sessions: Allowed (multi-device support)
-- Token revocation: Refresh tokens can be revoked per-user or per-session
-- Password policy: Minimum 8 characters, at least 1 number, 1 letter
-- Account lockout: After 10 failed attempts, lock for 15 minutes
+- Access token TTL: 15 minutes (Keycloak realm setting)
+- Refresh token TTL: 7 days (Keycloak realm setting)
+- Offline token TTL: 14 days (for field workers with `offline_access` scope)
+- SSO Session idle timeout: 30 minutes (Keycloak realm setting)
+- MFA: TOTP-based 2FA enforced for ADMIN role via Keycloak conditional authentication flow
+- Password policy: Minimum 8 characters, 1 letter, 1 number, password history (3), enforced by Keycloak
+- Account lockout: Keycloak brute-force detection — 10 failures, 15-minute lockout (realm setting)
+- Concurrent sessions: Allowed, configurable per-client in Keycloak
+- Session revocation: Admin can terminate user sessions via Keycloak Admin Console or Admin API
 
 ---
 
@@ -211,13 +222,23 @@ When a person exercises their right to deletion:
 - SQL injection prevention: Parameterized queries (pgx)
 - XSS prevention: React auto-escapes output; CSP headers
 - CSRF: Not applicable (JWT-based API; no cookies for auth in API)
-- Rate limiting: 100 requests/minute per user; 20 login attempts/hour per IP
+- Rate limiting: 100 requests/minute per user enforced at reverse proxy level; Keycloak has built-in brute-force protection for login
 - File upload validation: Type checking, size limits (10MB), virus scanning (future)
+- WAF: Cloudflare (free tier) in front of reverse proxy for DDoS protection and bot mitigation
+- Security headers validation: CI pipeline verifies presence of HSTS, CSP, X-Content-Type-Options, X-Frame-Options headers
 
 ### Dependencies
 - Minimal dependency footprint (Go stdlib-first approach)
 - Dependabot or Renovate for automated vulnerability alerts
 - No `npm audit` high/critical vulnerabilities in production builds
+
+---
+
+## Centralized Logging
+
+- **Keycloak event logging**: All login/logout/token events logged by Keycloak. Configure Keycloak event listeners to forward events to the application's audit_log or to a centralized log aggregation service.
+- **Application logging**: slog structured JSON logs. For production, ship logs to Grafana Loki (free tier) or similar for centralized log aggregation, search, and alerting.
+- **Monitoring**: Grafana dashboards for application metrics, Keycloak metrics (login success/failure rates, token issuance), and infrastructure health.
 
 ---
 
@@ -237,7 +258,7 @@ When a person exercises their right to deletion:
 
 1. **Detection**: Audit log monitoring for anomalous access patterns
 2. **Assessment**: Determine scope (what data, how many people affected)
-3. **Containment**: Revoke affected tokens; disable compromised accounts
-4. **Notification**: LGPD requires notification to ANPD and affected persons within "reasonable time" for high-risk breaches
+3. **Containment**: Disable compromised accounts in Keycloak; terminate all active sessions via Keycloak Admin Console; the Go API immediately rejects tokens for disabled users on next JWKS cache refresh
+4. **Notification**: LGPD requires notification to ANPD (Autoridade Nacional de Protecao de Dados) within 2 business days for incidents involving personal data that may cause significant risk or damage to data subjects (Lei 13.709/2018, Art. 48). Affected persons must also be notified.
 5. **Remediation**: Fix vulnerability; rotate credentials; update security controls
 6. **Post-mortem**: Document incident; update security policies; audit log review

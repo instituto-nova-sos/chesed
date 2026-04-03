@@ -45,7 +45,9 @@ These rules MUST be followed. Violating them will break the system or create sec
 - Never hardcode secrets in source code
 - Never log PII (names, CPF, phone numbers)
 - Never return stack traces in API error responses
-- Never create endpoints without authentication (except `/auth/login`, `/auth/forgot-password`, `/health`)
+- Never create endpoints without authentication (except `/health`). Authentication is handled by Keycloak (OIDC).
+- Never write custom login, registration, or password reset endpoints. Keycloak handles all identity flows.
+- Never implement custom password hashing or token issuance. The Go API only validates Keycloak-issued tokens.
 
 ### Architecture
 - Backend handlers call services, services call repositories. Never skip layers.
@@ -62,7 +64,7 @@ These rules MUST be followed. Violating them will break the system or create sec
 | `go-chi/chi` | HTTP router |
 | `jackc/pgx` | PostgreSQL driver |
 | `golang-migrate/migrate` | Database migrations |
-| `golang-jwt/jwt` | JWT authentication |
+| `coreos/go-oidc` | OIDC token validation (Keycloak) |
 | `go-playground/validator` | Input validation |
 | `google/uuid` | UUID generation |
 | `log/slog` (stdlib) | Structured logging |
@@ -77,6 +79,7 @@ These rules MUST be followed. Violating them will break the system or create sec
 | `tailwindcss` | Utility-first CSS |
 | `vite-plugin-pwa` | PWA + Service Worker |
 | `recharts` | Charts (Phase 2) |
+| `keycloak-js` | OIDC authentication (Keycloak adapter) |
 | `react-signature-canvas` | Consent signature capture (Phase 2) |
 
 ---
@@ -121,7 +124,7 @@ frontend/
 4. Add the service method in `internal/service/`
 5. Add the handler in `internal/handler/`
 6. Register the route in `cmd/server/main.go`
-7. Add RBAC role requirement to the route
+7. Add RBAC role requirement to the route (roles are extracted from Keycloak token claims)
 8. Update `docs/11-api-design.md`
 9. Write tests for service and handler
 
