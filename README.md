@@ -94,7 +94,7 @@ This repository is designed for AI-assisted development. See:
 
 ## Origin
 
-This project is a rebuild of the [SOS-Gestao-Final](https://github.com/Amadeus-22/SOS-Gestao-Final) Django prototype. The legacy assessment and migration rationale are documented in [`docs/00-current-system-assessment.md`](docs/00-current-system-assessment.md).
+This project is a rebuild of the [SOS-Gestao-Final](https://github.com/Amadeus-22/SOS-Gestao-Final) Django prototype. The migration rationale is documented in the Session 1 notes in [`HANDOFF.md`](HANDOFF.md).
 
 ## License
 

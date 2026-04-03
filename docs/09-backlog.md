@@ -21,6 +21,8 @@
 
 ## E01: Project Setup and Infrastructure
 
+**Target**: Phase 0 / Sprint 0
+
 ### Stories
 
 **S01.1 - Go project skeleton**
@@ -75,9 +77,18 @@
 - `.env.example` with all required variables documented
 - `internal/config` package loads from env with validation
 
+**S01.6 - Service type seed data**
+- As a developer, I need predefined service types loaded into the database.
+- Acceptance criteria:
+  - Migration seeds: LEGAL, MEDICAL, NUTRITIONAL, PHYSIOTHERAPY, SOCIAL, EDUCATIONAL, PSYCHOLOGICAL, OTHER
+  - `GET /api/v1/service-types` returns the list (available to all authenticated users)
+  - Service types are read-only in Phase 1
+
 ---
 
 ## E02: Authentication and Authorization
+
+**Target**: Sprint 1
 
 ### Stories
 
@@ -172,6 +183,8 @@
 
 ## E03: Person Management
 
+**Target**: Sprint 2
+
 ### Stories
 
 **S03.1 - Create person**
@@ -245,6 +258,8 @@
 
 ## E04: Triage and Attendance
 
+**Target**: Sprint 2-3
+
 ### Stories
 
 **S04.1 - Create triage**
@@ -307,6 +322,8 @@
 
 ## E05: Offline Sync
 
+**Target**: Sprint 3-4
+
 ### Stories
 
 **S05.1 - IndexedDB schema and stores**
@@ -344,6 +361,8 @@
 
 ## E06: Basic Reports
 
+**Target**: Sprint 4
+
 ### Stories
 
 **S06.1 - Attendance count by period**
@@ -369,6 +388,8 @@
 
 ## E07: Campaign and Event Management (Phase 2)
 
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+
 **S07.1** - Create/edit/list campaigns
 **S07.2** - Assign team members to campaigns
 **S07.3** - Link triage/attendance to campaigns
@@ -378,6 +399,8 @@
 ---
 
 ## E08: Document and Consent Management (Phase 2)
+
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
 
 **S08.1** - Object storage integration (S3/MinIO)
 **S08.2** - Upload documents to person or attendance
@@ -390,6 +413,8 @@
 
 ## E09: Donation Tracking (Phase 2)
 
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+
 **S09.1** - Create/edit/list donations
 **S09.2** - Link donations to campaigns
 **S09.3** - React donation form and list
@@ -397,6 +422,8 @@
 ---
 
 ## E10: Advanced Reports and Dashboards (Phase 2)
+
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
 
 **S10.1** - Reports by service type, team, campaign
 **S10.2** - Statistical charts (Recharts)
@@ -407,6 +434,8 @@
 
 ## E11: Multi-Region and Compliance (Phase 3)
 
+**Phase**: 3 | **Priority**: P2 | **Prerequisite**: Phase 2 complete
+
 **S11.1** - Multi-campus data isolation with PostgreSQL RLS
 **S11.2** - International document type support
 **S11.3** - Consent revocation with data anonymization
@@ -416,6 +445,8 @@
 ---
 
 ## E12: External Integrations (Phase 3)
+
+**Phase**: 3 | **Priority**: P2 | **Prerequisite**: Phase 2 complete
 
 **S12.1** - WordPress public API (campaign listings, volunteer signup)
 **S12.2** - Advanced sync conflict resolution UI

@@ -139,40 +139,39 @@ See `10-data-model.md` for the `audit_log` table. Key fields:
 
 ---
 
-## Retention and Deletion Policies
+## Data Retention Policy
 
-| Data Type | Retention Period | Deletion Method |
-|-----------|-----------------|-----------------|
-| Person records | Until consent revocation + 30 days | Anonymize PII; retain aggregate data |
-| Attendance records | 10 years (regulatory) | Anonymize person references after retention |
-| Audit logs | 5 years minimum | No deletion; archive to cold storage after 2 years |
-| Consent records | Indefinite | Never deleted (legal proof) |
-| Donation records | 10 years (fiscal) | Anonymize donor PII after retention |
-| Login sessions | 90 days | Auto-purge expired sessions |
-| File attachments | Until consent revocation + 30 days | Physical deletion from object storage |
-| Local device data | Until logout or manual clear | Full wipe on logout |
+| Data Category | Retention Period | After Expiry | Legal Basis |
+|---------------|-----------------|--------------|-------------|
+| Person records | 5 years after last activity | Anonymize (keep aggregate stats) | LGPD Art. 15-16 |
+| Attendance records | 10 years | Archive (read-only) | Operational + compliance |
+| Triage records | 10 years | Archive (read-only) | Linked to attendance |
+| Assisted profile (sensitive) | 5 years after last activity | Anonymize | LGPD Art. 18 |
+| Consent records | Indefinite | Never deleted | Legal proof of consent |
+| Audit logs | 10 years minimum | Archive (read-only) | Compliance requirement |
+| Donation records | 10 years | Archive (read-only) | Tax/accounting requirements |
+| Campaign records | 5 years after completion | Archive | Operational |
+| Login sessions | 90 days | Auto-purge expired sessions | Operational |
+| File attachments | Until consent revocation + 30 days | Physical deletion from object storage | LGPD Art. 15-16 |
+| Local device data | Until logout or manual clear | Full wipe on logout | Operational |
 
-**Audit logs**: Minimum 5-year retention. Audit log records must be tamper-resistant (append-only enforcement at database level via triggers or application-level controls).
+**Audit logs**: Audit log records must be tamper-resistant (append-only enforcement at database level via triggers or application-level controls).
 
 **LGPD breach notification**: 2 business days to ANPD for incidents involving personal data that may cause significant risk or damage to data subjects (Lei 13.709/2018, Art. 48).
 
-### Data Anonymization Process
+### Anonymization Rules for LGPD Erasure
 
-When a person exercises their right to deletion:
+When a data subject exercises their right to erasure (LGPD Art. 18, V):
 
-1. Verify identity and consent revocation request
-2. Replace PII in `person` table:
-   - `full_name` → `"ANONYMIZED-{hash}"`
-   - `document_number` → `NULL`
-   - `email` → `NULL`
-   - `phone` → `NULL`
-   - `photo_url` → Delete file, set `NULL`
-3. Delete related `address` records
-4. Delete related `document` files from object storage
-5. Anonymize references in `audit_log` (`old_values`, `new_values` with PII → redacted)
-6. Retain `attendance` and `triage` records with anonymized person reference (for aggregate statistics)
-7. Log the anonymization action in `audit_log`
-8. Confirm deletion to the data subject
+1. Anonymize the `person` record: replace `full_name` with 'ANONYMIZED', clear `document_number`, `email`, `phone`, `photo_url`
+2. Anonymize the `address` record: clear all fields except `campus_id` (for aggregate stats)
+3. Anonymize the `assisted_profile`: clear all sensitive fields (family_composition, income_range, etc.)
+4. Keep `attendance` and `triage` records with anonymized person reference for aggregate reporting
+5. Keep `audit_log` entries (they reference user_id, not PII directly)
+6. Revoke all active `consent` records and log the revocation
+7. Log the erasure action in `audit_log` with action_type ANONYMIZE
+
+Complete physical deletion is performed only when legally mandated. Anonymization preserves aggregate data integrity for reporting.
 
 ---
 
@@ -237,6 +236,7 @@ When a person exercises their right to deletion:
 ## Centralized Logging
 
 - **Keycloak event logging**: All login/logout/token events logged by Keycloak. Configure Keycloak event listeners to forward events to the application's audit_log or to a centralized log aggregation service.
+- **Keycloak Audit Integration (MVP)**: Login, logout, and authentication failure events are forwarded from Keycloak to the application's `audit_log` table by polling the Keycloak Admin Events API from a background Go routine. This approach (Option A) is used in MVP for simplicity. A custom Keycloak SPI Event Listener (Option B) may be implemented in Phase 2 for real-time event forwarding.
 - **Application logging**: slog structured JSON logs. For production, ship logs to Grafana Loki (free tier) or similar for centralized log aggregation, search, and alerting.
 - **Monitoring**: Grafana dashboards for application metrics, Keycloak metrics (login success/failure rates, token issuance), and infrastructure health.
 

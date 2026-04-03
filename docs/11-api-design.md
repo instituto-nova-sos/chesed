@@ -68,6 +68,32 @@ No `/auth/*` endpoints exist in the Chesed API.
 | PATCH | `/persons/:id/roles/:roleId` | Yes | Coordinator+ | Activate/deactivate role |
 | GET | `/persons/check-duplicate` | Yes | All | Check for duplicates |
 
+#### Duplicate Detection
+```
+GET /api/v1/persons/check-duplicate?document_number=123.456.789-00&document_type=CPF
+
+Response 200:
+{
+  "has_duplicates": true,
+  "matches": [
+    {
+      "id": "uuid",
+      "full_name": "Maria Santos",
+      "document_number": "123.456.789-00",
+      "campus": "Sao Paulo",
+      "match_type": "exact_document"
+    }
+  ]
+}
+
+Response 200 (no duplicates):
+{
+  "has_duplicates": false,
+  "matches": []
+}
+```
+Matching algorithm: exact match on `document_number` + `document_type`. Fuzzy name matching deferred to Phase 2.
+
 #### POST /persons
 ```json
 // Request
@@ -151,6 +177,28 @@ No `/auth/*` endpoints exist in the Chesed API.
   ]
 }
 ```
+
+---
+
+## Service Type Endpoints
+
+| Method | Path | Auth | Roles | Description |
+|--------|------|------|-------|-------------|
+| GET | `/service-types` | Yes | All | List available service types |
+
+#### Service Types
+```
+GET /api/v1/service-types
+
+Response 200:
+{
+  "data": [
+    { "id": "uuid", "name": "Legal Aid", "category": "LEGAL", "is_active": true },
+    { "id": "uuid", "name": "Medical Consultation", "category": "MEDICAL", "is_active": true }
+  ]
+}
+```
+Available to all authenticated users. Read-only in Phase 1.
 
 ---
 
@@ -254,6 +302,8 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ## Campaign Endpoints (Phase 2)
 
+**(Phase 2)** — These endpoints are implemented in Phase 2.
+
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/campaigns` | Yes | Coordinator+ | Create campaign |
@@ -267,6 +317,8 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ## Donation Endpoints (Phase 2)
 
+**(Phase 2)** — These endpoints are implemented in Phase 2.
+
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/donations` | Yes | Secretary+ | Create donation |
@@ -278,6 +330,8 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ## Consent Endpoints (Phase 2)
 
+**(Phase 2)** — These endpoints are implemented in Phase 2.
+
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/consents` | Yes | All | Create consent record |
@@ -287,6 +341,8 @@ COMPLETED → FOLLOW_UP (reopen)
 ---
 
 ## Document Endpoints (Phase 2)
+
+**(Phase 2)** — These endpoints are implemented in Phase 2.
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|

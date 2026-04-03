@@ -27,13 +27,15 @@
 | ID | Requirement | Priority | Notes |
 |----|------------|----------|-------|
 | RF-09 | A person can be associated with one or more business roles | Must | Multi-role design |
-| RF-10 | Supported roles: volunteer, assisted person, health professional, administrator | Must | Extensible role list |
+| RF-10 | Supported roles: ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN | Must | Extensible role list |
 | RF-11 | The same person may simultaneously be assisted and volunteer | Must | Common in community organizations |
 | RF-12 | The system must allow activating or deactivating roles | Must | Soft-delete; roles are never physically removed |
 | RF-13 | The system must keep role history | Must | When activated/deactivated, by whom |
 
 **Ambiguity resolved:**
-- RF-10 lists "health professional" but the broader system needs other professional types (legal, social worker, nutritionist). The role list should be: **volunteer, assisted_person, professional, coordinator, administrator**. Professional type is a separate attribute.
+- RF-10 lists "health professional" but the broader system needs other professional types (legal, social worker, nutritionist). The role list should be: **ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN**. Professional type is a separate attribute.
+
+**Important distinction**: Person roles (ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN) describe what someone IS in the NGO — a person can hold multiple roles simultaneously. Access profiles (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER) describe system login permissions — each app_user has exactly one access profile. Example: a person with roles VOLUNTEER + ASSISTED has an app_user with access_profile VOLUNTEER.
 
 ### FR-03: System User Management
 
@@ -43,7 +45,7 @@
 | RF-15 | The system must allow authentication via email and password | Must | Email as login identifier |
 | RF-16 | The system must allow password recovery | Must | Via email with secure token |
 | RF-17 | The system must implement RBAC | Must | Role-based access control with granular permissions |
-| RF-18 | Supported access profiles: administrator, coordinator, professional, secretary, volunteer | Must | Maps to permission sets |
+| RF-18 | Supported access profiles: ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER | Must | Maps to permission sets |
 
 ### FR-04: Assisted Person Extended Profile
 
@@ -109,7 +111,7 @@
 | RF-40 | The system must generate attendance reports by period | Must | Date range filter |
 | RF-41 | The system must generate reports by attendance type | Must | Service category breakdown |
 | RF-42 | The system must generate reports by team | Should | Professional/team performance |
-| RF-43 | The system must generate reports by campaign or event | Must | Per-campaign metrics |
+| RF-43 | The system must generate reports by campaign or event | Must | Per-campaign metrics. (Deferred to Phase 2 — campaign management is not in MVP. Phase 1 reports cover attendance by period, service type, and status only.) |
 | RF-44 | The system must allow exporting reports as CSV or spreadsheet | Must | Data portability |
 | RF-45 | The system must generate statistical charts | Should | Visual dashboard |
 
@@ -152,6 +154,12 @@
 | RF-58a | The system must inform the purpose of data collection at the time of consent | Must | LGPD Art. 7 |
 | RF-58b | The system must maintain a consent registry with timestamp, version, and scope | Must | Audit trail for consent |
 | RF-58c | The system must allow granular consent (e.g., data processing vs. image usage) | Should | Separate consent types |
+
+### FR-14: Multi-Factor Authentication
+
+| ID | Requirement | Priority | Notes |
+|----|------------|----------|-------|
+| RF-79 | The system SHALL require multi-factor authentication (TOTP) for users with ADMIN access profile | Must | Protects the most privileged accounts. Enabled by Keycloak conditional authentication flow at zero application code cost. |
 
 ---
 
@@ -208,18 +216,26 @@
 
 | Category | Must | Should | Total |
 |----------|------|--------|-------|
-| Functional | 42 | 16 | 58 |
+| Functional | 43 | 16 | 59 |
 | Non-Functional | 15 | 5 | 20 |
-| **Total** | **57** | **21** | **78** |
+| **Total** | **58** | **21** | **79** |
 
 ---
 
 ## Identified Ambiguities and Decisions Needed
 
-1. **Document types for international operation**: What identification documents are accepted in each region? (CPF in Brazil, SSN in USA, national ID in Europe?)
-2. **Service type catalog**: Is the list of service types fixed or configurable by administrators?
-3. **Workflow customization**: Can different campuses have different workflow states, or is the workflow universal?
-4. **Consent form templates**: Who designs the consent form content? Is it managed within the system or uploaded as templates?
-5. **Donation receipt format**: Are there legal requirements for the receipt format in each country of operation?
-6. **Data retention policy**: How long should records be retained? What is the archival strategy?
-7. **Image usage consent scope**: Does image consent cover all media, or are there granular options (social media, print, internal only)?
+1. **Workflow customization**: Can different campuses have different workflow states, or is the workflow universal?
+2. **Donation receipt format**: Are there legal requirements for the receipt format in each country of operation?
+
+---
+
+## Open Questions and Decisions
+
+| # | Question | Default Decision | Rationale |
+|---|----------|-----------------|-----------|
+| 1 | Service type catalog: fixed or admin-configurable? | Fixed seed data in MVP; admin-configurable in Phase 2 | Avoids admin UI complexity in MVP |
+| 2 | Campus scoping: single or multi-campus per person? | Single campus per person/user in MVP; multi-campus in Phase 2 | Simplifies data model and queries |
+| 3 | International document types | MVP supports CPF (Brazil) only; international types in Phase 3 | MVP targets Brazilian operations |
+| 4 | Consent form templates | Legal team provides template text; system renders and captures signature | Template design is an operational task, not a system feature |
+| 5 | Data retention policy | 5 years operational data, 10 years audit logs, anonymization on LGPD erasure | Standard LGPD practice for social organizations |
+| 6 | Image usage consent scope | Single blanket consent per type (DATA_PROCESSING, IMAGE_USAGE, HEALTH_DATA, MINOR_GUARDIAN) | Granular per-use consent deferred to Phase 3 |

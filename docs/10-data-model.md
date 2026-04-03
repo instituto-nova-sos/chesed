@@ -6,6 +6,33 @@ Relational data model for PostgreSQL 16. All tables use UUID primary keys for of
 
 ---
 
+## Phase 1 vs Phase 2 Table Categorization
+
+### Phase 1 Tables (MVP)
+The following tables are created in Phase 1 database migrations:
+- `campus` — Multi-site organizational unit
+- `person` — Central unified person entity
+- `address` — Person address records
+- `person_role` — Multi-role assignment per person
+- `assisted_profile` — Extended social data for assisted persons
+- `app_user` — System user account (Keycloak projection)
+- `service_type` — Predefined service catalog
+- `triage` — Initial assessment records
+- `triage_requested_service` — Services requested during triage
+- `attendance` — Service delivery records
+- `attendance_transition` — Workflow state change history
+- `audit_log` — Immutable audit trail
+
+### Phase 2 Tables
+The following tables are added in Phase 2 migrations:
+- `campaign` — Social action events
+- `campaign_team` — Team member assignments
+- `document` — File attachments
+- `consent` — LGPD consent records with signature
+- `donation` — Financial and in-kind contributions
+
+---
+
 ## Tables
 
 ### campus
@@ -276,6 +303,8 @@ CREATE TABLE attendance (
     professional_id UUID NOT NULL REFERENCES person(id),
     status          VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED'
                     CHECK (status IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'FOLLOW_UP', 'CANCELLED')),
+                    -- MVP (Phase 1) uses: SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED.
+                    -- FOLLOW_UP is added in a Phase 2 migration.
     attendance_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     observations    TEXT,
     recommendations TEXT,
@@ -492,3 +521,30 @@ migrations/
 ```
 
 Each migration has an `up` (apply) and `down` (rollback) file. Numbered sequentially.
+
+---
+
+## Data Retention Policy
+
+| Data Category | Retention Period | After Expiry | Legal Basis |
+|---------------|-----------------|--------------|-------------|
+| Person records | 5 years after last activity | Anonymize (keep aggregate stats) | LGPD Art. 15-16 |
+| Attendance records | 10 years | Archive (read-only) | Operational + compliance |
+| Triage records | 10 years | Archive (read-only) | Linked to attendance |
+| Assisted profile (sensitive) | 5 years after last activity | Anonymize | LGPD Art. 18 |
+| Consent records | Indefinite | Never deleted | Legal proof of consent |
+| Audit logs | 10 years minimum | Archive (read-only) | Compliance requirement |
+| Donation records | 10 years | Archive (read-only) | Tax/accounting requirements |
+| Campaign records | 5 years after completion | Archive | Operational |
+
+### LGPD Erasure (Right to Deletion)
+When a data subject exercises their right to erasure:
+1. Anonymize the `person` record: replace `full_name` with 'ANONYMIZED', clear `document_number`, `email`, `phone`, `photo_url`
+2. Anonymize the `address` record: clear all fields, keep `campus_id` for aggregate stats
+3. Anonymize the `assisted_profile`: clear all sensitive fields
+4. Keep `attendance` and `triage` records with anonymized person reference for aggregate reporting
+5. Keep `audit_log` entries (they reference user_id, not PII directly)
+6. Revoke all active `consent` records
+7. Log the erasure action in `audit_log`
+
+Note: Complete physical deletion is performed only when legally required. Anonymization preserves aggregate data integrity.

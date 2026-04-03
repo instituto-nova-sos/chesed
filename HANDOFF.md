@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-02
+2026-04-03
 
 ---
 
@@ -41,7 +41,7 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 **Migrated from legacy (adapted):**
 | File | Status | Changes |
 |------|--------|---------|
-| `docs/00-current-system-assessment.md` | Copied | Kept as-is (historical reference of the legacy system) |
+| `docs/00-current-system-assessment.md` | Deleted in Session 4 | Was a historical reference of the legacy Django system; removed as legacy artifact |
 | `docs/01-product-vision.md` | Copied | No changes needed |
 | `docs/02-problem-statement.md` | Copied | No changes needed |
 | `docs/03-requirements-catalog.md` | Copied | No changes needed |
@@ -150,18 +150,53 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 
 ---
 
+## Session 4: Product Validation and Cleanup (2026-04-03)
+
+### What Was Done
+1. **Legacy artifact removed**: Deleted `docs/00-current-system-assessment.md` (described old Django system, not relevant to future-state repo)
+2. **Terminology standardized** across all documents: canonical enum names for person roles (ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN) and access profiles (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER)
+3. **Person Roles vs Access Profiles distinction** documented clearly — these are two different taxonomies
+4. **Product ambiguities resolved** with pragmatic defaults:
+   - Service type catalog: fixed seed data in MVP, admin-configurable in Phase 2
+   - Campus scoping: single campus per person/user in MVP, multi-campus in Phase 2
+   - Triage lifecycle: immutable after creation
+   - Attendance MVP states: SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED (FOLLOW_UP deferred to Phase 2)
+   - Data retention: 5yr operational, 10yr audit logs, anonymization on LGPD erasure
+   - Keycloak audit forwarding: poll Admin Events API (MVP)
+5. **Phase boundaries clarified**: Phase 1 tables explicitly listed (12 tables), Phase 2 tables deferred (5 tables)
+6. **Roadmap rebased**: Phase 0 marked COMPLETE, Keycloak tasks added, Sprint 1 updated for OIDC
+7. **Data retention policy** added to security docs with LGPD anonymization rules
+8. **Product scope guardrails** added to CLAUDE.md and CODEX.md to prevent premature Phase 2 work
+9. **Backlog aligned**: sprint targets assigned to all Phase 1 epics, service type seed data story added
+10. **MVP scope tightened**: explicit "Won't Have" list expanded, authentication updated to Keycloak OIDC
+11. **API design improved**: duplicate detection endpoint documented, service types endpoint added, Phase 2 markers on deferred endpoints
+
+### Documents Updated
+| File | Change |
+|------|--------|
+| `docs/00-current-system-assessment.md` | DELETED (legacy artifact) |
+| `docs/03-requirements-catalog.md` | Terminology fixes, RF-79 (MFA) added, open questions resolved |
+| `docs/04-domain-model.md` | Roles/profiles distinction, triage immutability, FOLLOW_UP Phase 2, campus scoping |
+| `docs/07-mvp-scope.md` | MVP states, Phase 1 tables, service types, campus scoping, Keycloak auth |
+| `docs/08-roadmap.md` | Phase 0 complete, Keycloak tasks, Sprint 1 OIDC, phase boundaries |
+| `docs/09-backlog.md` | Sprint targets, Phase 2/3 markers, service type seed story (S01.6) |
+| `docs/10-data-model.md` | Phase 1/2 table categorization, data retention policy, FOLLOW_UP note |
+| `docs/11-api-design.md` | Duplicate detection expanded, service types endpoint, Phase 2 markers |
+| `docs/13-security-and-compliance.md` | Data retention policy, anonymization rules, audit forwarding decision |
+| `CLAUDE.md` | Product scope guardrails added |
+| `CODEX.md` | Product scope guardrails added |
+
+---
+
 ## Open Questions
 
-These need stakeholder input before implementation begins:
+These need stakeholder input (but have documented defaults that allow implementation to proceed):
 
-1. **International document types**: What identification documents are accepted in each region (Brazil, USA, Europe)?
-2. **Service type catalog**: Is the list fixed or admin-configurable?
-3. **Consent form content**: Who designs consent form text? System-managed templates or uploaded PDFs?
-4. **Donation receipt format**: Legal requirements per country?
-5. **Data retention period**: How long to keep records?
-6. **Hosting budget**: Confirmed budget? (Estimates: $10-17/month MVP with Keycloak, $55-70/month production)
-7. **Multi-region priority**: When is multi-region operation needed?
-8. **Volunteer testing**: Can real volunteers test the MVP during development?
+1. **International document types**: MVP supports CPF (Brazil) only. What types for USA/Europe? (Phase 3)
+2. **Consent form content**: Legal team must provide template text. (Phase 2 prerequisite)
+3. **Donation receipt format**: Legal requirements per country? (Phase 3)
+4. **Hosting budget**: Confirmed budget? (Estimates: $10-17/month MVP with Keycloak, $55-70/month production)
+5. **Volunteer testing**: Can real volunteers test the MVP during development?
 
 ---
 

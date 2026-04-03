@@ -11,6 +11,7 @@ This file provides execution context for any AI coding agent (Codex, Cursor, Cop
 - **Backend**: Go (Golang) — REST API at `backend/`
 - **Frontend**: React + TypeScript + Vite — PWA at `frontend/`
 - **Database**: PostgreSQL 16
+- **IAM**: Keycloak (OIDC) — external identity provider
 - **Key feature**: Offline-first mobile PWA for field operations
 
 ---
@@ -199,6 +200,17 @@ func TestPersonService_Create(t *testing.T) {
 | camelCase functions | camelCase functions | snake_case tables |
 | UPPER_CASE constants | UPPER_CASE constants | UPPER_CASE enums |
 | snake_case files | PascalCase components | NNNNNN_name migrations |
+
+---
+
+## Product Scope Guardrails
+
+- Respect roadmap phases. Do not implement Phase 2 features (campaigns, donations, documents, consents, FOLLOW_UP state) during Phase 1.
+- Phase 1 tables: campus, person, address, person_role, assisted_profile, app_user, service_type, triage, triage_requested_service, attendance, attendance_transition, audit_log.
+- Service types are fixed seed data in MVP. No admin UI for managing them.
+- Each person/user belongs to exactly one campus in MVP.
+- Validate features exist in `docs/03-requirements-catalog.md` before implementing.
+- Check `docs/07-mvp-scope.md` to confirm phase assignment before starting.
 
 ---
 

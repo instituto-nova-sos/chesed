@@ -28,7 +28,7 @@ Social action events happen in community spaces, churches, and public areas — 
 **Impact**: Paper forms that must be manually transcribed later, data entry errors, delays in data availability, lost forms.
 
 ### 6. Volunteer Onboarding Friction
-Volunteers have varying levels of technical skill. The current system (Django Admin) requires training and is not intuitive for non-technical users, especially on mobile devices.
+Volunteers have varying levels of technical skill. The previous system (Django Admin) required training and was not intuitive for non-technical users, especially on mobile devices.
 
 **Impact**: Resistance to digital tools, continued reliance on paper, inconsistent data entry, high training overhead for each event.
 

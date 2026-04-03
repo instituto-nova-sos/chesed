@@ -2,7 +2,7 @@
 
 ## Overview
 
-The domain model is centered on a **unified Person entity** that can hold multiple roles (beneficiary, volunteer, professional, coordinator, administrator). All operational activities — triage, attendance, campaigns, donations — relate back to Person records.
+The domain model is centered on a **unified Person entity** that can hold multiple roles (assisted, volunteer, professional, coordinator, admin). All operational activities — triage, attendance, campaigns, donations — relate back to Person records.
 
 ---
 
@@ -10,7 +10,7 @@ The domain model is centered on a **unified Person entity** that can hold multip
 
 ### 1. Person (Pessoa)
 
-The central entity. Every human in the system — whether beneficiary, volunteer, or professional — is first and foremost a Person.
+The central entity. Every human in the system — whether assisted, volunteer, or professional — is first and foremost a Person.
 
 ```
 Person
@@ -54,7 +54,7 @@ Associates a Person with one or more business roles. A person can be simultaneou
 PersonRole
 ├── id (UUID)
 ├── person_id (FK → Person)
-├── role_type (VOLUNTEER, ASSISTED, PROFESSIONAL, COORDINATOR, ADMIN)
+├── role_type (ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN)
 ├── professional_specialty (nullable — only for PROFESSIONAL role)
 ├── is_active
 ├── activated_at
@@ -72,6 +72,16 @@ PersonRole
 | `PROFESSIONAL` | Licensed professional providing specialized services |
 | `COORDINATOR` | Team lead managing campaigns and volunteers |
 | `ADMIN` | System administrator |
+
+> **Person Roles vs. Access Profiles**
+>
+> These are two distinct taxonomies:
+> - **Person Roles** (ASSISTED, VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN): Describe what someone IS in the NGO. A person can hold multiple roles simultaneously. Stored in the `person_role` table.
+> - **Access Profiles** (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER): Describe system login permissions. Each `app_user` has exactly one access profile. Stored in the `app_user` table.
+>
+> Example: A person who is both a beneficiary and a volunteer has person roles [ASSISTED, VOLUNTEER] and might have an app_user with access_profile VOLUNTEER.
+>
+> Note: SECRETARY is an access profile only (not a person role). It represents staff who register persons and create triages but are not volunteers or professionals in the field.
 
 ### 3. AssistedProfile (PerfilAssistido)
 
@@ -128,6 +138,8 @@ Campus
 ├── created_at
 └── updated_at
 ```
+
+**MVP scope**: Each person belongs to exactly one campus. Each app_user is associated with exactly one campus (via Keycloak user attribute). Multi-campus assignment for persons and users is planned for Phase 2.
 
 ---
 
@@ -210,6 +222,8 @@ Triage
 └── synced_at (nullable)
 ```
 
+**Lifecycle**: Triages are immutable after creation. Once a triage is recorded, it serves as a snapshot of the person's initial assessment. It cannot be edited or cancelled. If the assessment was incorrect, a new triage can be created. Triages may generate zero or more Attendance records.
+
 ### 10. Attendance (Atendimento)
 
 A service record documenting work performed for a person.
@@ -288,6 +302,8 @@ AttendanceTransition
 - Campaign and Triage associations are optional (walk-in attendances are valid)
 - Every status change creates an AttendanceTransition record
 - COMPLETED and CANCELLED are terminal states (COMPLETED can reopen to FOLLOW_UP)
+
+**MVP (Phase 1) states**: SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED. The FOLLOW_UP state and its transitions (COMPLETED → FOLLOW_UP, FOLLOW_UP → IN_PROGRESS, FOLLOW_UP → COMPLETED) are introduced in Phase 2.
 
 ---
 

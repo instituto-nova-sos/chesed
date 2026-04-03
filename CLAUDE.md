@@ -119,6 +119,17 @@ types: Shared TypeScript interfaces
 
 ---
 
+## Product Scope Guardrails
+
+- Respect roadmap phases strictly. Do not implement Phase 2 features (campaigns, donations, documents, consents, FOLLOW_UP state) during Phase 1.
+- Phase 1 database tables: campus, person, address, person_role, assisted_profile, app_user, service_type, triage, triage_requested_service, attendance, attendance_transition, audit_log. Do not create Phase 2 tables prematurely.
+- Service types are fixed seed data in MVP. Do not build admin UI for service type management.
+- Each person/user belongs to exactly one campus in MVP. Do not build multi-campus assignment.
+- Always validate a feature exists in `docs/03-requirements-catalog.md` before implementing it.
+- Check `docs/07-mvp-scope.md` to confirm a feature belongs in the current phase before starting work.
+
+---
+
 ## Quality Bar
 
 Before considering any task complete:

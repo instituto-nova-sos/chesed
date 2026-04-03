@@ -13,41 +13,58 @@ Documentation  MVP Core    Extended     Scale &
 
 ---
 
-## Phase 0: Documentation and Project Setup (Week 1)
+## Phase 0: Documentation and Project Setup (Week 1) — COMPLETE
 
 **Goal**: Establish project foundation, documentation, and development environment.
 
+**Status**: All tasks completed across Sessions 1-3 (documentation, project scaffolding, Keycloak IAM setup).
+
 | # | Task | Dependencies | Status |
 |---|------|-------------|--------|
-| 0.1 | Complete architecture documentation (this deliverable) | None | In progress |
-| 0.2 | Create Go project skeleton (`backend/`) | 0.1 |  |
-| 0.3 | Create React project skeleton (`frontend/`) | 0.1 |  |
-| 0.4 | Set up Docker Compose (Go + PostgreSQL + React dev) | 0.2, 0.3 |  |
-| 0.5 | Set up GitHub Actions CI for Go + React | 0.4 |  |
-| 0.6 | Create database migration framework | 0.2 |  |
-| 0.7 | Set up linting and formatting (golangci-lint, eslint, prettier) | 0.2, 0.3 |  |
+| 0.1 | Complete architecture documentation (docs 01-18) | None | Done |
+| 0.2 | Create Go project skeleton (`backend/`) | 0.1 | Done |
+| 0.3 | Create React project skeleton (`frontend/`) | 0.1 | Done |
+| 0.4 | Set up Docker Compose (Go + PostgreSQL + React dev + Keycloak) | 0.2, 0.3 | Done |
+| 0.5 | Set up Keycloak container in Docker Compose with `chesed` realm | 0.4 | Done |
+| 0.6 | Configure Keycloak realm (roles, protocol mappers, brute-force protection) | 0.5 | Done |
+| 0.7 | Export Keycloak realm configuration to `keycloak/realm-export.json` | 0.6 | Done |
+| 0.8 | Security architecture review (Keycloak IAM, threat model, security test strategy) | 0.6 | Done |
 
-**Milestone**: Development environment fully functional; `docker compose up` starts all services.
+**Milestone**: Development environment fully functional; `docker compose up` starts all services. Keycloak realm configured and exported as code. Full documentation suite (docs 01-18) complete.
 
 ---
 
 ## Phase 1: MVP Core (Weeks 2-9)
 
+### Phase 1 Scope Notes
+
+**Database tables for Phase 1**: `campus`, `person`, `address`, `person_role`, `assisted_profile`, `app_user`, `service_type`, `triage`, `triage_requested_service`, `attendance`, `attendance_transition`, `audit_log`.
+
+**Explicitly NOT in Phase 1** (deferred to Phase 2):
+- Campaign management tables or endpoints
+- Donation tracking tables or endpoints
+- Document attachment tables or endpoints
+- Consent capture tables or endpoints
+- `FOLLOW_UP` attendance state
+
 ### Sprint 1: Auth and Infrastructure (Weeks 2-3)
 
 | # | Task | Dependencies |
 |---|------|-------------|
-| 1.1 | Design and run database migrations (person, user, campus, service_type, audit_log) | 0.6 |
-| 1.2 | Implement user registration and authentication (JWT) | 1.1 |
-| 1.3 | Implement RBAC middleware | 1.2 |
-| 1.4 | Implement audit logging middleware | 1.2 |
-| 1.5 | Implement campus-scoped data access | 1.1, 1.3 |
-| 1.6 | Create seed data (service types, default campus, admin user) | 1.1 |
-| 1.7 | React project: auth pages (login, password recovery) | 0.3 |
-| 1.8 | React: layout shell (navbar, sidebar, responsive) | 0.3 |
-| 1.9 | React: auth context and API client with JWT handling | 1.7 |
+| 1.1 | Design and run database migrations (campus, person, address, person_role, assisted_profile, app_user, service_type, audit_log) | 0.4 |
+| 1.2 | Implement OIDC token validation middleware (`coreos/go-oidc` + Keycloak JWKS) | 1.1 |
+| 1.3 | Implement local user auto-provisioning (first login creates `app_user` from Keycloak `sub` claim) | 1.2 |
+| 1.4 | Implement RBAC middleware (roles from Keycloak token claims) | 1.2 |
+| 1.5 | Implement audit logging middleware | 1.2 |
+| 1.6 | Implement campus-scoped data access | 1.1, 1.4 |
+| 1.7 | Create seed data (service types, default campus) | 1.1 |
+| 1.8 | React OIDC integration (redirect to Keycloak via keycloak-js adapter) | 0.3 |
+| 1.9 | React: layout shell (navbar, sidebar, responsive) | 0.3 |
+| 1.10 | React: auth context wrapping keycloak-js | 1.8 |
+| 1.11 | MFA configuration for ADMIN role in Keycloak | 0.7 |
+| 1.12 | Keycloak realm configuration as code (S02.9) | 0.7 |
 
-**Milestone**: Users can log in; API enforces RBAC; audit log captures events.
+**Milestone**: Users authenticate via Keycloak; API validates OIDC tokens and enforces RBAC; audit log captures events.
 
 ### Sprint 2: Person Management (Weeks 4-5)
 
@@ -57,10 +74,10 @@ Documentation  MVP Core    Extended     Scale &
 | 2.2 | Person API: search (name, CPF, fuzzy matching) | 2.1 |
 | 2.3 | Person API: duplicate detection | 2.1 |
 | 2.4 | Person role management API | 2.1 |
-| 2.5 | React: Person list page (search, filter, paginate) | 1.8, 2.1 |
+| 2.5 | React: Person list page (search, filter, paginate) | 1.9, 2.1 |
 | 2.6 | React: Person form (create/edit) | 2.5 |
 | 2.7 | React: Person detail page (profile + history timeline) | 2.5 |
-| 2.8 | Set up IndexedDB with Dexie.js (person store) | 1.8 |
+| 2.8 | Set up IndexedDB with Dexie.js (person store) | 1.9 |
 | 2.9 | Implement offline person creation | 2.6, 2.8 |
 
 **Milestone**: Persons can be registered, searched, and viewed. Offline creation works.
@@ -88,7 +105,7 @@ Documentation  MVP Core    Extended     Scale &
 | 4.1 | Sync API: push endpoint (batch upload of offline records) | 2.1, 3.2 |
 | 4.2 | Sync API: pull endpoint (fetch updates since last sync) | 4.1 |
 | 4.3 | React: sync engine (queue, retry, conflict detection) | 2.8, 4.1 |
-| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.8 |
+| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.9 |
 | 4.5 | Report API: attendance count by period with CSV export | 3.2 |
 | 4.6 | React: Report page (date range, table, CSV download) | 4.5 |
 | 4.7 | End-to-end testing (critical flows) | All above |
@@ -188,10 +205,10 @@ Documentation  MVP Core    Extended     Scale &
 
 | Risk | Mitigation | Phase |
 |------|-----------|-------|
-| Offline sync complexity | Start with simple last-write-wins; defer advanced conflict resolution to Phase 3 | 1, 3 |
+| Keycloak complexity | Use default themes, minimal realm customization, realm export for reproducibility | 1 |
+| Offline sync complexity | Start with last-write-wins; manual conflict resolution deferred to Phase 3 | 1, 3 |
 | Scope creep | Strict MVP definition; any new feature request goes to Phase 2+ backlog | 1 |
 | Performance issues | Load test early (Sprint 4); optimize hot paths before Phase 2 | 1 |
-| Data migration from Django | Write migration scripts in Phase 1; validate in Phase 2; execute in Phase 3 | 1-3 |
 | Mobile UX quality | Involve real volunteers in testing at Sprint 4 milestone | 1 |
 | Budget constraints | Use free-tier cloud services; single developer with AI assistance | All |
 | Single point of failure (developer) | Comprehensive documentation (this suite); AI-executable specs | All |
@@ -201,20 +218,22 @@ Documentation  MVP Core    Extended     Scale &
 ## Technical Dependencies Graph
 
 ```
-Docker + PostgreSQL (0.4)
+Docker + PostgreSQL + Keycloak (0.4, 0.5)
+    ├── Keycloak realm config (0.6, 0.7)
+    │   └── OIDC middleware + RBAC (1.2, 1.4)
+    │       └── All API endpoints
     └── Database migrations (1.1)
-        ├── Auth + RBAC (1.2, 1.3)
-        │   └── All API endpoints
+        ├── User auto-provisioning (1.3)
         ├── Person API (2.1)
         │   ├── Triage API (3.1)
         │   ├── Attendance API (3.2)
         │   ├── Campaign API (5.1)
         │   └── Donation API (7.1)
-        └── Audit logging (1.4)
+        └── Audit logging (1.5)
             └── All API endpoints
 
-React shell (1.8)
-    ├── Auth pages (1.7)
+React shell (1.9)
+    ├── Keycloak OIDC integration (1.8, 1.10)
     ├── Person pages (2.5-2.7)
     │   ├── Triage form (3.4)
     │   └── Attendance form (3.5)

@@ -16,16 +16,23 @@ The Minimum Viable Product delivers the core loop: **register a person → recor
 | **Person search** | RF-03 | Search by name, CPF, or document number with fuzzy matching |
 | **Triage form** | RF-22, RF-23, RF-24, RF-26 | Record initial assessment with complaint, requested services, date/location |
 | **Attendance recording** | RF-27, RF-28, RF-29, RF-31 | Record service performed, professional, observations |
-| **Attendance workflow** | RF-32, RF-33, RF-34 | Basic status flow: triage → scheduled → in_progress → completed |
+| **Attendance workflow** | RF-32, RF-33, RF-34 | Basic status flow: triage → scheduled → in_progress → completed/cancelled |
 | **Person history** | RF-21, RF-31 | View complete attendance timeline for a person |
-| **User authentication** | RF-14, RF-15, RF-16 | Email/password login with password recovery |
+| **User authentication** | RF-14, RF-15, RF-16 | Keycloak OIDC authentication with refresh tokens |
+| **MFA for admin accounts** | RF-16 | Multi-factor authentication for admin accounts (via Keycloak) |
 | **RBAC** | RF-17, RF-18 | Role-based access: admin, coordinator, professional, secretary, volunteer |
-| **Service type catalog** | RF-28 | Admin-managed list of service types |
+| **Service type catalog** | RF-28 | Predefined list of service types delivered as seed data |
 | **Basic reports** | RF-40, RF-44 | Attendance count by period with CSV export |
 | **Offline data entry** | RF-46, RF-47, RF-48 | Create persons and triages offline; sync when online |
 | **Mobile-responsive UI** | RNF-11, RNF-13, RNF-19 | Mobile-first responsive design |
 | **Audit logging** | RF-50, RF-51, RF-52 | Log all data access and mutations |
 | **Campus scoping** | RNF-07, RNF-15 | Data segregation by campus |
+
+> **MVP attendance states**: SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED (4 states). The FOLLOW_UP state is introduced in Phase 2.
+
+> **Service type catalog**: Service type catalog is delivered as fixed seed data in MVP. The list of service types (LEGAL, MEDICAL, NUTRITIONAL, PHYSIOTHERAPY, SOCIAL, EDUCATIONAL, PSYCHOLOGICAL, OTHER) is predefined. Admin-configurable service types are a Phase 2 feature.
+
+> **Campus scoping**: Each person and user belongs to exactly one campus in MVP. Multi-campus assignment is a Phase 2 feature.
 
 ### Won't Have in MVP
 
@@ -35,9 +42,11 @@ The Minimum Viable Product delivers the core loop: **register a person → recor
 | Donation tracking | Phase 2 | Independent workflow |
 | Document attachments | Phase 2 | Requires object storage setup |
 | Consent capture with signature | Phase 2 | Complex mobile UX |
+| FOLLOW_UP attendance state | Phase 2 | MVP uses linear flow only |
 | Report charts/dashboards | Phase 2 | CSV export covers MVP needs |
 | Team assignment to campaigns | Phase 2 | Depends on campaign management |
-| Follow-up workflow state | Phase 2 | MVP uses linear flow only |
+| Multi-campus per user | Phase 2 | Single campus assignment sufficient for MVP |
+| Admin-configurable service types | Phase 2 | Fixed seed data sufficient for MVP |
 | Multi-region support | Phase 3 | Brazil-only for MVP |
 | WordPress API integration | Phase 3 | External integration |
 | Donation receipts | Phase 3 | Depends on donation tracking |
@@ -98,8 +107,8 @@ The Minimum Viable Product delivers the core loop: **register a person → recor
 
 ### Backend
 - Go API server with chi router
-- PostgreSQL database with core tables (person, person_role, service_type, triage, attendance, attendance_transition, campus, user, audit_log)
-- JWT authentication with refresh tokens
+- PostgreSQL database with core tables (see Phase 1 database tables below)
+- Keycloak OIDC authentication with refresh tokens
 - RBAC middleware
 - Audit logging middleware
 - Sync endpoints (push/pull)
@@ -107,17 +116,22 @@ The Minimum Viable Product delivers the core loop: **register a person → recor
 - Database migrations
 - Seed data (service types, default permissions, test campus)
 
+> **Phase 1 database tables**: campus, person, address, person_role, assisted_profile, app_user, service_type, triage, triage_requested_service, attendance, attendance_transition, audit_log.
+>
+> Tables deferred to Phase 2 migrations: campaign, campaign_team, document, consent, donation.
+
 ### Frontend
 - React + TypeScript + Vite
+- React OIDC integration (redirect to Keycloak login page)
 - PWA with Service Worker (app shell caching)
 - IndexedDB with Dexie.js (offline person, triage, attendance storage)
 - Sync queue with background sync
-- Pages: Login, Dashboard, Person List, Person Form, Person Detail, Triage Form, Attendance Form, Attendance List, Report
+- Pages: Dashboard, Person List, Person Form, Person Detail, Triage Form, Attendance Form, Attendance List, Report
 - Tailwind CSS responsive layout
 - React Hook Form for form handling
 
 ### Infrastructure
-- Docker Compose (Go API + PostgreSQL + React dev server)
+- Docker Compose (Go API + PostgreSQL + Keycloak + React dev server)
 - GitHub Actions CI (Go tests + React build)
 - Environment-based configuration
 
@@ -147,10 +161,12 @@ The Minimum Viable Product delivers the core loop: **register a person → recor
 | Document attachments | RF-06, RF-30 |
 | Consent capture with digital signature | RF-07, RF-08, RF-57, RF-58 |
 | Donation tracking | RF-54, RF-55, RF-56 |
-| Follow-up workflow state | RF-35 |
+| Follow-up workflow state (FOLLOW_UP) | RF-35 |
 | Report charts and dashboards | RF-41, RF-42, RF-43, RF-45 |
 | Assisted person extended profile | RF-19, RF-20 |
 | Person role management UI | RF-09 to RF-13 |
+| Multi-campus per user | RNF-07 |
+| Admin-configurable service types | RF-28 |
 
 ## Phase 3 Scope
 
