@@ -79,6 +79,24 @@ Use this checklist before marking any frontend feature as done. Every item must 
 - [ ] No `TODO`, `FIXME`, or `HACK` comments left unresolved
 - [ ] No `console.log` statements left in production code
 
+## Quality Profile Compliance
+
+Per `docs/quality/quality-profiles.md` (React/TS Frontend) and `docs/quality/complexity-guidelines.md`:
+
+- [ ] Cognitive complexity per function ≤ 15
+- [ ] Cyclomatic complexity per function ≤ 10
+- [ ] Function length ≤ 50 lines
+- [ ] File length ≤ 300 lines
+- [ ] Nesting depth ≤ 3 levels
+- [ ] Parameter count ≤ 5
+- [ ] Component JSX ≤ 80 lines
+- [ ] Duplicated lines on new code ≤ 3%
+- [ ] Clean code categories satisfied:
+  - [ ] Consistency — patterns match sibling files
+  - [ ] Intentionality — names reveal purpose, no dead code
+  - [ ] Adaptability — dependencies point inward (pages → hooks → api)
+  - [ ] Responsibility — each component/function has single responsibility
+
 ## Documentation Sync
 
 - [ ] If new page/route: documented in relevant feature doc

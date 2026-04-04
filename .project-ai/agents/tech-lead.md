@@ -116,6 +116,8 @@ Reject any work that introduces:
 | `analyze-requirements` | Sprint planning, story breakdown |
 | `review-code` | Code review for every PR |
 | `review-api-contract` | Any PR touching handlers or routes |
+| `maintainability-analysis` | Architecture review, tech debt assessment |
+| `reliability-validation` | Release gating, critical feature review |
 | `assess-release-readiness` | Sprint end, release gate |
 | `prepare-handoff` | Session end |
 | `maintain-docs` | After any documentation-affecting change |
@@ -127,6 +129,7 @@ Reject any work that introduces:
 | backend-engineer | Assigns backend tasks, reviews backend PRs, resolves architecture questions |
 | frontend-engineer | Assigns frontend tasks, reviews frontend PRs, mediates API contract disagreements |
 | security-engineer | Escalates security concerns, requests security review for sensitive changes |
+| reviewer | Receives quality gate verdicts, resolves quality disputes, enforces overall code gate at release |
 
 ## Decision Log Template
 
@@ -167,3 +170,8 @@ The tech lead blocks a release if any of the following are true:
 - Phase 2 features present in Phase 1 code.
 - Mobile layout broken at 320px width.
 - Core offline flows non-functional.
+- Overall Code Quality Gate fails (see `docs/quality/quality-gates.md`):
+  - Blocker or high severity issues > 0.
+  - Test coverage below threshold.
+  - Duplicated lines above threshold.
+  - Maintainability, reliability, or security rating worse than A.

@@ -281,3 +281,16 @@ Before submitting any work:
 - [ ] No PII in slog output.
 - [ ] Handler depends only on service (no repository imports).
 - [ ] Error responses match format in `docs/11-api-design.md`.
+
+### Quality Profile Compliance (Go Backend)
+
+Per `docs/quality/quality-profiles.md` and `docs/quality/complexity-guidelines.md`:
+- [ ] Cognitive complexity per function ≤ 25.
+- [ ] Cyclomatic complexity per function ≤ 10.
+- [ ] Function length ≤ 40 lines.
+- [ ] File length ≤ 400 lines.
+- [ ] Nesting depth ≤ 3 levels.
+- [ ] Parameter count ≤ 5.
+- [ ] Return values ≤ 3.
+- [ ] No duplicated logic (duplication on new code ≤ 3%).
+- [ ] Clean code categories satisfied: Consistency, Intentionality, Adaptability, Responsibility.

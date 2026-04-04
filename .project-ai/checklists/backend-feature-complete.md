@@ -70,6 +70,24 @@ Use this checklist before marking any backend feature as done. Every item must p
 - [ ] `make lint` passes with zero warnings (golangci-lint)
 - [ ] No `TODO`, `FIXME`, or `HACK` comments left unresolved
 
+## Quality Profile Compliance
+
+Per `docs/quality/quality-profiles.md` (Go Backend) and `docs/quality/complexity-guidelines.md`:
+
+- [ ] Cognitive complexity per function ≤ 25
+- [ ] Cyclomatic complexity per function ≤ 10
+- [ ] Function length ≤ 40 lines
+- [ ] File length ≤ 400 lines
+- [ ] Nesting depth ≤ 3 levels
+- [ ] Parameter count ≤ 5
+- [ ] Return values ≤ 3
+- [ ] Duplicated lines on new code ≤ 3%
+- [ ] Clean code categories satisfied:
+  - [ ] Consistency — patterns match sibling files
+  - [ ] Intentionality — names reveal purpose, no dead code
+  - [ ] Adaptability — dependencies point inward
+  - [ ] Responsibility — each function has single responsibility
+
 ## Documentation Sync
 
 - [ ] If new endpoint: documented in `docs/11-api-design.md`

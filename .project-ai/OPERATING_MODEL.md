@@ -49,6 +49,15 @@ This document is the **central index** for the AI-assisted delivery operating sy
 │     ├── [checklist] security-review           (if security-sens.)   │
 │     └── [hook] pre-review                                           │
 │                                                                     │
+│  4.5 QUALITY VALIDATE                                               │
+│     ├── [skill] maintainability-analysis                            │
+│     ├── [skill] reliability-validation                              │
+│     ├── [agent] reviewer (quality gate verdict)                     │
+│     ├── [checklist] pr-quality                                      │
+│     ├── [hook] pre-merge (blocking quality gate)                    │
+│     ├── [rule] quality-gates                                        │
+│     └── [playbook] refactor-for-quality (if gate fails)             │
+│                                                                     │
 │  5. DOCUMENT                                                        │
 │     ├── [skill] maintain-docs                                       │
 │     └── [rule] documentation-first (update docs for deviations)     │
@@ -69,10 +78,11 @@ This document is the **central index** for the AI-assisted delivery operating sy
 
 | Agent | Primary Skills | When Active |
 |-------|---------------|-------------|
-| **tech-lead** | review-code, review-api-contract, assess-release-readiness, analyze-requirements | Architecture decisions, code review, sprint planning, quality oversight |
+| **tech-lead** | review-code, review-api-contract, assess-release-readiness, analyze-requirements, maintainability-analysis, reliability-validation | Architecture decisions, code review, sprint planning, quality oversight |
 | **backend-engineer** | design-backend-feature, review-migration, design-test-plan | All backend implementation (handlers, services, repos, migrations) |
 | **frontend-engineer** | design-frontend-feature, design-offline-support, design-test-plan | All frontend implementation (pages, components, hooks, PWA) |
 | **security-engineer** | review-security, review-code | Auth changes, PII handling, RBAC, Keycloak config, LGPD compliance |
+| **reviewer** | review-code, maintainability-analysis, reliability-validation | Every PR — quality gate enforcement, clean code assessment |
 
 ---
 
@@ -85,8 +95,9 @@ This document is the **central index** for the AI-assisted delivery operating sy
 | **post-api-change** | After API endpoint changes | No* | Run API contract review, update docs |
 | **pre-migration** | Before creating migration files | Yes | Verify table documented, in Phase 1 |
 | **post-migration** | After creating migration files | No* | Run migration review, verify domain structs |
-| **pre-review** | Before marking work complete | Yes | Run tests, lint, appropriate checklists |
-| **pre-release** | Before sprint release | Yes | Run release readiness, tag git |
+| **pre-review** | Before marking work complete | Yes | Run tests, lint, quality gate validation, appropriate checklists |
+| **pre-merge** | Before merging PR | Yes | Enforce New Code Quality Gate, validate complexity, reviewer verdict |
+| **pre-release** | Before sprint release | Yes | Run release readiness, Overall Code Quality Gate, tag git |
 
 *Non-blocking but mandatory before story completion.
 
@@ -101,6 +112,7 @@ This document is the **central index** for the AI-assisted delivery operating sy
 | **phase-boundary** | All features | pre-implement hook, pre-migration hook |
 | **security-review-triggers** | Auth, PII, RBAC, Keycloak changes | pre-review hook (conditional) |
 | **offline-first-assessment** | All React pages | design-frontend-feature skill |
+| **quality-gates** | All code changes | pre-merge hook, pre-release hook, reviewer agent |
 
 ---
 
@@ -153,12 +165,16 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `docs/18-threat-model.md` | review-security skill, conduct-security-review playbook |
 | `docs/19-secure-development-standard.md` | review-security skill, security-review checklist |
 | `docs/20-keycloak-configuration.md` | security-engineer agent, maintain-docs skill |
+| `docs/quality/quality-profiles.md` | review-code skill, reviewer agent, all engineer agents |
+| `docs/quality/clean-code-guidelines.md` | review-code skill, maintainability-analysis skill, reviewer agent |
+| `docs/quality/quality-gates.md` | pre-merge hook, pre-release hook, reviewer agent, quality-gates rule |
+| `docs/quality/complexity-guidelines.md` | review-code skill, maintainability-analysis skill, all engineer agents |
 
 ---
 
 ## Full Artifact Index
 
-### Skills (12)
+### Skills (14)
 | File | Purpose |
 |------|---------|
 | `skills/analyze-requirements.md` | Break story into implementation tasks |
@@ -173,16 +189,19 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `skills/maintain-docs.md` | Documentation maintenance |
 | `skills/assess-release-readiness.md` | Sprint release evaluation |
 | `skills/prepare-handoff.md` | Session handoff preparation |
+| `skills/maintainability-analysis.md` | Complexity, coupling, cohesion, duplication analysis + refactoring recommendations |
+| `skills/reliability-validation.md` | Error handling, state consistency, fault tolerance, graceful degradation validation |
 
-### Agents (4)
+### Agents (5)
 | File | Role |
 |------|------|
 | `agents/tech-lead.md` | Architecture, code review, quality oversight |
 | `agents/backend-engineer.md` | Go implementation |
 | `agents/frontend-engineer.md` | React/TypeScript implementation |
 | `agents/security-engineer.md` | OIDC, RBAC, PII, LGPD |
+| `agents/reviewer.md` | Quality gate enforcement, clean code assessment, PR review |
 
-### Hooks (7)
+### Hooks (8)
 | File | Trigger |
 |------|---------|
 | `hooks/pre-implement.md` | Before starting any feature |
@@ -191,9 +210,10 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `hooks/pre-migration.md` | Before creating migrations |
 | `hooks/post-migration.md` | After creating migrations |
 | `hooks/pre-review.md` | Before marking work complete |
+| `hooks/pre-merge.md` | Before merging PR (quality gate enforcement) |
 | `hooks/pre-release.md` | Before sprint release |
 
-### Rules (5)
+### Rules (6)
 | File | Enforces |
 |------|----------|
 | `rules/documentation-first.md` | Docs before code |
@@ -201,8 +221,9 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `rules/phase-boundary.md` | Phase 1/2/3 enforcement |
 | `rules/security-review-triggers.md` | When security review is mandatory |
 | `rules/offline-first-assessment.md` | Offline behavior on every page |
+| `rules/quality-gates.md` | Quality gate enforcement — complexity, duplication, coverage, ratings |
 
-### Playbooks (6)
+### Playbooks (8)
 | File | Guides |
 |------|--------|
 | `playbooks/implement-backend-endpoint.md` | End-to-end backend endpoint |
@@ -211,6 +232,8 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `playbooks/add-offline-support.md` | Offline capability |
 | `playbooks/conduct-security-review.md` | Security review workflow |
 | `playbooks/prepare-sprint-delivery.md` | Sprint completion |
+| `playbooks/implement-with-quality.md` | Quality-aware feature implementation |
+| `playbooks/refactor-for-quality.md` | Refactoring to meet quality gates |
 
 ### Templates (5)
 | File | For |
@@ -221,14 +244,16 @@ The `.project-ai/` artifacts frequently reference these project docs:
 | `templates/test-plan.md` | Test plan |
 | `templates/security-review-report.md` | Security review report |
 
-### Checklists (5)
+### Checklists (7)
 | File | Gates |
 |------|-------|
-| `checklists/backend-feature-complete.md` | Backend quality gate |
-| `checklists/frontend-feature-complete.md` | Frontend quality gate |
+| `checklists/backend-feature-complete.md` | Backend quality gate (includes quality profile compliance) |
+| `checklists/frontend-feature-complete.md` | Frontend quality gate (includes quality profile compliance) |
 | `checklists/api-review.md` | API contract review |
 | `checklists/security-review.md` | Security review |
-| `checklists/sprint-release.md` | Sprint release readiness |
+| `checklists/sprint-release.md` | Sprint release readiness (includes overall quality gates) |
+| `checklists/pr-quality.md` | PR-level quality gate enforcement |
+| `checklists/refactoring.md` | Refactoring safety and correctness |
 
 ### Workflows (3)
 | File | Shows |

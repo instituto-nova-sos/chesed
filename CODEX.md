@@ -25,9 +25,24 @@ This file provides execution context for any AI coding agent (Codex, Cursor, Cop
    - `09-backlog.md` — stories with acceptance criteria
    - `10-data-model.md` — database schema
    - `11-api-design.md` — API contracts
+   - `quality/quality-profiles.md` — quality standards per stack
+   - `quality/quality-gates.md` — pass/fail thresholds
+   - `quality/complexity-guidelines.md` — complexity limits
 2. Check `CLAUDE.md` (root) for architectural constraints (they apply to all agents)
 3. Run `make test` to ensure the codebase is green before making changes
 4. Run `make lint` to check for lint errors
+
+---
+
+## Documentation-First Workflow
+
+Before implementing any new feature or significant change:
+
+1. Check the relevant doc in `docs/` (requirements, domain model, API design, etc.)
+2. If the feature isn't documented, update the docs first, then implement.
+3. When changing API endpoints, update `docs/11-api-design.md`.
+4. When adding database tables/columns, update `docs/10-data-model.md`.
+5. When modifying the domain model, update `docs/04-domain-model.md`.
 
 ---
 
@@ -49,6 +64,15 @@ These rules MUST be followed. Violating them will break the system or create sec
 - Never create endpoints without authentication (except `/health`). Authentication is handled by Keycloak (OIDC).
 - Never write custom login, registration, or password reset endpoints. Keycloak handles all identity flows.
 - Never implement custom password hashing or token issuance. The Go API only validates Keycloak-issued tokens.
+- Never store Keycloak client secrets or admin passwords in source code or Docker images.
+- Keycloak realm configuration changes must be exported to `keycloak/realm-export.json` and committed.
+
+### Code Strictness
+- Never use `any` type in TypeScript (strict mode enforced). No `@ts-ignore` or `@ts-nocheck`.
+- Never skip error handling in Go (no `_` for errors).
+- Never use global mutable state or singletons.
+- Never modify the `audit_log` table schema to allow updates or deletes.
+- Every SQL migration MUST have both `.up.sql` and `.down.sql` files.
 
 ### Architecture
 - Backend handlers call services, services call repositories. Never skip layers.
@@ -220,7 +244,7 @@ Before submitting code:
 
 - [ ] `make test` passes
 - [ ] `make lint` passes (Go + TypeScript)
-- [ ] New business logic has tests
+- [ ] New business logic has tests (coverage ≥ 80% on new code)
 - [ ] Campus scoping applied to queries
 - [ ] Audit logging on mutations
 - [ ] RBAC middleware on endpoints
@@ -229,6 +253,94 @@ Before submitting code:
 - [ ] API docs updated if endpoints changed
 - [ ] No hardcoded secrets
 - [ ] No PII in logs
+- [ ] Complexity within thresholds (see Quality Governance below)
+- [ ] Clean code categories satisfied (Consistency, Intentionality, Adaptability, Responsibility)
+- [ ] Quality gates pass (0 bugs, 0 vulnerabilities, duplication ≤ 3%)
+
+---
+
+## Quality Governance
+
+All code must follow the quality profiles, quality gates, and clean code guidelines defined in `docs/quality/`. These are non-negotiable engineering constraints.
+
+### Quality Profiles
+
+Two profiles enforce stack-specific standards:
+- **Backend (Go)**: `docs/quality/quality-profiles.md`
+- **Frontend (React/TS)**: `docs/quality/quality-profiles.md`
+
+Both profiles enforce three software qualities: **Security**, **Reliability**, **Maintainability**.
+
+### Quality Gates (Mandatory)
+
+Per `docs/quality/quality-gates.md`:
+
+**New Code (every PR):**
+- 0 bugs, 0 vulnerabilities, security hotspots 100% reviewed
+- Test coverage ≥ 80%, duplication ≤ 3%
+- Maintainability, reliability, security ratings = A
+
+**Overall Code (sprint release):**
+- 0 blocker/high issues, coverage ≥ 70% (tightens to 80%), duplication ≤ 5%
+- All ratings = A
+
+Quality gates are enforced by the `pre-merge` hook (blocking) and `pre-release` hook (blocking). No exceptions without an ADR.
+
+### Complexity Thresholds
+
+Per `docs/quality/complexity-guidelines.md`:
+
+| Metric | Go | React/TS |
+|--------|-----|----------|
+| Cognitive complexity / function | 25 | 15 |
+| Cyclomatic complexity / function | 10 | 10 |
+| Function length | 40 lines | 50 lines |
+| File length | 400 lines | 300 lines |
+| Nesting depth | 3 | 3 |
+| Parameter count | 5 | 5 |
+| Return values | 3 | — |
+| Component JSX lines | — | 80 |
+
+### Clean Code Categories
+
+Per `docs/quality/clean-code-guidelines.md`, all code must satisfy:
+- **Consistency**: Follow established patterns uniformly.
+- **Intentionality**: Names reveal purpose. No dead code.
+- **Adaptability**: Dependencies point inward. Changes confined to appropriate layer.
+- **Responsibility**: Each function does one thing.
+
+### Software Qualities (Non-Negotiable)
+
+Per `docs/quality/quality-profiles.md`:
+- **Security**: OWASP Top 10 protection, Keycloak-only auth, no exposed PII, audit logging.
+- **Reliability**: Every error handled, consistent state transitions, graceful degradation.
+- **Maintainability**: Low complexity, modular design, minimal duplication.
+
+### AI Agent Responsibility
+
+The AI agent MUST:
+- Enforce quality profiles during implementation and review.
+- Run quality gate validation before marking work complete.
+- Proactively identify and fix quality issues.
+- Use the `refactor-for-quality` playbook when quality gates fail.
+- Never approve code that violates quality gates.
+
+### Quality Documentation
+
+- Quality profiles: `docs/quality/quality-profiles.md`
+- Clean code guidelines: `docs/quality/clean-code-guidelines.md`
+- Quality gates: `docs/quality/quality-gates.md`
+- Complexity guidelines: `docs/quality/complexity-guidelines.md`
+
+---
+
+## Commit Convention
+
+```
+<type>: <short description>
+
+Types: feat, fix, refactor, test, docs, chore, ci
+```
 
 ---
 

@@ -327,3 +327,16 @@ Before submitting any work:
 - [ ] Code comments and variable names in English.
 - [ ] Offline-capable features save to IndexedDB with sync queue.
 - [ ] Authentication via keycloak-js (no custom login forms).
+
+### Quality Profile Compliance (React/TypeScript Frontend)
+
+Per `docs/quality/quality-profiles.md` and `docs/quality/complexity-guidelines.md`:
+- [ ] Cognitive complexity per function ≤ 15.
+- [ ] Cyclomatic complexity per function ≤ 10.
+- [ ] Function length ≤ 50 lines.
+- [ ] File length ≤ 300 lines.
+- [ ] Nesting depth ≤ 3 levels.
+- [ ] Parameter count ≤ 5.
+- [ ] Component JSX ≤ 80 lines.
+- [ ] No duplicated logic (duplication on new code ≤ 3%).
+- [ ] Clean code categories satisfied: Consistency, Intentionality, Adaptability, Responsibility.

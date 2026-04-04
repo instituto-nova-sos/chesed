@@ -145,6 +145,79 @@ Before considering any task complete:
 
 ---
 
+## Quality Governance
+
+All code must follow the quality profiles, quality gates, and clean code guidelines defined in `docs/quality/`. These are non-negotiable engineering constraints.
+
+### Quality Profiles
+
+Two profiles enforce stack-specific standards:
+- **Backend (Go)**: `docs/quality/quality-profiles.md` — error handling, context propagation, interface design, dependency direction, naming, testing.
+- **Frontend (React/TS)**: `docs/quality/quality-profiles.md` — TypeScript strictness, component quality, hooks, forms, styling, authentication.
+
+### Quality Gates (Mandatory)
+
+Per `docs/quality/quality-gates.md`:
+
+**New Code (every PR):**
+- 0 bugs, 0 vulnerabilities, security hotspots 100% reviewed
+- Test coverage ≥ 80%, duplication ≤ 3%
+- Maintainability, reliability, security ratings = A
+
+**Overall Code (sprint release):**
+- 0 blocker/high issues, coverage ≥ 70% (tightens to 80%), duplication ≤ 5%
+- All ratings = A
+
+Quality gates are enforced by the `pre-merge` hook (blocking) and `pre-release` hook (blocking). No exceptions without an ADR.
+
+### Complexity Thresholds
+
+Per `docs/quality/complexity-guidelines.md`:
+
+| Metric | Go | React/TS |
+|--------|-----|----------|
+| Cognitive complexity / function | 25 | 15 |
+| Cyclomatic complexity / function | 10 | 10 |
+| Function length | 40 lines | 50 lines |
+| File length | 400 lines | 300 lines |
+| Nesting depth | 3 | 3 |
+| Parameter count | 5 | 5 |
+| Return values | 3 | — |
+| Component JSX lines | — | 80 |
+
+### Clean Code Categories
+
+Per `docs/quality/clean-code-guidelines.md`, all code must satisfy:
+- **Consistency**: Follow established patterns uniformly.
+- **Intentionality**: Names reveal purpose. No dead code.
+- **Adaptability**: Dependencies point inward. Changes confined to appropriate layer.
+- **Responsibility**: Each function does one thing.
+
+### Software Qualities (Non-Negotiable)
+
+Per `docs/quality/quality-profiles.md`:
+- **Security**: OWASP Top 10 protection, Keycloak-only auth, no exposed PII, audit logging.
+- **Reliability**: Every error handled, consistent state transitions, graceful degradation.
+- **Maintainability**: Low complexity, modular design, minimal duplication.
+
+### AI Agent Responsibility
+
+The AI agent MUST:
+- Enforce quality profiles during implementation and review.
+- Run quality gate validation before marking work complete.
+- Proactively identify and fix quality issues.
+- Use the `refactor-for-quality` playbook when quality gates fail.
+- Never approve code that violates quality gates.
+
+### Quality Documentation
+
+- Quality profiles: `docs/quality/quality-profiles.md`
+- Clean code guidelines: `docs/quality/clean-code-guidelines.md`
+- Quality gates: `docs/quality/quality-gates.md`
+- Complexity guidelines: `docs/quality/complexity-guidelines.md`
+
+---
+
 ## Commit Convention
 
 ```
@@ -172,6 +245,10 @@ Types: feat, fix, refactor, test, docs, chore, ci
 - Keycloak config: `docs/20-keycloak-configuration.md`
 - Security tests: `docs/17-security-test-strategy.md`
 - Secure dev: `docs/19-secure-development-standard.md`
+- Quality profiles: `docs/quality/quality-profiles.md`
+- Clean code: `docs/quality/clean-code-guidelines.md`
+- Quality gates: `docs/quality/quality-gates.md`
+- Complexity: `docs/quality/complexity-guidelines.md`
 
 ---
 

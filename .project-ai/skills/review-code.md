@@ -25,6 +25,10 @@ Senior developer familiar with:
 |-------|----------|--------|
 | Files to review | Yes | File paths or git diff |
 | Architecture rules | Yes | CLAUDE.md, `docs/15-implementation-guidelines.md` |
+| Quality profile | Yes | `docs/quality/quality-profiles.md` |
+| Complexity thresholds | Yes | `docs/quality/complexity-guidelines.md` |
+| Clean code guidelines | Yes | `docs/quality/clean-code-guidelines.md` |
+| Quality gates | Yes | `docs/quality/quality-gates.md` |
 
 ## Process
 
@@ -131,19 +135,61 @@ Senior developer familiar with:
 - [ ] All UI text in Portuguese (pt-BR).
 - [ ] Variable names in English.
 
+### Quality Profile Compliance
+
+Evaluate code against the applicable quality profile from `docs/quality/quality-profiles.md`:
+
+#### Complexity Check
+- [ ] Cognitive complexity within threshold (Go: 25, TS: 15). See `docs/quality/complexity-guidelines.md`.
+- [ ] Cyclomatic complexity ≤ 10 per function.
+- [ ] Function length within threshold (Go: 40 lines, TS: 50 lines).
+- [ ] File length within threshold (Go: 400 lines, TS: 300 lines).
+- [ ] Nesting depth ≤ 3 levels.
+- [ ] Parameter count ≤ 5.
+- [ ] Return values ≤ 3 (Go only).
+- [ ] Component JSX ≤ 80 lines (React only).
+
+#### Duplication Check
+- [ ] No copy-pasted logic within the changed files.
+- [ ] No duplication of logic already present elsewhere in the codebase.
+- [ ] Duplicated lines on new code ≤ 3%.
+
+#### Clean Code Assessment
+
+Evaluate against all four categories from `docs/quality/clean-code-guidelines.md`:
+
+- [ ] **Consistency**: Patterns match sibling files in the same package/directory.
+- [ ] **Intentionality**: Names reveal purpose, no dead code, comments explain why not what.
+- [ ] **Adaptability**: Changes in one area have minimal ripple effects, dependencies point inward.
+- [ ] **Responsibility**: Each function/component has a single, well-defined responsibility.
+
+#### Quality Gate Validation
+
+After evaluating all checks above, render a quality gate verdict per `docs/quality/quality-gates.md`:
+
+- [ ] 0 new bugs (reliability issues).
+- [ ] 0 new vulnerabilities (security issues).
+- [ ] Coverage on new code ≥ 80%.
+- [ ] Maintainability rating = A.
+- [ ] Reliability rating = A.
+- [ ] Security rating = A.
+
 ## Outputs / Deliverables
 
 A review report with:
 
 1. **Summary**: Files reviewed, issues found by severity.
-2. **Issues** (per file):
+2. **Quality Gate**: PASS / FAIL with condition-by-condition results.
+3. **Issues** (per file):
    - Severity: BLOCKER / MAJOR / MINOR / SUGGESTION.
-   - Category: error-handling, architecture, naming, security, style.
+   - Category: error-handling, architecture, naming, security, style, complexity, duplication, clean-code.
    - Location: file path, line range.
    - Description: what is wrong and why.
    - Fix: specific correction.
-3. **Positive observations**: Well-written code worth noting.
-4. **Verdict**: APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION.
+4. **Clean Code Assessment**: Pass/fail per category (Consistency, Intentionality, Adaptability, Responsibility).
+5. **Complexity Report**: Functions exceeding thresholds with current values.
+6. **Positive observations**: Well-written code worth noting.
+7. **Verdict**: APPROVE / REQUEST_CHANGES / NEEDS_DISCUSSION.
 
 ## References
 
@@ -151,6 +197,10 @@ A review report with:
 |----------|------|-------|
 | Implementation guidelines | `docs/15-implementation-guidelines.md` | Coding patterns |
 | Project rules | `CLAUDE.md` | Non-negotiable constraints |
+| Quality profiles | `docs/quality/quality-profiles.md` | Stack-specific quality standards |
+| Complexity guidelines | `docs/quality/complexity-guidelines.md` | Measurable thresholds |
+| Clean code guidelines | `docs/quality/clean-code-guidelines.md` | Clean code categories |
+| Quality gates | `docs/quality/quality-gates.md` | Pass/fail criteria |
 
 ## Constraints / Quality Bar
 

@@ -254,13 +254,37 @@ For every feature, explicitly test:
 - [ ] Token expiry mid-operation.
 - [ ] Boundary dates (birth_date in future, very old dates).
 
+### Step 8: Test Quality Criteria
+
+Beyond coverage numbers, tests must meet quality standards:
+
+- [ ] **Independence**: Each test runs in isolation. No shared mutable state between tests. No test depends on another test's execution.
+- [ ] **Determinism**: Tests produce the same result on every run. No time-dependent assertions, no random data without seeding.
+- [ ] **Meaningful assertions**: Tests assert behavior, not implementation. Assert on output/side-effects, not internal state.
+- [ ] **Boundary value analysis**: Edge cases tested — empty inputs, maximum values, off-by-one boundaries, nil/null.
+- [ ] **Error path coverage**: Failure scenarios tested with equal rigor as happy paths. Service error handling has explicit test cases.
+- [ ] **Test naming**: Test names describe the scenario and expected outcome: `Test_Create_DuplicateDocument_ReturnsError`.
+- [ ] **No test pollution**: Tests clean up after themselves. Database tests use transactions rolled back after each test.
+
+### Coverage Thresholds (from Quality Gates)
+
+| Scope | Threshold | Source |
+|-------|-----------|--------|
+| New code (per PR) | ≥ 80% | `docs/quality/quality-gates.md` — New Code Gate |
+| Service layer | ≥ 80% | `docs/15-implementation-guidelines.md` |
+| Handler layer | ≥ 60% | `docs/15-implementation-guidelines.md` |
+| Critical paths (auth, RBAC, campus isolation) | ≥ 90% | Security requirements |
+| Overall codebase (Sprint 1-2) | ≥ 70% | `docs/quality/quality-gates.md` — Overall Code Gate |
+| Overall codebase (Sprint 3+) | ≥ 80% | `docs/quality/quality-gates.md` — Overall Code Gate |
+
 ## Outputs / Deliverables
 
 1. **Test case table**: Organized by layer (service, repository, handler, component, offline).
 2. **Test file paths**: Exact locations for each test file.
 3. **Mock definitions**: Interfaces to mock and mock setup patterns.
 4. **Test data fixtures**: Reusable test data factories.
-5. **Coverage targets**: Aim for 80%+ on service layer, 90%+ on critical paths (auth, RBAC, campus isolation).
+5. **Coverage targets**: Per quality gate thresholds above.
+6. **Test quality assessment**: Pass/fail on test quality criteria (independence, determinism, meaningful assertions).
 
 ## References
 
@@ -270,6 +294,7 @@ For every feature, explicitly test:
 | Implementation guidelines | `docs/15-implementation-guidelines.md` | Testing framework choices |
 | API design | `docs/11-api-design.md` | Response schemas for handler tests |
 | Offline sync | `docs/12-offline-sync-strategy.md` | Sync behavior for offline tests |
+| Quality gates | `docs/quality/quality-gates.md` | Coverage thresholds |
 
 ## Constraints / Quality Bar
 

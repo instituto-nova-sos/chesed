@@ -188,3 +188,11 @@ The security engineer's approval requires:
 - [ ] No PII in logs or error responses.
 - [ ] Keycloak handles all authentication (no custom auth code).
 - [ ] Security tests exist for new security-sensitive code paths.
+
+### Software Quality: Security Dimension
+
+Per `docs/quality/quality-profiles.md` — Security dimension:
+- [ ] Security rating = A (0 vulnerabilities) per quality gate.
+- [ ] All security hotspots reviewed (100%).
+- [ ] Protection against OWASP Top 10 and API Security Top 10 verified.
+- [ ] Quality gate security conditions pass (see `docs/quality/quality-gates.md`).

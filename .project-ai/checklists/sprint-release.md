@@ -59,6 +59,19 @@ Use this checklist at the end of each sprint before tagging a release. Every ite
 - [ ] Migrations are reversible (`migrate down` then `migrate up` produces same schema)
 - [ ] No data-destructive migrations without explicit approval
 
+## Quality Gates
+
+Per `docs/quality/quality-gates.md` — Overall Code Quality Gate:
+
+- [ ] 0 blocker severity issues in the codebase
+- [ ] 0 high severity issues in the codebase
+- [ ] Test coverage (overall) ≥ threshold (70% Sprint 1-2, 80% Sprint 3+)
+- [ ] Duplicated lines (overall) ≤ 5%
+- [ ] Maintainability rating = A
+- [ ] 0 reliability issues
+- [ ] 0 security issues
+- [ ] Security hotspots reviewed = 100%
+
 ## Release Artifacts
 
 - [ ] HANDOFF.md updated with sprint summary:

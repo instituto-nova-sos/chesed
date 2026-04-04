@@ -7,10 +7,11 @@ End-to-end workflow for delivering a feature from story to production-ready code
 ## Flow Overview
 
 ```
-STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> DOCUMENT ──> DELIVER
-  │         │        │           │             │           │           │
-  │         │        │           │             │           │           └─ prepare-sprint-delivery
-  │         │        │           │             │           └─ maintain-docs skill
+STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALITY VALIDATE ──> DOCUMENT ──> DELIVER
+  │         │        │           │             │              │           │
+  │         │        │           │             │              │           └─ prepare-sprint-delivery
+  │         │        │           │             │              └─ maintain-docs skill
+  │         │        │           │             └─ quality gates + reviewer agent
   │         │        │           │             └─ review-code skill + checklists
   │         │        │           └─ playbooks (backend/frontend/offline)
   │         │        └─ design skills (backend/frontend/offline/security)
@@ -157,6 +158,9 @@ Offline Support (if applicable)
    - Error handling is complete
    - Context propagation is correct
    - Logging follows standards
+   - Quality profile compliance
+   - Clean code categories
+   - Complexity thresholds
 
 3. **Run the appropriate checklist(s)**:
    - `backend-feature-complete.md` for backend changes
@@ -173,6 +177,7 @@ Offline Support (if applicable)
    - `npm test` (React)
    - `make lint` (golangci-lint)
    - ESLint (TypeScript)
+   - Quality gate validation
 
 ### Verification Matrix
 
@@ -183,6 +188,44 @@ Offline Support (if applicable)
 | Full stack | All checklists + all tests + all lints |
 | Security-sensitive | Above + security-review checklist |
 | Database change | Above + migration up/down test |
+
+---
+
+## Phase 4.5: QUALITY VALIDATE
+
+**Goal**: Enforce quality gates before code enters the main branch.
+
+### Steps
+
+1. **Run quality gate evaluation**:
+   - Evaluate all changed code against New Code Quality Gate from `docs/quality/quality-gates.md`
+   - All conditions must pass (0 bugs, 0 vulnerabilities, coverage ≥ 80%, duplication ≤ 3%, ratings = A)
+
+2. **Run maintainability analysis** (for significant changes):
+   - Execute `maintainability-analysis` skill
+   - Check complexity, duplication, coupling, cohesion, naming quality
+   - Verify clean code categories: Consistency, Intentionality, Adaptability, Responsibility
+
+3. **Run reliability validation** (if error handling or state transitions involved):
+   - Execute `reliability-validation` skill
+   - Verify error recovery, state consistency, fault tolerance
+
+4. **Invoke reviewer agent**:
+   - Reviewer evaluates PR against quality gate
+   - Issues APPROVE or REQUEST_CHANGES verdict
+   - All BLOCKER and MAJOR issues must be resolved
+
+5. **Run pre-merge hook**:
+   - Final quality gate enforcement — blocking
+   - All conditions must pass for merge
+
+### Quality Gate Failure Recovery
+
+If quality gate fails:
+- Follow `refactor-for-quality` playbook
+- Run `refactoring` checklist after fixes
+- Re-evaluate quality gate
+- Repeat until all conditions pass
 
 ---
 
@@ -250,6 +293,7 @@ Offline Support (if applicable)
 | IMPLEMENT (backend) | backend-engineer | — |
 | IMPLEMENT (frontend) | frontend-engineer | — |
 | VERIFY | tech-lead | security-engineer (if needed) |
+| QUALITY VALIDATE | reviewer | tech-lead, security-engineer (if needed) |
 | DOCUMENT | tech-lead | — |
 | DELIVER | tech-lead | — |
 

@@ -148,6 +148,15 @@ A security review report with:
 | Secure development standard | `docs/19-secure-development-standard.md` | Coding rules |
 | Keycloak configuration | `docs/20-keycloak-configuration.md` | Realm settings |
 
+### Software Quality: Security Dimension
+
+This skill validates the **Security** dimension defined in `docs/quality/quality-profiles.md`. Security findings directly impact the Security rating in the quality gate:
+
+- Security rating A = 0 vulnerabilities → quality gate PASS
+- Any vulnerability → Security rating degrades → quality gate FAIL
+
+Quality gate reference: `docs/quality/quality-gates.md`
+
 ## Constraints / Quality Bar
 
 - Any CRITICAL finding is a merge blocker.

@@ -48,7 +48,15 @@ Before writing any implementation code (backend handler, service, repository, fr
      - IndexedDB or sync logic
    - Reference: `docs/13-security-and-compliance.md`, `docs/18-threat-model.md`.
 
-7. **Verify new tables are in Phase 1 list**
+7. **Assess complexity expectations**
+   - Before writing code, estimate the complexity of the planned change.
+   - Reference thresholds from `docs/quality/complexity-guidelines.md`:
+     - Go: cognitive complexity ≤ 25 per function, cyclomatic ≤ 10, function length ≤ 40 lines.
+     - TypeScript: cognitive complexity ≤ 15 per function, cyclomatic ≤ 10, function length ≤ 50 lines.
+   - If the feature will likely require functions exceeding these thresholds, plan the decomposition upfront.
+   - Identify which existing files may exceed file length limits (Go: 400, TS: 300) after the change, and plan extraction.
+
+8. **Verify new tables are in Phase 1 list**
    - If the story requires new database tables, confirm they are in the Phase 1 list:
      `campus`, `person`, `address`, `person_role`, `assisted_profile`, `app_user`, `service_type`, `triage`, `triage_requested_service`, `attendance`, `attendance_transition`, `audit_log`.
    - If a table is not in this list, STOP. It belongs to a later phase.

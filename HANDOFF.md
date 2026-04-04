@@ -228,6 +228,66 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 
 ---
 
+## Session 6: Quality Governance Audit (2026-04-04)
+
+### What Was Done
+1. **Comprehensive audit** of the Quality Governance system across all documentation, AI tooling, CLAUDE.md, and CODEX.md
+2. **docs/quality/ review**: All 4 files (quality-gates.md, quality-profiles.md, clean-code-guidelines.md, complexity-guidelines.md) verified internally consistent — no issues found
+3. **.project-ai/ review**: All 47+ artifacts verified for quality enforcement — comprehensive chain with no gaps
+4. **CLAUDE.md corrections**: Complexity table completed with 3 missing metrics
+5. **CODEX.md corrections**: 6 missing sections/rules added for governance alignment
+6. **HANDOFF.md**: Audit report documented
+
+### Issues Found and Fixed
+
+| # | File | Issue | Severity | Fix |
+|---|------|-------|----------|-----|
+| 1 | CLAUDE.md | Complexity table missing Parameter count (5/5) | MINOR | Added row |
+| 2 | CLAUDE.md | Complexity table missing Return values (Go: 3) | MINOR | Added row |
+| 3 | CLAUDE.md | Complexity table missing Component JSX lines (React: 80) | MINOR | Added row |
+| 4 | CODEX.md | Missing Documentation-First Workflow section | MAJOR | Added section after "Before You Start Coding" |
+| 5 | CODEX.md | Missing Code Strictness rules (TypeScript `any`, error handling, singletons, audit_log immutability, migration up/down, Keycloak realm export) | MAJOR | Added "Code Strictness" subsection |
+| 6 | CODEX.md | Missing Software Qualities (Non-Negotiable) subsection | MAJOR | Added under Quality Governance |
+| 7 | CODEX.md | Missing AI Agent Responsibility section | MAJOR | Added under Quality Governance |
+| 8 | CODEX.md | Missing Commit Convention | MINOR | Added section |
+| 9 | CODEX.md | Complexity table missing Return values and Component JSX lines | MINOR | Added rows |
+
+### Key Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Keep "Quality Checklist" naming in CODEX.md (not rename to "Quality Bar") | "Checklist" with checkboxes is more actionable for execution-focused agents. Both enforce same rules. |
+| Add "Code Strictness" as separate subsection in CODEX.md | TypeScript `any`, error handling, audit_log immutability are code-level constraints distinct from Security and Architecture |
+| AI Agent Responsibility applies to ALL agents (added to CODEX.md) | The 5 enforcement rules are universal — limiting them to Claude-only created a bypass risk for other agents |
+| Software Qualities listed explicitly in both files | Previously CODEX.md only referenced quality-profiles.md by link without listing the three dimensions |
+
+### Post-Audit State
+
+**CLAUDE.md and CODEX.md now enforce the same governance model:**
+- Same quality gates (New Code + Overall Code)
+- Same software qualities (Security, Reliability, Maintainability)
+- Same clean code categories (Consistency, Intentionality, Adaptability, Responsibility)
+- Same complexity thresholds (all 8 metrics aligned)
+- Same AI agent responsibility rules
+- Same documentation-first workflow
+- Same commit convention
+
+**Intentional differences preserved:**
+- CODEX.md: "Quality Checklist" (actionable checkboxes) vs CLAUDE.md: "Quality Bar" (aspirational criteria)
+- CODEX.md: Common Tasks walkthroughs, Naming Conventions table, File Structure tree, Testing examples
+- CLAUDE.md: Code Structure dependency diagrams, Key Documentation References list
+
+### Remaining Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Rating definitions (A-E) only in quality-gates.md, not in summary files | LOW | docs/quality/ is the authoritative source |
+| Coverage roadmap (sprint schedule) only in quality-gates.md | LOW | Summary says "tightens to 80%" which is sufficient |
+| Summary tables in CLAUDE.md/CODEX.md could drift from docs/quality/ | MEDIUM | AI Agent Responsibility mandates validation; .project-ai/ continuous improvement catches drift |
+| No automated linter enforcement yet (no code exists) | MEDIUM | Linter configs documented in complexity-guidelines.md ready to copy when scaffolding |
+
+---
+
 ## Open Questions
 
 These need stakeholder input (but have documented defaults that allow implementation to proceed):

@@ -53,7 +53,20 @@ Before tagging a git release for a sprint milestone. Before declaring a sprint a
      - Environment setup notes if changed
    - Ensure `HANDOFF.md` is sufficient for another developer (or AI agent) to continue work.
 
-5. **Tag release in git**
+5. **Enforce Overall Code Quality Gate**
+   - Evaluate the entire codebase against the Overall Code Quality Gate from `docs/quality/quality-gates.md`:
+     - [ ] 0 blocker severity issues.
+     - [ ] 0 high severity issues.
+     - [ ] Test coverage (overall) ≥ threshold (70% Sprint 1-2, 80% Sprint 3+).
+     - [ ] Duplicated lines (overall) ≤ 5%.
+     - [ ] Maintainability rating = A.
+     - [ ] 0 reliability issues.
+     - [ ] 0 security issues.
+     - [ ] Security hotspots reviewed = 100%.
+   - If any condition fails, the release is blocked. Resolve failures before proceeding.
+   - Reference: `.project-ai/rules/quality-gates.md`
+
+6. **Tag release in git**
    - Create an annotated git tag following the format: `sprint-N-vX.Y.Z`
      - Example: `sprint-1-v0.1.0`, `sprint-2-v0.2.0`
    - Tag message must include:

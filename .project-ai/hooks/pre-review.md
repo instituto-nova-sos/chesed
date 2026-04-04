@@ -28,32 +28,44 @@ Before marking any story, task, or feature as complete. Before writing a "done" 
    - No `any` type usage in TypeScript (strict mode enforced).
    - No ignored errors (`_`) in Go.
 
-3. **Run the appropriate checklist**
+3. **Run quality gate validation**
+   - Evaluate changed code against the New Code Quality Gate from `docs/quality/quality-gates.md`:
+     - 0 new bugs (reliability issues).
+     - 0 new vulnerabilities (security issues).
+     - Coverage on new code ≥ 80%.
+     - Duplication on new code ≤ 3%.
+     - Maintainability rating = A.
+     - Reliability rating = A.
+     - Security rating = A.
+   - Check complexity thresholds from `docs/quality/complexity-guidelines.md` on all changed functions.
+   - If any condition fails, fix before proceeding. Do not mark work as complete with failing quality gates.
+
+4. **Run the appropriate checklist**
    - If backend work: verify handler -> service -> repository layering is correct.
    - If frontend work: verify component -> hook -> API layer separation.
    - If migration work: verify up/down pair and domain struct alignment.
    - If full-stack: run all applicable checklists.
    - Reference the relevant checklist in `.project-ai/checklists/`.
 
-4. **Run API contract review if API changed**
+5. **Run API contract review if API changed**
    - If any handler or route was modified, execute the `review-api-contract` skill.
    - Verify implementation matches `docs/11-api-design.md`.
    - Verify error response format is consistent.
    - Verify pagination format for list endpoints.
 
-5. **Run security review if security-sensitive**
+6. **Run security review if security-sensitive**
    - If the change touches any security-sensitive area (see `rules/security-review-triggers.md`), execute the `review-security` skill.
    - Areas requiring review: auth middleware, PII fields, Keycloak config, IndexedDB, sync logic, RBAC, audit logging.
    - Document any security findings and their resolution.
 
-6. **Verify documentation is updated**
+7. **Verify documentation is updated**
    - If API changed: `docs/11-api-design.md` reflects current implementation.
    - If schema changed: `docs/10-data-model.md` reflects current schema.
    - If domain model changed: `docs/04-domain-model.md` reflects current model.
    - If new patterns introduced: `docs/15-implementation-guidelines.md` updated.
    - `HANDOFF.md` updated with session progress.
 
-7. **Verify commit messages follow convention**
+8. **Verify commit messages follow convention**
    - Format: `<type>: <story-id> - <short description>`
    - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`
    - Story ID references backlog (e.g., S03.1) or tagged as TE/chore.
