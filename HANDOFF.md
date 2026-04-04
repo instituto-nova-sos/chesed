@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-03
+2026-04-03 (Session 5)
 
 ---
 
@@ -185,6 +185,46 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 | `docs/13-security-and-compliance.md` | Data retention policy, anonymization rules, audit forwarding decision |
 | `CLAUDE.md` | Product scope guardrails added |
 | `CODEX.md` | Product scope guardrails added |
+
+---
+
+## Session 5: AI Tooling Structure Audit and Compatibility Review (2026-04-03)
+
+### What Was Done
+1. **Full audit** of the `.project-ai/` directory structure (49 artifacts across 8 categories)
+2. **Compatibility review** evaluating `.project-ai/` vs `.claude/` conventions for AI-assisted workflows
+3. **Cross-reference audit** of all 551 internal references across 49 files — zero broken links found
+4. **Documentation fixes** for inconsistencies found during the audit
+5. **Decision documented**: `.project-ai/` convention retained, flat file skill structure retained
+
+### Key Decision: Keep `.project-ai/` Convention
+
+**Question evaluated**: Should the AI delivery operating model live in `.project-ai/` or be migrated to `.claude/`?
+
+**Decision**: Keep `.project-ai/` — do not migrate.
+
+**Rationale**:
+- Claude Code owns `~/.claude/` for user-level state (memory, plans, settings) and has its own `skills/` directory there. A project-level `.claude/` would create naming conflicts and ambiguity between Claude Code tooling state and project delivery artifacts.
+- There is no official Claude Code convention for project-level `.claude/` directories. The only official project-level touchpoint is `CLAUDE.md` at the root.
+- The operating model is agent-agnostic by design (both `CLAUDE.md` and `CODEX.md` reference it). Moving it to `.claude/` would tie it to a single vendor.
+- `.project-ai/` accurately describes what it contains: project-level AI delivery artifacts.
+
+**Skill structure decision**: Keep flat files (`skills/name.md`), not directories (`skills/name/SKILL.md`). All 12 skills are single markdown files with no auxiliary content. The directory pattern solves a problem (multi-file skills) that doesn't exist here. If a skill ever needs auxiliary files, only that skill should be converted.
+
+### Issues Found and Fixed
+
+| File | Issue | Fix |
+|------|-------|-----|
+| `CLAUDE.md` line 190 | Missing `.project-ai/` prefix on `workflows/feature-delivery.md` path | Added `.project-ai/` prefix |
+| `README.md` line 23 | Auth listed as "JWT + RBAC" (stale — Keycloak adopted in Session 3) | Updated to "Keycloak (OIDC) + RBAC" |
+| `README.md` project structure | `.project-ai/` directory not listed | Added to project tree |
+| `README.md` AI-Assisted Development | `.project-ai/` not referenced | Added reference with description |
+
+### Cross-Reference Audit Results
+- **49 `.project-ai/` files verified**: all exist and are properly structured
+- **551 cross-references checked**: 100% valid (456 to `docs/`, 95 internal)
+- **16 documentation files referenced**: all exist
+- **Special case**: `docs/adrs/` referenced in `workflows/architecture-change.md` does not exist yet (by design — created when first ADR is written)
 
 ---
 

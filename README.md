@@ -20,7 +20,7 @@
 | Frontend | React + TypeScript + Vite + Tailwind CSS |
 | Database | PostgreSQL 16 |
 | Architecture | REST API, offline-first PWA, mobile-first |
-| Auth | JWT + RBAC with campus-scoped data isolation |
+| Auth | Keycloak (OIDC) + RBAC with campus-scoped data isolation |
 | Storage | S3-compatible (MinIO dev, Cloudflare R2 prod) |
 
 ## Project Structure
@@ -41,6 +41,7 @@ chesed/
 │   │   ├── pages/            # Route-level pages
 │   │   └── types/            # TypeScript interfaces
 │   └── vite.config.ts
+├── .project-ai/              # AI delivery operating model (skills, agents, hooks, rules, playbooks, templates, checklists, workflows)
 ├── docs/                     # Architecture and product documentation
 ├── CLAUDE.md                 # AI agent rules (Claude Code)
 ├── CODEX.md                  # AI agent rules (any coding agent)
@@ -91,6 +92,7 @@ This repository is designed for AI-assisted development. See:
 - [`CLAUDE.md`](CLAUDE.md) — Rules for Claude Code
 - [`CODEX.md`](CODEX.md) — Rules for any AI coding agent
 - [`HANDOFF.md`](HANDOFF.md) — Session continuity and next steps
+- [`.project-ai/`](.project-ai/) — Delivery operating model with 49 artifacts (skills, agents, hooks, rules, playbooks, templates, checklists, workflows)
 
 ## Origin
 

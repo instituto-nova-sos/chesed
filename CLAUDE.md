@@ -178,3 +178,34 @@ Types: feat, fix, refactor, test, docs, chore, ci
 ## Language
 
 All code comments, variable names, API fields, and documentation MUST be in English. The UI text (displayed to users) will be in Portuguese (Brazilian) via i18n.
+
+---
+
+## AI-Assisted Delivery Operating Model
+
+This repository includes a project-level AI delivery operating system at `.project-ai/`. It provides skills, agents, hooks, rules, playbooks, templates, checklists, and workflows that orchestrate how work flows through the delivery lifecycle.
+
+### How to Use
+
+- Start every feature with `.project-ai/workflows/feature-delivery.md`
+- Follow the relevant playbook for implementation (backend endpoint, frontend page, database table, offline support)
+- Run the appropriate checklist before marking work complete
+- Use the operating model index at `.project-ai/OPERATING_MODEL.md` to find the right artifact
+
+### Continuous Improvement Mandate
+
+During the development lifecycle, the AI agent MUST continuously evaluate whether the `.project-ai/` tools:
+
+1. **Are sufficient** — Do they cover the current delivery needs?
+2. **Need refinement** — Are any artifacts outdated, unclear, or missing steps?
+3. **Need consolidation** — Are any artifacts redundant or overlapping?
+4. **Need additions** — Are there recurring patterns that would benefit from a new artifact?
+
+When recurring friction, ambiguity, repeated work, or quality gaps are identified, the AI agent SHOULD:
+
+- Propose improvements to existing skills, agents, hooks, rules, playbooks, templates, checklists, or workflows
+- Create new artifacts when justified by repeated patterns
+- Update existing artifacts when outdated
+- Remove artifacts that prove unnecessary
+
+These tools are **living project artifacts** that evolve with the project. Maintaining and improving them is an explicit responsibility during delivery.
