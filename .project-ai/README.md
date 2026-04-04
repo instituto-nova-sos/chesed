@@ -20,9 +20,14 @@ This directory contains the **project-level AI delivery operating model** for th
 | I want to... | Use this artifact |
 |---------------|-------------------|
 | Start a new feature | `workflows/feature-delivery.md` |
+| Refine a business request into a story | `skills/refine-requirements.md` |
+| Validate acceptance criteria | `skills/validate-acceptance-criteria.md` |
 | Break a story into tasks | `skills/analyze-requirements.md` |
+| Design an API contract | `skills/design-api-contract.md` |
+| Design a database schema | `skills/design-database-schema.md` |
 | Design a backend endpoint | `skills/design-backend-feature.md` |
 | Design a frontend page | `skills/design-frontend-feature.md` |
+| Bootstrap project infrastructure | `playbooks/bootstrap-project-infrastructure.md` |
 | Implement a backend endpoint | `playbooks/implement-backend-endpoint.md` |
 | Implement a frontend page | `playbooks/implement-frontend-page.md` |
 | Add a database table | `playbooks/add-database-table.md` |
@@ -32,11 +37,18 @@ This directory contains the **project-level AI delivery operating model** for th
 | Review code quality | `skills/review-code.md` |
 | Review a migration | `skills/review-migration.md` |
 | Design tests | `skills/design-test-plan.md` |
+| Validate test coverage | `skills/execute-test-plan.md` |
+| Analyze performance | `skills/performance-analysis.md` |
 | Check if backend work is done | `checklists/backend-feature-complete.md` |
 | Check if frontend work is done | `checklists/frontend-feature-complete.md` |
 | Prepare a sprint release | `playbooks/prepare-sprint-delivery.md` |
 | Make an architecture decision | `templates/adr.md` + `workflows/architecture-change.md` |
 | Handle security-sensitive change | `workflows/security-sensitive-change.md` |
+| Fix a bug | `workflows/bug-fix-workflow.md` |
+| Handle a production emergency | `workflows/hotfix-workflow.md` + `playbooks/rollback-and-hotfix.md` |
+| Onboard a new domain area | `playbooks/onboard-new-feature-domain.md` |
+| Run a sprint retrospective | `templates/sprint-retrospective.md` |
+| Document an incident | `templates/incident-report.md` |
 | End a session | `skills/prepare-handoff.md` |
 
 ---
@@ -54,6 +66,9 @@ Procedural triggers that fire at key delivery moments (before implementing, befo
 
 ### Rules (`rules/`)
 Codified decision rules for process discipline (documentation-first, backlog traceability, phase boundaries, security review triggers, offline-first assessment).
+
+### Prompts (`prompts/`)
+Standalone, reusable prompts that drive each stage of the development lifecycle. Each prompt defines a role, objective, inputs, outputs, constraints, quality enforcement, and AI tooling integration. Prompts are the executable layer that orchestrates skills, agents, hooks, and rules into a complete pipeline.
 
 ### Playbooks (`playbooks/`)
 Step-by-step guides for recurring multi-step workflows (implement endpoint, implement page, add table, add offline support, security review, sprint delivery).
@@ -73,15 +88,16 @@ Process diagrams showing how skills, agents, hooks, and playbooks connect across
 
 | Category | Count | Files |
 |----------|-------|-------|
-| Skills | 12 | analyze-requirements, design-backend-feature, design-frontend-feature, review-api-contract, review-security, design-test-plan, review-code, review-migration, design-offline-support, maintain-docs, assess-release-readiness, prepare-handoff |
-| Agents | 4 | tech-lead, backend-engineer, frontend-engineer, security-engineer |
-| Hooks | 7 | pre-implement, pre-api-change, post-api-change, pre-migration, post-migration, pre-review, pre-release |
-| Rules | 5 | documentation-first, backlog-traceability, phase-boundary, security-review-triggers, offline-first-assessment |
-| Playbooks | 6 | implement-backend-endpoint, implement-frontend-page, add-database-table, add-offline-support, conduct-security-review, prepare-sprint-delivery |
-| Templates | 5 | feature-spec, adr, api-change-proposal, test-plan, security-review-report |
-| Checklists | 5 | backend-feature-complete, frontend-feature-complete, api-review, security-review, sprint-release |
-| Workflows | 3 | feature-delivery, architecture-change, security-sensitive-change |
-| **Total** | **47 + 2 meta** | |
+| Skills | 20 | analyze-requirements, assess-release-readiness, design-api-contract, design-backend-feature, design-database-schema, design-frontend-feature, design-offline-support, design-test-plan, execute-test-plan, infrastructure-setup, maintain-docs, maintainability-analysis, performance-analysis, prepare-handoff, refine-requirements, reliability-validation, review-api-contract, review-code, review-migration, review-security, validate-acceptance-criteria |
+| Agents | 8 | tech-lead, backend-engineer, frontend-engineer, security-engineer, reviewer, devops-engineer, qa-engineer, product-analyst |
+| Hooks | 11 | pre-implement, pre-api-change, post-api-change, pre-migration, post-migration, post-implement, pre-review, pre-merge, pre-release, pre-deploy, post-deploy |
+| Rules | 10 | documentation-first, backlog-traceability, phase-boundary, security-review-triggers, offline-first-assessment, quality-gates, dependency-management, test-coverage-enforcement, performance-budget, api-versioning-strategy |
+| Playbooks | 11 | implement-backend-endpoint, implement-frontend-page, add-database-table, add-offline-support, conduct-security-review, prepare-sprint-delivery, implement-with-quality, refactor-for-quality, bootstrap-project-infrastructure, rollback-and-hotfix, onboard-new-feature-domain |
+| Templates | 8 | feature-spec, adr, api-change-proposal, test-plan, security-review-report, performance-report, incident-report, sprint-retrospective |
+| Checklists | 7 | backend-feature-complete, frontend-feature-complete, api-review, security-review, sprint-release, pr-quality, refactoring |
+| Workflows | 6 | feature-delivery, architecture-change, security-sensitive-change, bug-fix-workflow, hotfix-workflow, performance-optimization |
+| Prompts | 10 | requirement-analysis, architecture-design, task-breakdown, backend-implementation, frontend-implementation, code-review, test-generation, security-review, performance-review, release-readiness |
+| **Total** | **91 + 2 meta** | |
 
 ---
 

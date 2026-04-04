@@ -65,9 +65,10 @@ STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALI
 
 | Track | Condition | Action |
 |-------|-----------|--------|
+| **API Contract** | Feature has new API endpoints | Run `design-api-contract` skill |
+| **Database** | Feature needs new tables/columns | Run `design-database-schema` skill |
 | **Backend** | Feature has API endpoints | Run `design-backend-feature` skill |
 | **Frontend** | Feature has UI | Run `design-frontend-feature` skill |
-| **Database** | Feature needs new tables/columns | Follow `add-database-table` playbook design steps |
 | **Offline** | Feature must work offline | Run `design-offline-support` skill |
 | **Security** | Feature is security-sensitive | Run `review-security` skill early (shift-left) |
 
@@ -139,7 +140,28 @@ Frontend: Types -> API Client -> Hooks -> Components -> Page
        │
        v
 Offline Support (if applicable)
+       │
+       v
+Post-Implement Hook (tests, lint, quality assessment, docs check)
 ```
+
+---
+
+## Phase 3.5: POST-IMPLEMENT
+
+**Goal**: Automated verification before entering review pipeline.
+
+### Steps
+
+1. **Run post-implement hook**:
+   - Run full test suite.
+   - Run all linters.
+   - Quick quality gate assessment on changed files.
+   - Verify documentation is updated.
+   - Check for new dependency additions.
+   - Generate implementation summary for reviewer.
+
+2. All findings must be addressed before proceeding to VERIFY.
 
 ---
 
@@ -286,16 +308,19 @@ If quality gate fails:
 
 | Phase | Primary Agent | Supporting Agent |
 |-------|--------------|-----------------|
-| PLAN | tech-lead | — |
+| PLAN | tech-lead | product-analyst (requirements refinement) |
+| DESIGN (API/schema) | backend-engineer | tech-lead |
 | DESIGN (backend) | backend-engineer | tech-lead |
 | DESIGN (frontend) | frontend-engineer | tech-lead |
 | DESIGN (security) | security-engineer | tech-lead |
 | IMPLEMENT (backend) | backend-engineer | — |
 | IMPLEMENT (frontend) | frontend-engineer | — |
-| VERIFY | tech-lead | security-engineer (if needed) |
-| QUALITY VALIDATE | reviewer | tech-lead, security-engineer (if needed) |
+| IMPLEMENT (infra) | devops-engineer | backend-engineer, frontend-engineer |
+| POST-IMPLEMENT | — (automated) | — |
+| VERIFY | tech-lead | security-engineer (if needed), qa-engineer (test validation) |
+| QUALITY VALIDATE | reviewer | tech-lead, qa-engineer, security-engineer (if needed) |
 | DOCUMENT | tech-lead | — |
-| DELIVER | tech-lead | — |
+| DELIVER | tech-lead | devops-engineer (deployment) |
 
 ---
 
