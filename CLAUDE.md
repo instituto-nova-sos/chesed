@@ -142,6 +142,7 @@ Before considering any task complete:
 6. Offline behavior considered (will this feature degrade gracefully?)
 7. Audit logging present for data mutations
 8. Campus scoping applied
+9. **HANDOFF.md updated** with task progress (files created/modified, decisions, current state, next steps)
 
 ---
 

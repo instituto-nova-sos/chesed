@@ -54,6 +54,16 @@ After completing implementation of a story — all code is written, tests are wr
    - Note any deviations from the original design.
    - This summary feeds into the `pre-review` hook and reviewer agent.
 
+7. **Update HANDOFF.md with task progress**
+   - Append or update the current session section in `HANDOFF.md` with:
+     - Task/story completed (ID and short description).
+     - Files created or modified (with purpose).
+     - Key decisions made (with rationale).
+     - Current state (what works, what's partial, what's blocked).
+     - Updated next steps.
+   - This step is **non-negotiable** — every completed task must be reflected in HANDOFF.md before proceeding to the next task.
+   - The next agent or human must be able to read HANDOFF.md at any point and understand the current project state.
+
 ## Enforcement Mechanism
 
 - The AI agent must execute this hook automatically after completing implementation code.
@@ -74,3 +84,4 @@ After completing implementation of a story — all code is written, tests are wr
 - Documentation drift causes confusion between spec and implementation.
 - Quality gate failures at pre-merge are more expensive to fix than at post-implement.
 - Undocumented dependency additions bypass evaluation.
+- Stale HANDOFF.md causes context loss between sessions — the next agent starts blind.

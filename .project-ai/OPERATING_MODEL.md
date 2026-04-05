@@ -114,7 +114,7 @@ This document is the **central index** for the AI-assisted delivery operating sy
 | **post-api-change** | After API endpoint changes | No* | Run API contract review, update docs |
 | **pre-migration** | Before creating migration files | Yes | Verify table documented, in Phase 1 |
 | **post-migration** | After creating migration files | No* | Run migration review, verify domain structs |
-| **post-implement** | After implementation, before review | No* | Run tests, linters, quality assessment, verify docs, dependency check |
+| **post-implement** | After implementation, before review | No* | Run tests, linters, quality assessment, verify docs, dependency check, **update HANDOFF.md** |
 | **pre-review** | Before marking work complete | Yes | Run tests, lint, quality gate validation, appropriate checklists |
 | **pre-merge** | Before merging PR | Yes | Enforce New Code Quality Gate, validate complexity, reviewer verdict |
 | **pre-release** | Before sprint release | Yes | Run release readiness, Overall Code Quality Gate, performance budget, tag git |

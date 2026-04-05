@@ -142,7 +142,7 @@ Frontend: Types -> API Client -> Hooks -> Components -> Page
 Offline Support (if applicable)
        │
        v
-Post-Implement Hook (tests, lint, quality assessment, docs check)
+Post-Implement Hook (tests, lint, quality assessment, docs check, HANDOFF.md update)
 ```
 
 ---
@@ -160,6 +160,7 @@ Post-Implement Hook (tests, lint, quality assessment, docs check)
    - Verify documentation is updated.
    - Check for new dependency additions.
    - Generate implementation summary for reviewer.
+   - **Update HANDOFF.md** with completed task, files created/modified, decisions, and current state.
 
 2. All findings must be addressed before proceeding to VERIFY.
 

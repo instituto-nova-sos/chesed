@@ -256,6 +256,7 @@ Before submitting code:
 - [ ] Complexity within thresholds (see Quality Governance below)
 - [ ] Clean code categories satisfied (Consistency, Intentionality, Adaptability, Responsibility)
 - [ ] Quality gates pass (0 bugs, 0 vulnerabilities, duplication ≤ 3%)
+- [ ] HANDOFF.md updated with task progress (files created/modified, decisions, current state, next steps)
 
 ---
 

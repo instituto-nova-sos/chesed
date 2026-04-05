@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-03 (Session 5)
+2026-04-04 (Session 7)
 
 ---
 
@@ -288,6 +288,93 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 
 ---
 
+## Session 7: Phase 0 Validation and Project Scaffolding (2026-04-04)
+
+### What Was Done
+1. **Phase 0 validation audit**: Discovered that 6 of 8 Phase 0 tasks were incorrectly marked as "Done" in the roadmap — only documentation (0.1) and security review (0.8) were actually complete. No application code, Docker files, or Keycloak configuration existed.
+2. **Roadmap corrected**: `docs/08-roadmap.md` updated to reflect actual status (IN PROGRESS), tasks 0.2–0.7 marked as Pending.
+3. **Requirement analysis executed**: Ran `.project-ai/prompts/requirement-analysis.md` for all 6 pending tasks, producing structured specs with acceptance criteria (63 total) and implementation task breakdowns.
+4. **Go backend skeleton created** (Task 0.2): `backend/` with chi router, slog JSON logger, graceful shutdown, health endpoint, config loader with validation, Makefile, golangci-lint config, unit tests.
+5. **React frontend skeleton created** (Task 0.3): `frontend/` with Vite + React 19 + TypeScript (strict) + Tailwind v4 + PWA manifest + all approved dependencies (keycloak-js, dexie, react-hook-form, zod, zustand, recharts, react-router-dom) + ESLint flat config + Prettier + Vitest.
+6. **Docker Compose created** (Task 0.4): `docker-compose.yml` with 4 services (PostgreSQL 16, Keycloak 26, Go API with air hot reload, React dev server with HMR), health checks, named volumes, inter-service networking. Dockerfiles for backend (production multi-stage + dev) and frontend (dev).
+7. **Keycloak realm configured** (Tasks 0.5–0.7): `keycloak/realm-export.json` with chesed realm, 5 RBAC roles, 2 OIDC clients (chesed-pwa public with PKCE, chesed-api confidential with service account), custom protocol mappers (campus_id, person_id), password policy, brute-force protection, token lifetimes, refresh token revocation, conditional MFA for ADMIN role, event logging.
+8. **Phase 0 marked COMPLETE**: All 8 tasks verified and roadmap updated.
+
+### Files Created
+
+**Backend (15 files):**
+| File | Purpose |
+|------|---------|
+| `backend/go.mod` + `go.sum` | Go module with chi, pgx, go-oidc, validator, uuid |
+| `backend/cmd/server/main.go` | Entry point: chi router, slog, graceful shutdown, health routes |
+| `backend/internal/config/config.go` | Config struct with env var loading and validation |
+| `backend/internal/config/config_test.go` | Table-driven tests for config loading |
+| `backend/internal/handler/health.go` | Health endpoint returning `{"status":"ok"}` |
+| `backend/internal/handler/health_test.go` | Health handler tests |
+| `backend/internal/domain/doc.go` | Empty domain package (zero deps) |
+| `backend/internal/service/doc.go` | Empty service package |
+| `backend/internal/repository/doc.go` | Empty repository package |
+| `backend/internal/middleware/doc.go` | Empty middleware package |
+| `backend/migrations/.gitkeep` | Empty migrations directory |
+| `backend/Makefile` | build, run, test, lint, clean targets |
+| `backend/.golangci.yml` | Linter config with complexity thresholds |
+| `backend/.env.example` | Environment variable template |
+| `backend/.air.toml` | Hot reload configuration for dev |
+
+**Frontend (23 files):**
+| File | Purpose |
+|------|---------|
+| `frontend/package.json` | All approved deps + scripts (dev, build, test, lint, format, typecheck) |
+| `frontend/vite.config.ts` | React + Tailwind v4 + PWA + Vitest + path aliases |
+| `frontend/tsconfig.json` + `tsconfig.app.json` | TypeScript strict mode, path aliases |
+| `frontend/eslint.config.js` | Flat config: TS, react-hooks, no-explicit-any, prettier |
+| `frontend/.prettierrc` | singleQuote, trailingComma, semi |
+| `frontend/index.html` | PWA-ready HTML entry |
+| `frontend/src/main.tsx` | React root with StrictMode |
+| `frontend/src/App.tsx` | BrowserRouter with placeholder route |
+| `frontend/src/App.test.tsx` | App render test |
+| `frontend/src/test-setup.ts` | testing-library/jest-dom setup |
+| `frontend/src/index.css` | Tailwind v4 import |
+| `frontend/.env.example` | Frontend env template |
+| `frontend/src/{pages,components,hooks,api,types,offline,store,utils}/.gitkeep` | Directory structure |
+
+**Infrastructure (8 files):**
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | 4 services, health checks, volumes, networking |
+| `docker/postgres/init-keycloak-db.sh` | Creates chesed_keycloak database |
+| `backend/Dockerfile` | Production multi-stage (golang:1.22-alpine → alpine:3.19) |
+| `backend/Dockerfile.dev` | Dev with air hot reload |
+| `frontend/Dockerfile` | Dev with vite HMR |
+| `keycloak/realm-export.json` | Complete chesed realm configuration |
+| `.env.example` | Root-level env template for all services |
+
+### Verification Results
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | 2 test suites passed |
+| `go vet ./...` | PASS |
+| `npm run typecheck` | PASS |
+| `npm run build` | PASS (PWA + service worker generated) |
+| `npm run test` | 1 test passed |
+| `npm run lint` | PASS (0 warnings) |
+| `docker compose config` | PASS (valid syntax) |
+| realm-export.json | Valid JSON, all config verified |
+
+### Key Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Tailwind v4 with `@tailwindcss/vite` (not v3 with config file) | Current version, simpler setup, CSS-based configuration |
+| ESLint flat config (v9+, not legacy .eslintrc) | Vite template default, future-proof |
+| `air` for Go hot reload (not CompileDaemon) | More actively maintained, cleaner config |
+| Keycloak health check on port 9000 (management port) | `/health/ready` endpoint available on management interface in Keycloak 26 |
+| `chesed-api` client secret set to "changeme-in-production" | Placeholder only; production secret set via environment variable |
+| Conditional OTP via custom authentication flow | Keycloak's `conditional-user-role` authenticator enables role-based MFA without affecting non-admin users |
+
+---
+
 ## Open Questions
 
 These need stakeholder input (but have documented defaults that allow implementation to proceed):
@@ -302,59 +389,50 @@ These need stakeholder input (but have documented defaults that allow implementa
 
 ## Next Recommended Steps
 
-### Immediate (Next Session)
+### Immediate (Next Session — Sprint 1: Auth & Infrastructure)
 
-1. **Create the Go project skeleton** (`backend/`)
-   - `cmd/server/main.go` with chi router
-   - `internal/` package structure (config, domain, handler, service, repository, middleware)
-   - Health check endpoint (`GET /api/v1/health`)
-   - Makefile with standard commands
-   - Docker Compose for Go + PostgreSQL + Keycloak
+1. **Write database migrations** (Task 1.1)
+   - `campus`, `person`, `address`, `person_role`, `assisted_profile`, `app_user`, `service_type`, `audit_log` tables
+   - `.up.sql` and `.down.sql` for each migration
 
-2. **Set up Keycloak**
-   - Keycloak container in Docker Compose with `chesed` realm
-   - Configure OIDC client for React PWA (public client, PKCE)
-   - Configure OIDC client for Go API (confidential, for Admin API access)
-   - Add realm roles (ADMIN, COORDINATOR, PROFESSIONAL, SECRETARY, VOLUNTEER)
-   - Add custom protocol mappers for `campus_id` and `person_id`
-   - Export realm configuration to `keycloak/realm-export.json`
+2. **Implement Go OIDC middleware** (Task 1.2)
+   - Token validation using `coreos/go-oidc` + Keycloak JWKS
+   - Extract claims: `sub`, `realm_access.roles`, `campus_id`, `person_id`
 
-3. **Create the React project skeleton** (`frontend/`)
-   - Vite + React + TypeScript
-   - Tailwind CSS configured
-   - PWA manifest and service worker shell
-   - keycloak-js adapter integration
-   - Base layout component (responsive sidebar + header)
-   - ESLint + Prettier configured
+3. **Implement local user auto-provisioning** (Task 1.3)
+   - First login creates `app_user` from Keycloak `sub` claim
 
-4. **Write the first database migrations**
-   - `campus` table
-   - `person` and `address` tables
-   - `app_user` table (with `keycloak_subject_id`, no `password_hash`)
-   - `audit_log` table
-   - `service_type` table
+4. **Implement RBAC middleware** (Task 1.4)
+   - Role-based access from Keycloak token claims
 
-5. **Set up CI/CD**
-   - GitHub Actions: Go test + lint, React build + lint
-   - PostgreSQL service container for integration tests
-   - Trivy scanning for Keycloak container image
+5. **Implement audit logging middleware** (Task 1.5)
+   - Log all data mutations to `audit_log` table
 
-### Short-Term (Phase 1 Sprint 1)
+6. **Implement campus-scoped data access** (Task 1.6)
+   - `campus_id` filter on all data queries from JWT claims
 
-6. Implement Go OIDC middleware using `coreos/go-oidc` (validate Keycloak tokens via JWKS)
-7. Implement local user auto-provisioning (first login creates `app_user` from Keycloak `sub` claim)
-8. Implement RBAC middleware (roles from Keycloak token claims)
-9. Implement audit logging middleware
-10. Build React OIDC integration (keycloak-js adapter, protected routes, auth context)
-11. Build React layout shell
-12. Configure MFA for ADMIN role in Keycloak
+7. **Create seed data** (Task 1.7)
+   - Service types, default campus
+
+8. **React OIDC integration** (Task 1.8)
+   - keycloak-js adapter, redirect flow, token management
+
+9. **React layout shell** (Task 1.9)
+   - Responsive navbar, sidebar, mobile-first
+
+10. **React auth context** (Task 1.10)
+    - Auth state management wrapping keycloak-js
+
+11. **Set up CI/CD**
+    - GitHub Actions: Go test + lint, React build + lint
+    - PostgreSQL service container for integration tests
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
-10. Person CRUD API + React pages
-11. Triage and Attendance API + React forms
-12. Offline sync (IndexedDB + push/pull endpoints)
-13. Basic reports with CSV export
+12. Person CRUD API + React pages (Sprint 2)
+13. Triage and Attendance API + React forms (Sprint 3)
+14. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
+15. Basic reports with CSV export (Sprint 4)
 
 ---
 
