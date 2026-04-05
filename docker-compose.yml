@@ -1,0 +1,91 @@
+# Chesed Development Environment
+# Services: PostgreSQL 16, Keycloak 26, Go API, React dev server
+# Ports: db=5432, keycloak=8180, api=8080, frontend=5173
+# Start: docker compose up
+
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: chesed
+      POSTGRES_PASSWORD: chesed
+      POSTGRES_DB: chesed
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-keycloak-db.sh:/docker-entrypoint-initdb.d/init-keycloak-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesed"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chesed-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26-alpine
+    command: start-dev --import-realm
+    ports:
+      - "8180:8080"
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/chesed_keycloak
+      KC_DB_USERNAME: chesed
+      KC_DB_PASSWORD: chesed
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    networks:
+      - chesed-net
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      DATABASE_URL: postgres://chesed:chesed@db:5432/chesed?sslmode=disable
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: chesed
+      KEYCLOAK_CLIENT_ID: chesed-pwa
+      LOG_LEVEL: debug
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - chesed-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    networks:
+      - chesed-net
+
+networks:
+  chesed-net:
+    driver: bridge
+
+volumes:
+  pgdata:
