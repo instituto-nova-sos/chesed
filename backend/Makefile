@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean migrate-up migrate-down migrate-create migrate-force
+.PHONY: build run test lint clean migrate-up migrate-down migrate-create migrate-force migrate-up-prod
 
 MIGRATE_URL ?= postgres://chesed:chesed@localhost:5432/chesed?sslmode=disable
 
@@ -28,3 +28,6 @@ migrate-create:
 
 migrate-force:
 	migrate -path migrations -database "$(MIGRATE_URL)" force $(version)
+
+migrate-up-prod:
+	docker compose -f ../docker-compose.prod.yml run --rm migrate

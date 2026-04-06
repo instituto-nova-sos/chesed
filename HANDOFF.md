@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-06 (Session 10)
+2026-04-06 (Session 11)
 
 ---
 
@@ -827,11 +827,11 @@ cp .env.prod.example .env.prod
 # 2. Bootstrap TLS certificates (first time only)
 sudo bash scripts/init-letsencrypt.sh
 
-# 3. Start all services
+# 3. Start all services (migrations run automatically before the API starts)
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
-# 4. Run database migrations (after first deploy)
-docker compose -f docker-compose.prod.yml exec api sh -c "cd /app && ./server migrate-up"
+# 4. (Optional) Run migrations manually if needed
+cd backend && make migrate-up-prod
 
 # 5. Verify
 curl -I http://yourdomain.org        # Should get 301 → https://
@@ -844,12 +844,37 @@ curl http://yourdomain.org/nginx-health  # Should get 200 "ok"
 
 ---
 
+## Session 11: Automated Database Migrations (2026-04-06)
+
+### What Was Done
+1. **Production migration runner script** — Created `backend/migrations/run.sh` with PostgreSQL readiness wait loop, dirty state recovery, and structured logging
+2. **Migrate CLI in Docker image** — Updated `backend/Dockerfile` to download golang-migrate v4.18.3 binary in builder stage and copy to runtime image
+3. **One-shot migrate service** — Added `migrate` service to `docker-compose.prod.yml` that runs before the API via `service_completed_successfully` dependency
+4. **CI pipeline migrations** — Updated `.github/workflows/backend.yml` to install golang-migrate and run migrations before tests
+5. **Manual migration target** — Added `make migrate-up-prod` to `backend/Makefile` for operator convenience
+
+### Files Created
+- `backend/migrations/run.sh` — Production migration runner with retry loop, dirty state handling, clear logging
+
+### Files Modified
+- `backend/Dockerfile` — Added golang-migrate v4.18.3 binary download and copy to runtime image
+- `docker-compose.prod.yml` — Added `migrate` one-shot service; updated `api` depends_on chain; updated header comment
+- `.github/workflows/backend.yml` — Added "Install golang-migrate" and "Run database migrations" steps before tests
+- `backend/Makefile` — Added `migrate-up-prod` target
+
+### Key Decisions
+- **One-shot service pattern** (not entrypoint script): Migrations run as a separate Docker Compose service with `service_completed_successfully`, ensuring they complete before the API starts and deployment fails visibly if migrations fail
+- **Dirty state auto-recovery**: If a migration was interrupted and left the DB dirty, the script forces the version to clear the flag and retries — handles the most common production failure mode
+- **Same image for migrate and api**: The `migrate` service reuses the same backend Docker image (no extra build), just overrides the command
+- **Pinned migrate version (v4.18.3)**: Same version in Dockerfile and CI to avoid drift
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. **Database migrations in production** — Automate migration execution on deploy
-2. **CI/CD pipeline TLS integration** — Update deployment scripts to run init-letsencrypt.sh on first deploy
+1. **CI/CD pipeline TLS integration** — Update deployment scripts to run init-letsencrypt.sh on first deploy
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 

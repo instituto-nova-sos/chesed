@@ -2,7 +2,7 @@
 # Usage: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 # Pre-requisites: copy .env.prod.example to .env.prod and fill in all values
 # TLS setup: run scripts/init-letsencrypt.sh before first deploy (see script for details)
-# Post-start: docker compose -f docker-compose.prod.yml exec api ./migrations/run.sh (or run migrate manually)
+# Migrations run automatically via the 'migrate' service before the API starts.
 
 services:
   db:
@@ -75,6 +75,24 @@ services:
     networks:
       - chesed-internal
 
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "./migrations/run.sh"]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - chesed-internal
+
   api:
     build:
       context: ./backend
@@ -88,6 +106,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       OIDC_SKIP_ISSUER_CHECK: ${OIDC_SKIP_ISSUER_CHECK}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       keycloak:
