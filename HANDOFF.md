@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-04 (Session 8)
+2026-04-06 (Session 9)
 
 ---
 
@@ -709,26 +709,60 @@ Executed `.project-ai/prompts/architecture-design.md` as a Senior Security & Arc
 
 ---
 
+## Session 9: CI/CD Pipeline (2026-04-06)
+
+### What Was Done
+1. **GitHub Actions CI/CD** — 3 workflows + Dependabot configuration
+2. **Frontend coverage** — Added `@vitest/coverage-v8` and configured coverage thresholds in `vite.config.ts`
+
+### Files Created
+- `.github/workflows/backend.yml` — Go build, vet, golangci-lint, test with coverage, PostgreSQL 16 service container
+- `.github/workflows/frontend.yml` — TypeScript typecheck, ESLint, Vitest with 80% coverage thresholds, Vite build
+- `.github/workflows/security.yml` — gitleaks secret detection, govulncheck, npm audit (3 parallel jobs)
+- `.github/dependabot.yml` — Weekly updates for Go modules, npm packages, GitHub Actions versions
+
+### Files Modified
+- `frontend/vite.config.ts` — Added `coverage` config with `v8` provider and 80% thresholds
+- `frontend/package.json` — Added `@vitest/coverage-v8` devDependency
+
+### Architecture Decisions
+- **3 separate workflows** (backend, frontend, security) with path filters — run in parallel, only trigger on relevant changes
+- **Built-in caching** via `actions/setup-go@v5` and `actions/setup-node@v4` — no explicit `actions/cache` steps needed
+- **Coverage enforcement**: Backend uses shell script parsing `go tool cover -func` (threshold: 40% Sprint 1 → 70% Sprint 2 → 80% Sprint 3+); Frontend uses Vitest's native `coverage.thresholds` (80% all metrics)
+- **Security scanning**: gitleaks for secrets, govulncheck for Go deps, npm audit for Node deps — all block merge on failure
+- **Dependabot**: Grouped dependency PRs (Go all-in-one, npm prod/dev separate, GitHub Actions separate) on Monday weekly cadence
+- **PostgreSQL service container** provisioned in backend workflow for future integration tests
+- **`--legacy-peer-deps`** used for npm ci due to `vite-plugin-pwa` peer dep conflict with Vite 8
+
+### Current Coverage Status
+- Backend: 49.3% (unit tests only — `cmd/server`, `database`, `repository` at 0% pending integration tests)
+- Frontend: 100% (single test file, will decrease as components grow)
+
+### Manual Step Required
+Configure GitHub branch protection rules on `main` to require these status checks:
+- `Build & Test` (from backend.yml)
+- `Build & Test` (from frontend.yml)
+- `Secret Detection` (from security.yml)
+- `Go Vulnerability Scan` (from security.yml)
+- `npm Audit` (from security.yml)
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. **Set up CI/CD**
-   - GitHub Actions: Go test + lint, React build + lint
-   - PostgreSQL service container for integration tests
-   - Add gitleaks/trufflehog for secret scanning
-
-2. **Production docker-compose** (or deployment config)
+1. **Production docker-compose** (or deployment config)
    - Env var references for all credentials
    - Keycloak admin console not publicly exposed
    - SMTP configured for production
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
-3. Person CRUD API + React pages (Sprint 2)
-4. Triage and Attendance API + React forms (Sprint 3)
-5. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
-6. Basic reports with CSV export (Sprint 4)
+2. Person CRUD API + React pages (Sprint 2)
+3. Triage and Attendance API + React forms (Sprint 3)
+4. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
+5. Basic reports with CSV export (Sprint 4)
 
 ---
 
