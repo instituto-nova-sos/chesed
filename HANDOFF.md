@@ -790,12 +790,66 @@ curl http://localhost/nginx-health
 
 ---
 
+## Session 11: TLS Termination with Let's Encrypt (2026-04-06)
+
+### What Was Done
+1. **TLS termination via nginx** — HTTPS on port 443 with HTTP-to-HTTPS redirect on port 80
+2. **Let's Encrypt integration** — Certbot sidecar container for automatic certificate provisioning and renewal
+3. **TLS hardening** — TLSv1.2/1.3 only, strong cipher suite, OCSP stapling, session tickets disabled
+4. **HSTS** — `Strict-Transport-Security` header with `max-age=63072000; includeSubDomains; preload`
+5. **Bootstrap script** — `scripts/init-letsencrypt.sh` solves the chicken-and-egg problem (nginx needs certs to start, certbot needs nginx to verify)
+6. **Renewal automation** — Certbot container auto-renews every 12h; `scripts/ssl-renew.sh` for cron-based nginx reload
+
+### Files Modified
+- `frontend/nginx.conf` — Split into HTTP (ACME challenge + redirect) and HTTPS (all app traffic) server blocks; added SSL config, HSTS, HTTP/2
+- `frontend/Dockerfile.prod` — Added `EXPOSE 443`
+- `docker-compose.prod.yml` — Added certbot service, shared volumes (certbot-conf, certbot-webroot), exposed port 443, nginx.conf bind mount
+- `.env.prod.example` — Added `DOMAIN_NAME` and `CERTBOT_EMAIL` variables
+
+### Files Created
+- `scripts/init-letsencrypt.sh` — Bootstrap script: dummy cert → start nginx → request real cert → reload
+- `scripts/ssl-renew.sh` — Cron helper: certbot renew + nginx reload
+
+### Key Decisions
+- **Certbot with webroot plugin** (not standalone): Allows zero-downtime renewal since nginx keeps running
+- **Fixed cert path `/etc/letsencrypt/live/chesed/`**: Since nginx can't interpolate env vars, the init script uses `--cert-name chesed` to create a fixed directory name
+- **nginx.conf mounted as volume**: Overrides the baked-in copy so TLS paths are available at runtime without rebuilding the image
+- **ACME challenge on HTTP**: Port 80 serves only `/.well-known/acme-challenge/` and health check; all other traffic gets 301 to HTTPS
+- **Staging support**: Set `LETSENCRYPT_STAGING=1` in env to use Let's Encrypt staging for testing (avoids rate limits)
+- **`ssl_prefer_server_ciphers off`**: Modern best practice — all listed ciphers are strong, so let client choose the fastest one it supports
+
+### Deployment Instructions (TLS)
+```bash
+# 1. Copy and fill in environment variables (add DOMAIN_NAME and CERTBOT_EMAIL)
+cp .env.prod.example .env.prod
+# Edit .env.prod with production values
+
+# 2. Bootstrap TLS certificates (first time only)
+sudo bash scripts/init-letsencrypt.sh
+
+# 3. Start all services
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+# 4. Run database migrations (after first deploy)
+docker compose -f docker-compose.prod.yml exec api sh -c "cd /app && ./server migrate-up"
+
+# 5. Verify
+curl -I http://yourdomain.org        # Should get 301 → https://
+curl -I https://yourdomain.org       # Should get 200 + HSTS header
+curl http://yourdomain.org/nginx-health  # Should get 200 "ok"
+
+# 6. Set up renewal cron (on host)
+# 0 0,12 * * * /path/to/chesed/scripts/ssl-renew.sh >> /var/log/chesed-ssl-renew.log 2>&1
+```
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. **TLS termination** — Add HTTPS support (Let's Encrypt / Caddy / cloud load balancer)
-2. **Database migrations in production** — Automate migration execution on deploy
+1. **Database migrations in production** — Automate migration execution on deploy
+2. **CI/CD pipeline TLS integration** — Update deployment scripts to run init-letsencrypt.sh on first deploy
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
