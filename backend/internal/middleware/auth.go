@@ -15,8 +15,9 @@ import (
 )
 
 type keycloakClaims struct {
-	Email       string `json:"email"`
-	RealmAccess struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	RealmAccess   struct {
 		Roles []string `json:"roles"`
 	} `json:"realm_access"`
 	CampusID string `json:"campus_id"`
@@ -68,6 +69,15 @@ func OIDCAuth(discoveryURL, clientID string, skipIssuerCheck bool) (func(http.Ha
 					"error", err.Error(),
 				)
 				writeError(w, http.StatusUnauthorized, "unauthorized", "invalid token claims")
+				return
+			}
+
+			if !claims.EmailVerified {
+				slog.WarnContext(r.Context(), "middleware.OIDCAuth: email not verified",
+					"subject", claims.Subject,
+					"email", claims.Email,
+				)
+				writeError(w, http.StatusForbidden, "forbidden", "email not verified")
 				return
 			}
 
@@ -141,11 +151,12 @@ func extractClaims(idToken *oidc.IDToken) (auth.AuthClaims, error) {
 	}
 
 	return auth.AuthClaims{
-		Subject:  idToken.Subject,
-		Email:    kc.Email,
-		Roles:    kc.RealmAccess.Roles,
-		CampusID: campusID,
-		PersonID: personID,
+		Subject:       idToken.Subject,
+		Email:         kc.Email,
+		EmailVerified: kc.EmailVerified,
+		Roles:         kc.RealmAccess.Roles,
+		CampusID:      campusID,
+		PersonID:      personID,
 	}, nil
 }
 

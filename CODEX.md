@@ -66,6 +66,8 @@ These rules MUST be followed. Violating them will break the system or create sec
 - Never implement custom password hashing or token issuance. The Go API only validates Keycloak-issued tokens.
 - Never store Keycloak client secrets or admin passwords in source code or Docker images.
 - Keycloak realm configuration changes must be exported to `keycloak/realm-export.json` and committed.
+- The Go API MUST check `email_verified` claim in JWT tokens. Unverified users are rejected with HTTP 403.
+- MFA is mandatory for ADMIN and COORDINATOR roles (TOTP or Email OTP). Other roles can opt-in via Keycloak Account Console.
 
 ### Code Strictness
 - Never use `any` type in TypeScript (strict mode enforced). No `@ts-ignore` or `@ts-nocheck`.

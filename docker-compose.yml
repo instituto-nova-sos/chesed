@@ -1,7 +1,8 @@
 # Chesed Development Environment
-# Services: PostgreSQL 16, Keycloak 26, Go API, React dev server
-# Ports: db=5432, keycloak=8180, api=8080, frontend=5173
+# Services: PostgreSQL 16, Keycloak 26, Go API, React dev server, Mailpit (SMTP)
+# Ports: db=5432, keycloak=8180, api=8080, frontend=5173, mailpit=8025
 # Start: docker compose up
+# Post-start: cd backend && make migrate-up && ./keycloak/init-realm.sh
 
 services:
   db:
@@ -69,6 +70,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - chesed-net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
     networks:
       - chesed-net
 

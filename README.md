@@ -94,6 +94,7 @@ All test users share the password **`Test1234!`** and belong to the default camp
 | Frontend | http://localhost:5173 |
 | API | http://localhost:8080/api/v1/health |
 | Keycloak Admin | http://localhost:8180/admin (admin/admin) |
+| Mailpit (email) | http://localhost:8025 |
 | PostgreSQL | localhost:5432 (chesed/chesed) |
 
 ### Running Tests

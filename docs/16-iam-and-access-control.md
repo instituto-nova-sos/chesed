@@ -165,7 +165,7 @@ The application uses the standard OIDC Authorization Code Flow with Proof Key fo
 | Token | Issuer | Format | TTL | Storage | Purpose |
 |-------|--------|--------|-----|---------|---------|
 | Access token | Keycloak | JWT (signed RS256) | 15 minutes | In-memory only | API authorization |
-| Refresh token | Keycloak | Opaque | 7 days | keycloak-js manages internally | Silent token renewal |
+| Refresh token | Keycloak | Opaque | 24 hours | keycloak-js manages internally | Silent token renewal |
 | Offline token | Keycloak | Opaque | 14 days | IndexedDB (encrypted) | Field workers without connectivity |
 | ID token | Keycloak | JWT | 15 minutes | In-memory only | User profile display (not sent to API) |
 
@@ -351,10 +351,11 @@ All session parameters are configured as **Keycloak realm settings** in the `che
 | Parameter | Value | Keycloak Setting |
 |-----------|-------|-----------------|
 | Access token TTL | 15 minutes | Realm > Tokens > Access Token Lifespan |
-| Refresh token TTL | 7 days | Realm > Tokens > Client Session Idle / Max |
-| Offline token TTL | 14 days | Realm > Tokens > Offline Session Idle |
+| Refresh token TTL | 24 hours | Realm > Tokens > Client Session Max |
+| Offline token idle | 14 days | Realm > Tokens > Offline Session Idle |
+| Offline token max | 30 days | Realm > Tokens > Offline Session Max |
 | SSO session idle | 30 minutes | Realm > Sessions > SSO Session Idle |
-| SSO session max | 10 hours | Realm > Sessions > SSO Session Max |
+| SSO session max | 24 hours | Realm > Sessions > SSO Session Max |
 | Concurrent sessions | Unlimited | Default (multi-device support) |
 
 ### Session Lifecycle
@@ -370,7 +371,7 @@ User opens app
   │     │
   │     └── keycloak-js exchanges code for tokens
   │           ├── access_token (15 min)
-  │           ├── refresh_token (7 days)
+  │           ├── refresh_token (24 hours)
   │           └── id_token (15 min)
   │
   ├── Token in memory → API call with Authorization: Bearer <access_token>
@@ -447,29 +448,59 @@ No application endpoints are needed for password recovery.
 
 **Email configuration**: Keycloak is configured with SMTP settings (e.g., Amazon SES, SendGrid, or a self-hosted SMTP server) to send password reset and account verification emails.
 
+### Email Verification
+
+Email verification is enforced at two layers:
+
+1. **Keycloak (primary)**: `verifyEmail: true` in realm configuration. Keycloak adds `VERIFY_EMAIL` as a required action on new accounts. Users must click a verification link sent via SMTP before completing login.
+2. **Go API (defense-in-depth)**: The OIDC middleware checks the `email_verified` claim in the JWT. Requests with `email_verified: false` are rejected with HTTP 403.
+
+**SMTP Configuration**: Required for email verification and password reset. In development, Mailpit (local SMTP trap) is used. In production, configure an external SMTP provider (Amazon SES, SendGrid, or self-hosted) via Keycloak Admin Console.
+
+| Environment Variable | Description | Example |
+|---------------------|-------------|---------|
+| `KC_SMTP_HOST` | SMTP server hostname | `smtp.sendgrid.net` |
+| `KC_SMTP_PORT` | SMTP port (587 for TLS) | `587` |
+| `KC_SMTP_FROM` | Sender email address | `noreply@institutanovasos.org` |
+| `KC_SMTP_FROM_DISPLAY_NAME` | Sender display name | `Instituto Nova SOS` |
+| `KC_SMTP_USER` | SMTP username | (from secrets manager) |
+| `KC_SMTP_PASSWORD` | SMTP password | (from secrets manager) |
+| `KC_SMTP_STARTTLS` | Enable STARTTLS | `true` |
+
 ### Multi-Factor Authentication (MFA)
 
-MFA is configured via Keycloak **conditional authentication flows**:
+MFA is configured via Keycloak **conditional authentication flows** with two methods available:
 
-| Role | MFA Required | Method |
-|------|-------------|--------|
-| ADMIN | Yes (always) | TOTP (Google Authenticator, Authy) |
-| COORDINATOR | Recommended (optional) | TOTP |
-| PROFESSIONAL | No | - |
-| SECRETARY | No | - |
-| VOLUNTEER | No | - |
+- **TOTP** (Google Authenticator, Authy, etc.) — time-based one-time passwords
+- **Email OTP** — one-time code sent to verified email address (requires SMTP)
+
+Users choose their preferred method during MFA enrollment.
+
+| Role | MFA Policy | Available Methods |
+|------|-----------|-------------------|
+| ADMIN | **Mandatory** | TOTP or Email OTP |
+| COORDINATOR | **Mandatory** | TOTP or Email OTP |
+| PROFESSIONAL | Optional (opt-in) | TOTP or Email OTP |
+| SECRETARY | Optional (opt-in) | TOTP or Email OTP |
+| VOLUNTEER | Optional (opt-in) | TOTP or Email OTP |
 
 Implementation in Keycloak:
-1. Create a conditional authentication flow that checks for the `ADMIN` realm role.
-2. If the user has the ADMIN role, require TOTP as a second factor.
-3. On first login, ADMIN users are prompted to configure TOTP.
+1. Custom browser flow "Browser with Conditional MFA" checks realm roles.
+2. ADMIN and COORDINATOR users are required to enroll in MFA on first login.
+3. Other users can opt-in via the Keycloak Account Console (`/realms/chesed/account`).
+4. Email OTP is available as an alternative to TOTP for users who cannot install authenticator apps.
+
+**Development note**: MFA is disabled in dev mode by `init-realm.sh` (switches to built-in `browser` flow). Production must use the custom `Browser with Conditional MFA` flow.
 
 ### Account Lifecycle
 
 | Event | Action |
 |-------|--------|
-| Account creation | Admin creates user in Keycloak (via Admin Console or Go API proxy); user receives "set password" email |
-| First login | User sets password; `app_user` record auto-created via `keycloak_subject_id` mapping |
+| Account creation | Admin creates user in Keycloak (via Admin Console or Go API proxy); Keycloak sends email verification link |
+| Email verification | User clicks link in email; Keycloak marks `emailVerified: true` |
+| Password setup | User sets password on first login via Keycloak |
+| MFA enrollment | ADMIN/COORDINATOR prompted to configure TOTP or Email OTP; other roles can opt-in |
+| First API access | `app_user` record auto-created via `keycloak_subject_id` mapping |
 | Role change | Admin updates realm role in Keycloak; change reflected in next token issuance |
 | Deactivation | Admin disables user in Keycloak + sets `is_active = false` in `app_user`; all sessions revoked |
 | Reactivation | Admin enables user in Keycloak + sets `is_active = true` in `app_user` |
@@ -681,7 +712,7 @@ import Keycloak from "keycloak-js";
 const keycloak = new Keycloak({
   url: import.meta.env.VITE_KEYCLOAK_URL,       // e.g. "https://auth.chesed.org"
   realm: import.meta.env.VITE_KEYCLOAK_REALM,   // "chesed"
-  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID, // "chesed-web"
+  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID, // "chesed-pwa"
 });
 
 export default keycloak;
@@ -966,9 +997,9 @@ For compliance reporting, a unified view can be constructed by:
 
 | Client ID | Type | Purpose |
 |-----------|------|---------|
-| `chesed-web` | Public (SPA) | React frontend; Authorization Code + PKCE |
+| `chesed-pwa` | Public (SPA) | React frontend; Authorization Code + PKCE |
 | `chesed-api` | Bearer-only | Go API; validates tokens (does not initiate login) |
-| `chesed-admin-cli` | Confidential | Go API service account for Keycloak Admin API calls (user provisioning) |
+| `chesed-api` | Confidential | Go API service account for Keycloak Admin API calls (user provisioning) |
 
 ### Client Scopes
 

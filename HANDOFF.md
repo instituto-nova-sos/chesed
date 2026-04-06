@@ -647,6 +647,68 @@ Added automated local development setup flow:
 
 ---
 
+## Architecture Validation: Email Verification, MFA, User Onboarding (2026-04-06)
+
+### Validation Performed
+Executed `.project-ai/prompts/architecture-design.md` as a Senior Security & Architecture Reviewer. Validated production-level requirements for: (1) Keycloak user onboarding with email confirmation, (2) verified email enforcement before access, (3) MFA opt-in with email OTP or TOTP.
+
+### Gaps Found and Addressed
+
+| Gap | Severity | Fix Applied |
+|-----|----------|-------------|
+| `verifyEmail: false` in realm-export.json | HIGH | Set to `true` — Keycloak blocks unverified users |
+| No `email_verified` check in API | HIGH | Added defense-in-depth check in `middleware/auth.go` — rejects `email_verified: false` with 403 |
+| SMTP not configured | HIGH | Added Mailpit service to docker-compose.yml for dev; documented production SMTP env vars |
+| MFA only for ADMIN, not COORDINATOR | MEDIUM | Updated auth flow to "Browser with Conditional MFA" — ADMIN + COORDINATOR mandatory |
+| No email OTP option | MEDIUM | Documented as available method in Keycloak 26 (requires SMTP); users choose during enrollment |
+| MFA blocks dev testing | LOW | `init-realm.sh` disables MFA + email verification for dev |
+| doc 16: `chesed-web` should be `chesed-pwa` | LOW | Fixed all references |
+| doc 16: `chesed-admin-cli` should be `chesed-api` | LOW | Fixed all references |
+| doc 16: Refresh token TTL "7 days" (actual: 24h) | LOW | Fixed to "24 hours" |
+| doc 16: SSO session max "10 hours" (actual: 24h) | LOW | Fixed to "24 hours" |
+| doc 20: Email verification listed as "Phase 2" | MEDIUM | Moved to Phase 1 — now enabled |
+| doc 20: No SMTP env var documentation | MEDIUM | Added production env vars table |
+| doc 13: MFA described as ADMIN-only | LOW | Updated to ADMIN + COORDINATOR mandatory |
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Email verification enforced at two layers (Keycloak + API) | Defense-in-depth: Keycloak blocks login, API checks claim as backup |
+| MFA mandatory for ADMIN + COORDINATOR | Coordinator manages teams/campaigns — credential compromise has high impact (T1) |
+| MFA opt-in for other roles via Keycloak Account Console | Balances security with usability for field workers with limited devices |
+| Email OTP as alternative to TOTP | Some users (volunteers) may not have smartphones for authenticator apps |
+| Mailpit for dev SMTP | Captures emails locally without sending real emails; accessible at port 8025 |
+| `init-realm.sh` disables MFA + email verification for dev | Test users need immediate access; production re-enables both |
+| `userProfile` configured via Admin API, not realm-export.json | Keycloak 26.0 doesn't support `userProfile` in import JSON |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `keycloak/realm-export.json` | `verifyEmail: true`, auth flow renamed to "Browser with Conditional MFA", added COORDINATOR conditional flow, added audience mapper |
+| `docker-compose.yml` | Added Mailpit service (ports 8025/1025) |
+| `keycloak/init-realm.sh` | Added SMTP config (Mailpit), MFA disable for dev, email verification disable for dev, 5 test users |
+| `backend/internal/middleware/auth.go` | Added `email_verified` claim parsing and 403 rejection |
+| `backend/internal/auth/context.go` | Added `EmailVerified` field to `AuthClaims` |
+| `docs/16-iam-and-access-control.md` | Fixed client names, session TTLs, added email verification section, updated MFA policy |
+| `docs/20-keycloak-configuration.md` | Moved email verification to Phase 1, added SMTP docs, updated MFA section |
+| `docs/13-security-and-compliance.md` | Updated MFA policy, email verification, token TTLs |
+| `CLAUDE.md` | Added email_verified rule (#12), MFA policy rule (#13) |
+| `CODEX.md` | Same rules added |
+| `.env.example` | Added SMTP env vars (commented for production) |
+| `README.md` | Added Mailpit URL, updated setup flow |
+
+### Production Deployment Checklist (Email/MFA)
+- [ ] Configure production SMTP (Amazon SES / SendGrid) via Keycloak Admin Console
+- [ ] Set `browserFlow` to `Browser with Conditional MFA` (init-realm.sh disables for dev)
+- [ ] Set `verifyEmail` to `true` (init-realm.sh disables for dev)
+- [ ] Verify email verification link works with production domain
+- [ ] Test MFA enrollment for ADMIN and COORDINATOR roles
+- [ ] Test email OTP delivery for users without authenticator apps
+- [ ] Store SMTP credentials in secrets manager (never in code)
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
@@ -659,6 +721,7 @@ Added automated local development setup flow:
 2. **Production docker-compose** (or deployment config)
    - Env var references for all credentials
    - Keycloak admin console not publicly exposed
+   - SMTP configured for production
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 

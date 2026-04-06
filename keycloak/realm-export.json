@@ -11,7 +11,7 @@
   "editUsernameAllowed": false,
   "resetPasswordAllowed": true,
   "rememberMe": false,
-  "verifyEmail": false,
+  "verifyEmail": true,
   "loginTheme": "keycloak",
 
   "accessTokenLifespan": 900,
@@ -199,7 +199,7 @@
         {
           "name": "email",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-usermodel-property-mapper",
           "consentRequired": false,
           "config": {
             "user.attribute": "email",
@@ -213,7 +213,7 @@
         {
           "name": "email verified",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-usermodel-property-mapper",
           "consentRequired": false,
           "config": {
             "user.attribute": "emailVerified",
@@ -371,8 +371,8 @@
 
   "authenticationFlows": [
     {
-      "alias": "Browser with Conditional OTP",
-      "description": "Browser flow with conditional OTP for ADMIN role",
+      "alias": "Browser with Conditional MFA",
+      "description": "Browser flow with conditional MFA for ADMIN and COORDINATOR roles",
       "providerId": "basic-flow",
       "topLevel": true,
       "builtIn": false,
@@ -393,13 +393,13 @@
           "authenticatorFlow": true,
           "requirement": "ALTERNATIVE",
           "priority": 30,
-          "flowAlias": "Browser with Conditional OTP Forms"
+          "flowAlias": "Browser with Conditional MFA Forms"
         }
       ]
     },
     {
-      "alias": "Browser with Conditional OTP Forms",
-      "description": "Username/password form with conditional OTP",
+      "alias": "Browser with Conditional MFA Forms",
+      "description": "Username/password form with conditional MFA",
       "providerId": "basic-flow",
       "topLevel": false,
       "builtIn": false,
@@ -414,13 +414,19 @@
           "authenticatorFlow": true,
           "requirement": "CONDITIONAL",
           "priority": 20,
-          "flowAlias": "Browser with Conditional OTP - Conditional OTP"
+          "flowAlias": "Conditional MFA - ADMIN"
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "flowAlias": "Conditional MFA - COORDINATOR"
         }
       ]
     },
     {
-      "alias": "Browser with Conditional OTP - Conditional OTP",
-      "description": "Conditional OTP sub-flow for ADMIN role",
+      "alias": "Conditional MFA - ADMIN",
+      "description": "MFA required for users with ADMIN role",
       "providerId": "basic-flow",
       "topLevel": false,
       "builtIn": false,
@@ -439,6 +445,28 @@
           "priority": 20
         }
       ]
+    },
+    {
+      "alias": "Conditional MFA - COORDINATOR",
+      "description": "MFA required for users with COORDINATOR role",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorConfig": "coordinator-role-condition"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20
+        }
+      ]
     }
   ],
 
@@ -449,8 +477,15 @@
         "condUserRole": "ADMIN",
         "negate": "false"
       }
+    },
+    {
+      "alias": "coordinator-role-condition",
+      "config": {
+        "condUserRole": "COORDINATOR",
+        "negate": "false"
+      }
     }
   ],
 
-  "browserFlow": "Browser with Conditional OTP"
+  "browserFlow": "Browser with Conditional MFA"
 }

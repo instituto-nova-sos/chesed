@@ -12,11 +12,12 @@ const claimsKey contextKey = iota
 
 // AuthClaims represents validated claims from a Keycloak JWT.
 type AuthClaims struct {
-	Subject  string
-	Email    string
-	Roles    []string
-	CampusID uuid.UUID
-	PersonID uuid.UUID
+	Subject       string
+	Email         string
+	EmailVerified bool
+	Roles         []string
+	CampusID      uuid.UUID
+	PersonID      uuid.UUID
 }
 
 // NewContext stores AuthClaims in the context.
