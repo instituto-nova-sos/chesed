@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-06 (Session 9)
+2026-04-06 (Session 10)
 
 ---
 
@@ -748,21 +748,61 @@ Configure GitHub branch protection rules on `main` to require these status check
 
 ---
 
+## Session 10: Production Docker Compose (2026-04-06)
+
+### What Was Done
+1. **Production docker-compose** (`docker-compose.prod.yml`) with 4 services: PostgreSQL, Keycloak, Go API, Frontend (nginx)
+2. **Frontend production Dockerfile** (`frontend/Dockerfile.prod`) — multi-stage build: node:20-alpine → nginx:1.27-alpine
+3. **Nginx reverse proxy** (`frontend/nginx.conf`) — single entry point, SPA routing, API/Keycloak proxy
+4. **Production env template** (`.env.prod.example`) — all credentials via environment variables
+
+### Files Created
+- `docker-compose.prod.yml` — production compose (health checks, restart policies, resource limits, internal networking)
+- `frontend/Dockerfile.prod` — multi-stage build with build-time Vite env args
+- `frontend/nginx.conf` — reverse proxy + SPA routing + security headers
+- `.env.prod.example` — documented env var template with placeholders
+
+### Key Decisions
+- **Nginx as single entry point**: Only port 80 exposed externally. API and Keycloak are internal-only, proxied through nginx
+- **Keycloak admin console blocked**: Nginx only proxies `/auth/realms/`, `/auth/resources/`, `/auth/js/` — admin console (`/admin/`) is NOT proxied
+- **Keycloak production mode**: Uses `start` (not `start-dev`), with `KC_HOSTNAME` and `KC_PROXY_HEADERS=xforwarded`
+- **SMTP via SPI env vars**: Keycloak email configured through `KC_SPI_EMAIL_SENDER_DEFAULT_*` environment variables
+- **Resource limits**: db=512MB, keycloak=1GB, api=256MB, frontend=128MB
+- **Build-time frontend config**: Vite env vars passed as Docker build args (baked into static bundle)
+
+### Deployment Instructions
+```bash
+# 1. Copy and fill in environment variables
+cp .env.prod.example .env.prod
+# Edit .env.prod with production values
+
+# 2. Start all services
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+# 3. Run database migrations (after first deploy)
+docker compose -f docker-compose.prod.yml exec api sh -c "cd /app && ./server migrate-up"
+# Or run migrations from host if migrate CLI is available
+
+# 4. Verify
+curl http://localhost/api/v1/health
+curl http://localhost/nginx-health
+```
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. **Production docker-compose** (or deployment config)
-   - Env var references for all credentials
-   - Keycloak admin console not publicly exposed
-   - SMTP configured for production
+1. **TLS termination** — Add HTTPS support (Let's Encrypt / Caddy / cloud load balancer)
+2. **Database migrations in production** — Automate migration execution on deploy
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
-2. Person CRUD API + React pages (Sprint 2)
-3. Triage and Attendance API + React forms (Sprint 3)
-4. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
-5. Basic reports with CSV export (Sprint 4)
+3. Person CRUD API + React pages (Sprint 2)
+4. Triage and Attendance API + React forms (Sprint 3)
+5. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
+6. Basic reports with CSV export (Sprint 4)
 
 ---
 

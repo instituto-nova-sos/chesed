@@ -1,0 +1,143 @@
+# Chesed Production Environment
+# Usage: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+# Pre-requisites: copy .env.prod.example to .env.prod and fill in all values
+# Post-start: docker compose -f docker-compose.prod.yml exec api ./migrations/run.sh (or run migrate manually)
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-keycloak-db.sh:/docker-entrypoint-initdb.d/init-keycloak-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+    networks:
+      - chesed-internal
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start --import-realm
+    environment:
+      # Database
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/chesed_keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Admin credentials
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Production settings
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: ${KC_HOSTNAME}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      # SMTP for email verification, password reset, MFA codes
+      KC_SPI_EMAIL_SENDER_DEFAULT_HOST: ${SMTP_HOST}
+      KC_SPI_EMAIL_SENDER_DEFAULT_PORT: ${SMTP_PORT}
+      KC_SPI_EMAIL_SENDER_DEFAULT_FROM: ${SMTP_FROM}
+      KC_SPI_EMAIL_SENDER_DEFAULT_FROM_DISPLAY_NAME: ${SMTP_FROM_DISPLAY_NAME}
+      KC_SPI_EMAIL_SENDER_DEFAULT_USER: ${SMTP_USER}
+      KC_SPI_EMAIL_SENDER_DEFAULT_PASSWORD: ${SMTP_PASSWORD}
+      KC_SPI_EMAIL_SENDER_DEFAULT_ENABLE_STARTTLS: ${SMTP_STARTTLS}
+      KC_SPI_EMAIL_SENDER_DEFAULT_ENABLE_SSL: ${SMTP_SSL}
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'UP'"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+    networks:
+      - chesed-internal
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      SERVER_PORT: ${SERVER_PORT}
+      DATABASE_URL: ${DATABASE_URL}
+      KEYCLOAK_URL: ${KEYCLOAK_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      LOG_LEVEL: ${LOG_LEVEL}
+      OIDC_SKIP_ISSUER_CHECK: ${OIDC_SKIP_ISSUER_CHECK}
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    networks:
+      - chesed-internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - chesed-internal
+
+networks:
+  chesed-internal:
+    driver: bridge
+
+volumes:
+  pgdata:
