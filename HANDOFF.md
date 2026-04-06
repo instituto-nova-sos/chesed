@@ -870,18 +870,62 @@ curl http://yourdomain.org/nginx-health  # Should get 200 "ok"
 
 ---
 
+## Session 12: CI/CD Pipeline — Continuous Deployment with TLS Integration (2026-04-06)
+
+### What Was Done
+1. **Production deploy script** — Created `scripts/deploy.sh` encapsulating all deploy logic: pre-flight checks, git checkout of exact CI-verified commit SHA, first-deploy TLS bootstrap detection (inspects certbot Docker volume), `docker compose build/up`, local health checks (nginx + API), and image pruning
+2. **GitHub Actions CD workflow** — Created `.github/workflows/deploy.yml` with two jobs:
+   - **ci-gate**: Polls all CI workflows (Backend, Frontend, Security) for the triggering commit SHA every 30s up to 10 minutes. Path-filtered workflows (Backend, Frontend) are only required if triggered; Security is always required
+   - **deploy**: SSH into production server via `appleboy/ssh-action@v1`, runs `deploy.sh`, then performs external HTTPS health checks from the GitHub runner
+3. **Concurrency safety** — Deploy workflow uses `concurrency: { group: production-deploy, cancel-in-progress: false }` to queue deploys without canceling in-progress ones
+
+### Files Created
+- `scripts/deploy.sh` — Production deploy script (idempotent, handles first deploy TLS bootstrap)
+- `.github/workflows/deploy.yml` — CD workflow with CI gate and SSH deployment
+
+### Key Decisions
+- **CI gate via polling** (not `workflow_run`): `workflow_run` only supports a single upstream workflow, but we need to wait on 3 (Backend, Frontend, Security). Polling with `gh run list` handles path-filtered workflows gracefully — if Backend wasn't triggered for a frontend-only commit, the gate passes it through
+- **Git-based deploy** (no container registry): Server does `git fetch` + `git checkout <SHA>` + `docker compose build`. Avoids registry infrastructure for MVP
+- **Detached HEAD checkout**: Deploy always checks out the exact commit SHA that triggered the workflow, not `origin/main`. This ensures the server runs the CI-verified code even if more commits were pushed since
+- **No automatic rollback for MVP**: Failed health checks surface as workflow failures. Manual rollback follows the existing `rollback-and-hotfix.md` playbook
+- **GitHub Environment `production`**: Enables optional protection rules (manual approval, branch restrictions) in repository settings
+
+### Required GitHub Secrets
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `DEPLOY_HOST` | Production server IP or hostname | `203.0.113.42` |
+| `DEPLOY_USER` | SSH username | `deploy` |
+| `DEPLOY_SSH_KEY` | Private SSH key (ed25519 recommended) | Contents of `~/.ssh/id_ed25519` |
+| `DEPLOY_PORT` | SSH port (defaults to 22) | `22` |
+| `DOMAIN_NAME` | Public domain for external health checks | `chesed.example.org` |
+
+### Deployment Instructions (Automated)
+```bash
+# Automated: Push to main → CI passes → deploy.yml SSHs into server → deploy.sh runs
+
+# First-time server setup (manual):
+# 1. Clone repo to /opt/chesed
+# 2. Copy and configure .env.prod
+# 3. Create 'deploy' user with Docker access and SSH key
+# 4. Configure GitHub secrets (DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_PORT, DOMAIN_NAME)
+# 5. (Optional) Create GitHub Environment 'production' with protection rules
+# 6. Set up SSL renewal cron on host:
+#    0 0,12 * * * /opt/chesed/scripts/ssl-renew.sh >> /var/log/chesed-ssl-renew.log 2>&1
+```
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. **CI/CD pipeline TLS integration** — Update deployment scripts to run init-letsencrypt.sh on first deploy
+1. Person CRUD API + React pages (Sprint 2)
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
-3. Person CRUD API + React pages (Sprint 2)
-4. Triage and Attendance API + React forms (Sprint 3)
-5. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
-6. Basic reports with CSV export (Sprint 4)
+2. Triage and Attendance API + React forms (Sprint 3)
+3. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
+4. Basic reports with CSV export (Sprint 4)
 
 ---
 
