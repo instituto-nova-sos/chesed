@@ -3,24 +3,40 @@ package handler
 import (
 	"log/slog"
 	"net/http"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // HealthHandler handles health check requests.
-type HealthHandler struct{}
-
-// NewHealthHandler creates a new HealthHandler.
-func NewHealthHandler() *HealthHandler {
-	return &HealthHandler{}
+type HealthHandler struct {
+	pool *pgxpool.Pool
 }
 
-// ServeHTTP responds with a simple health status.
-func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+// NewHealthHandler creates a new HealthHandler.
+// Pool may be nil for basic health checks without DB.
+func NewHealthHandler(pool *pgxpool.Pool) *HealthHandler {
+	return &HealthHandler{pool: pool}
+}
 
-	if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-		slog.ErrorContext(r.Context(), "healthHandler.ServeHTTP: failed to write response",
-			"error", err,
-		)
+// ServeHTTP responds with health status including DB connectivity.
+func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	dbStatus := "ok"
+	if h.pool != nil {
+		if err := h.pool.Ping(r.Context()); err != nil {
+			dbStatus = "error"
+			slog.ErrorContext(r.Context(), "healthHandler.ServeHTTP: db ping failed",
+				"error", err.Error(),
+			)
+		}
 	}
+
+	status := http.StatusOK
+	if dbStatus != "ok" {
+		status = http.StatusServiceUnavailable
+	}
+
+	writeJSON(w, status, map[string]any{
+		"status":   dbStatus,
+		"database": dbStatus,
+	})
 }

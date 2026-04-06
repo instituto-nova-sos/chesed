@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-04 (Session 7)
+2026-04-04 (Session 8)
 
 ---
 
@@ -375,6 +375,157 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 
 ---
 
+## Session 8: Sprint 1 — Auth and Infrastructure (2026-04-04)
+
+### What Was Done
+1. **Phase 0 HANDOFF gap fixed**: Updated 7 files across `.project-ai/`, `CLAUDE.md`, and `CODEX.md` to enforce HANDOFF.md updates after every task (not just session end). Added Step 7 to `post-implement` hook, item 9 to Quality Bar, updated `prepare-handoff` skill trigger conditions.
+2. **Sprint 1 PLAN phase**: Read all required docs (03, 04, 07, 08, 09, 10, 11, 15, 16, 20, quality/). Validated pre-implement hook: all Sprint 1 features exist in requirements catalog, belong to Phase 1, no Phase 2 features being built.
+3. **Sprint 1 DESIGN phase**: Produced full architecture plan covering middleware chain (Auth → AutoProvision → RBAC), audit logging at service layer, typed auth context, DB pool via constructor injection, migrations via Makefile.
+4. **Task 1.1: Database migrations** — Created 11 migration pairs (22 SQL files) for all 12 Phase 1 tables. Key change: `app_user.person_id` made nullable to support auto-provisioning. Added append-only trigger on `audit_log`.
+5. **Task 1.2: OIDC middleware** — `internal/middleware/auth.go` using `coreos/go-oidc/v3` with JWKS caching, retry loop for Keycloak startup (15 attempts, 2s intervals), extracts `sub`, `email`, `realm_access.roles`, `campus_id`, `person_id` into typed `AuthClaims` context.
+6. **Task 1.3: User auto-provisioning** — `internal/middleware/provision.go` + `internal/service/user_service.go` with `EnsureUser()`: finds by Keycloak subject, creates if missing, updates last_login, logs to audit.
+7. **Task 1.4: RBAC middleware** — `internal/middleware/rbac.go` with `RequireRole()` factory checking role membership, 403 on insufficient permissions, warning log on unauthorized attempts.
+8. **Task 1.5: Audit logging** — `internal/service/audit_service.go` + `internal/repository/audit_repository.go`. Service-layer approach with `LogAction()` accepting typed `AuditParams`, marshals old/new values to JSONB, extracts user/campus from context.
+9. **Task 1.6: Campus-scoped access** — `internal/auth/campus.go` with `ResolveCampusID()` supporting admin cross-campus override. All repository queries will use `CampusIDFromContext()`.
+10. **Task 1.7: Seed data** — Migration `000011_seed_data` inserts default campus and 8 service types. `GET /api/v1/service-types` endpoint via handler → service → repository chain.
+11. **Task 1.8: React OIDC** — `frontend/src/auth/keycloak.ts` configuring keycloak-js with env vars, Authorization Code Flow with PKCE.
+12. **Task 1.9: Layout shell** — `AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` with responsive design, mobile hamburger menu, navigation links, user info display.
+13. **Task 1.10: Auth context** — Zustand `authStore.ts` wrapping keycloak-js (init, refresh, logout, claims extraction), `useAuth()` hook with `hasRole()`/`hasMinRole()`, `apiClient()` with auto Bearer token, `ProtectedRoute` component.
+14. **Tasks 1.11-1.12: Already complete** (Keycloak MFA + realm-export.json from Phase 0).
+15. **main.go fully wired** — DI chain: config → pool → repositories → services → handlers → middleware chain → chi router. CORS middleware for dev.
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Middleware chain: Auth → AutoProvision → RBAC | Auth validates first, provision ensures local user, RBAC per-route |
+| Audit at service layer, not HTTP middleware | Service has entity context (entity_id, old/new values) |
+| Auth context via typed struct + typed context key | Type-safe, no string collisions |
+| DB pool via constructor injection | No global state, explicit dependencies |
+| app_user.person_id nullable | Auto-provisioning before person is linked |
+| OIDC provider with 15-retry loop | Keycloak may not be ready at API startup |
+| CORS middleware for dev | React (5173) calls API (8080) cross-origin |
+
+### Files Created
+
+**Backend — 22 migration files** (`backend/migrations/000001-000011 .up.sql + .down.sql`)
+
+**Backend — 17 Go files:**
+- `internal/database/pool.go` — pgx connection pool
+- `internal/auth/context.go` — AuthClaims struct + context helpers
+- `internal/auth/campus.go` — Campus ID resolution
+- `internal/domain/user.go`, `service_type.go`, `audit.go`, `role.go`, `errors.go` — Domain structs
+- `internal/middleware/auth.go`, `rbac.go`, `provision.go`, `cors.go` — Middleware stack
+- `internal/service/audit_service.go`, `user_service.go`, `service_type_service.go` — Business logic
+- `internal/repository/audit_repository.go`, `user_repository.go`, `service_type_repository.go` — Data access
+
+**Frontend — 11 files:**
+- `src/auth/keycloak.ts` — Keycloak instance
+- `src/store/authStore.ts` — Zustand auth store
+- `src/hooks/useAuth.ts` — Auth convenience hook
+- `src/api/client.ts` — API client with Bearer token
+- `src/components/auth/ProtectedRoute.tsx` — Auth gate
+- `src/components/layout/AppLayout.tsx`, `Sidebar.tsx`, `Header.tsx` — Layout shell
+- `src/components/ui/LoadingScreen.tsx` — Loading spinner
+- `src/pages/DashboardPage.tsx`, `NotFoundPage.tsx` — Pages
+
+### Files Modified
+- `backend/cmd/server/main.go` — Full DI wiring, middleware chain, routes
+- `backend/internal/handler/health.go` — Added DB ping check
+- `backend/internal/handler/health_test.go` — Updated for new signature
+- `backend/Makefile` — Added migrate-up/down/create/force targets
+- `backend/go.mod` — Added pgx/v5, go-oidc/v3, uuid, oauth2
+- `frontend/src/App.tsx` — Keycloak init, protected routes, layout
+- `frontend/src/api/client.ts` — Fixed erasableSyntaxOnly compat
+- `docs/08-roadmap.md` — Phase 0 status corrected earlier in session
+- `CLAUDE.md` — Added HANDOFF.md to Quality Bar
+- `CODEX.md` — Added HANDOFF.md to Quality Checklist
+- `.project-ai/hooks/post-implement.md` — Added HANDOFF.md step
+- `.project-ai/skills/prepare-handoff.md` — Updated triggers
+- `.project-ai/workflows/feature-delivery.md` — Added HANDOFF in POST-IMPLEMENT
+- `.project-ai/OPERATING_MODEL.md` — Updated hook trigger map
+
+### Verification Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | 2 test suites passed (config, handler) |
+| `go vet ./...` | PASS |
+| `npm run typecheck` | PASS |
+| `npm run build` | PASS (PWA generated) |
+| `npm run test` | 1 test passed |
+| `npm run lint` | PASS |
+
+### Current State
+
+**Working:**
+- All 12 Phase 1 database migrations (up + down SQL)
+- Go backend: health endpoint, OIDC middleware, RBAC middleware, auto-provisioning, audit service, service type endpoint, CORS, full DI wiring
+- React frontend: Keycloak OIDC integration, auth store, layout shell, protected routes, API client
+
+**Not Yet Verified (requires running Docker Compose):**
+- End-to-end auth flow (Keycloak → React → API → DB)
+- Migration execution against real PostgreSQL
+- Auto-provisioning flow
+- Service types endpoint with real data
+
+### Next Steps
+
+1. **Run `docker compose up`** and verify end-to-end auth flow
+2. **Run `make migrate-up`** against the running PostgreSQL
+3. **Create a test Keycloak user** with campus_id attribute and verify login flow
+4. **Add unit tests** for domain/role.go, auth/context.go, auth/campus.go, middleware/rbac.go, service/user_service.go
+5. **Set up CI/CD** (GitHub Actions with Go test + React build)
+6. **Begin Sprint 2** (Person Management: CRUD API + React pages)
+
+---
+
+## Session 9: End-to-End Auth Verification (2026-04-05)
+
+### What Was Done
+1. **Migrations executed** — All 11 migration pairs ran successfully against real PostgreSQL (12 Phase 1 tables + seed data)
+2. **Keycloak 26 compatibility fixes** — Discovered and fixed 4 issues with Keycloak 26's realm import:
+   - **User Profile enforcement**: KC 26 silently drops user attributes not declared in User Profile. Added `campus_id` and `person_id` to User Profile config.
+   - **Missing client scopes**: `profile`, `email`, `roles` scopes weren't created from `defaultDefaultClientScopes` — they must be explicitly defined in `clientScopes`. Added all with proper protocol mappers.
+   - **Lightweight access tokens**: KC 26 omits `sub` from access tokens by default. Added `oidc-sub-mapper` to the `profile` scope.
+   - **Issuer URL mismatch**: API reaches Keycloak at `http://keycloak:8080` (Docker internal) but tokens have `iss: http://localhost:8180`. Added `KC_HOSTNAME`/`KC_HOSTNAME_PORT` to docker-compose and `SkipIssuerCheck` with documented rationale in auth middleware.
+3. **IP address port stripping** — `r.RemoteAddr` includes port (e.g., `192.168.65.1:26043`), PostgreSQL `inet` type rejects it. Fixed `extractIP()` in `provision.go` to use `net.SplitHostPort()`.
+4. **Test users created** — `testvolunteer` (VOLUNTEER) and `testadmin` (ADMIN) in Keycloak with `campus_id` attribute, realm roles, passwords.
+5. **Full auth flow verified** — Login → Token (with sub, email, roles, campus_id) → API call → OIDC validation → Auto-provisioning → DB insert → Audit log entry. Both VOLUNTEER and ADMIN users verified.
+6. **realm-export.json updated** — All Keycloak fixes persisted: User Profile config, 5 client scopes (profile, email, roles, offline_access, chesed-custom-claims) with protocol mappers, sub mapper, introspection claims.
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `docker-compose.yml` | Added `KC_HOSTNAME`, `KC_HOSTNAME_PORT`, `KC_HOSTNAME_STRICT` to Keycloak service |
+| `backend/internal/middleware/auth.go` | Added `InsecureIssuerURLContext` for OIDC discovery, `SkipIssuerCheck` on verifier (Docker hostname mismatch) |
+| `backend/internal/middleware/provision.go` | Fixed `extractIP()` to strip port using `net.SplitHostPort()` for PostgreSQL `inet` compatibility |
+| `keycloak/realm-export.json` | Added `profile`, `email`, `roles`, `offline_access` scopes with mappers; `sub` mapper; User Profile with `campus_id`/`person_id` attributes; `introspection.token.claim` on custom claims |
+
+### Verification Results
+| Check | Result |
+|-------|--------|
+| Migrations (11 up) | PASS — all 12 tables + seed data |
+| Token claims (sub, email, roles, campus_id) | PASS |
+| GET /api/v1/service-types (VOLUNTEER) | 200 — 8 service types |
+| GET /api/v1/service-types (ADMIN) | 200 — 8 service types |
+| app_user auto-provisioning | PASS — VOLUNTEER and ADMIN records |
+| audit_log entries | PASS — 2 CREATE entries with IP, entity_id |
+| `go build ./...` | PASS |
+| `go test ./...` | PASS |
+| `go vet ./...` | PASS |
+
+### Keycloak 26 Lessons Learned
+| Issue | Impact | Fix |
+|-------|--------|-----|
+| User Profile enforced by default | Custom user attributes silently dropped on save | Must declare custom attributes in `userProfile` section of realm config |
+| Lightweight access tokens | `sub` claim missing from access tokens | Add `oidc-sub-mapper` protocol mapper to a default client scope |
+| Client scopes not auto-created | Referencing `profile`/`email`/`roles` in `defaultDefaultClientScopes` doesn't create them | Must define full scope objects in `clientScopes` array with protocol mappers |
+| KC_HOSTNAME required for consistent issuer | Token `iss` uses hostname visible to the browser; internal Docker DNS differs | Set `KC_HOSTNAME`/`KC_HOSTNAME_PORT` and use `SkipIssuerCheck` in API middleware |
+
+---
+
 ## Open Questions
 
 These need stakeholder input (but have documented defaults that allow implementation to proceed):
@@ -387,52 +538,134 @@ These need stakeholder input (but have documented defaults that allow implementa
 
 ---
 
+## Session 10: Unit Tests + Security Review + Fixes (2026-04-05)
+
+### What Was Done
+1. **Unit tests written** — 11 test files, 73+ test cases across all Sprint 1 packages. Coverage: auth 100%, domain 100%, service 96.7%, config 100%, middleware 52.8% (OIDCAuth untestable), handler 76.2%.
+2. **Security review executed** — Full review per `.project-ai/prompts/security-review.md`. Found 0 CRITICAL, 3 HIGH, 4 MEDIUM, 4 LOW, 3 INFO.
+3. **Security fixes applied** — 8 findings fixed in code:
+
+| Finding | Fix |
+|---------|-----|
+| H1: Client secret in realm-export.json | Removed `"secret": "changeme-in-production"` from chesed-api client |
+| H2: JWT audience not validated | Set `SkipClientIDCheck: false` — now validates `aud`/`azp` against clientID |
+| M1: RequireRole not applied | Added `RequireRole` middleware to `/api/v1/service-types` route |
+| M2: Login not audited | Added LOGIN audit entry in `EnsureUser` for existing users |
+| M3: X-Forwarded-For spoofable | Extracts first IP from XFF chain, validates with `net.ParseIP()`, rejects invalid |
+| M4: SkipIssuerCheck hardcoded | Made configurable via `OIDC_SKIP_ISSUER_CHECK` env var (default false) |
+| L3: Missing campus_id validation | Added `uuid.Nil` check in `AutoProvision` — returns 403 if campus_id missing |
+| L4: Missing security headers | New `SecurityHeaders` middleware: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP, Permissions-Policy, Cache-Control |
+
+### Files Created
+| File | Purpose |
+|------|---------|
+| `backend/internal/domain/role_test.go` | HasRole + RoleHierarchy tests (11 cases) |
+| `backend/internal/auth/context_test.go` | Context round-trip tests (6 cases) |
+| `backend/internal/auth/campus_test.go` | ResolveCampusID tests (6 cases) |
+| `backend/internal/service/audit_service_test.go` | LogAction tests + MockAuditRepository (7 cases) |
+| `backend/internal/service/user_service_test.go` | EnsureUser + resolveAccessProfile tests (14 cases) |
+| `backend/internal/service/service_type_service_test.go` | ListActive tests (3 cases) |
+| `backend/internal/middleware/rbac_test.go` | RequireRole tests (5 cases) |
+| `backend/internal/middleware/cors_test.go` | CORS tests (5 cases) |
+| `backend/internal/middleware/auth_test.go` | extractBearerToken + writeError tests (7 cases) |
+| `backend/internal/middleware/provision_test.go` | extractIP + AutoProvision tests (12 cases) |
+| `backend/internal/middleware/security_headers.go` | Security headers middleware |
+| `backend/internal/middleware/security_headers_test.go` | Security headers test |
+| `backend/internal/handler/service_type_test.go` | ServiceTypeHandler.List tests (3 cases) |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `keycloak/realm-export.json` | Removed hardcoded client secret (H1) |
+| `backend/internal/middleware/auth.go` | Enabled audience validation, configurable issuer check (H2, M4) |
+| `backend/internal/middleware/provision.go` | IP validation + campus_id check (M3, L3) |
+| `backend/internal/service/user_service.go` | LOGIN audit for existing users (M2) |
+| `backend/cmd/server/main.go` | Added SecurityHeaders + RequireRole to routes (L4, M1) |
+| `backend/internal/config/config.go` | Added OIDCSkipIssuerCheck field |
+| `docker-compose.yml` | Added OIDC_SKIP_ISSUER_CHECK=true for dev |
+| `backend/go.mod` / `backend/go.sum` | Added testify dependency |
+
+### Deferred Security Findings (tracked for future sprints)
+
+| ID | Severity | Finding | Reason Deferred | Target |
+|----|----------|---------|-----------------|--------|
+| H3 | HIGH | Hardcoded credentials in docker-compose.yml (`chesed`/`admin`) | Acceptable for local dev; production deployment will use env vars from secrets manager | Production deployment |
+| L1 | LOW | Missing `campus_id` on address, person_role, assisted_profile tables | Schema change requires new migration + data model doc update; current approach joins through person | Sprint 2 (evaluate during Person CRUD) |
+| L2 | LOW | triage table missing `is_active` and `updated_at` | Design decision — triages may be intentionally immutable per `docs/04-domain-model.md` | Sprint 3 (evaluate during Triage implementation) |
+| I1 | INFO | Keycloak admin console exposed on port 8180 | Required for local development | Production deployment |
+| I2 | INFO | Token stored in JavaScript memory (Zustand) | Standard for SPA + keycloak-js + PKCE; httpOnly cookies require server-side handling | Phase 2 (if XSS threat increases) |
+| I3 | INFO | audit_log.user_id nullable | System operations (cron, batch) need null user_id | Document in data model |
+| — | MEDIUM | No CI/CD pipeline yet | Blocks automated quality gate enforcement | Next session |
+| — | LOW | No dependency scanning (T11: Supply Chain) | Need gitleaks/trufflehog + Dependabot | CI/CD setup |
+| — | LOW | No rate limiting (T12: DDoS) | Deferred to production deployment behind reverse proxy | Production deployment |
+
+### Code Review Fixes Applied (same session)
+
+Code review executed per `.project-ai/prompts/code-review.md`. Found 0 BLOCKER, 2 MAJOR, 5 MINOR, 5 SUGGESTION. All fixable findings resolved:
+
+| Finding | Fix |
+|---------|-----|
+| M1: `_ =` discards audit error | Replaced with `slog.ErrorContext` logging |
+| M4: Header.tsx nesting depth 4 | Extracted SVG to `MenuIcon` component |
+| M5: LogAction 57 lines | Refactored to `buildAuditEntry` (38 lines) + `setOptionalString` helper |
+| M6: writeJSON duplicated | Extracted to `handler/response.go` |
+| M7: Error format mismatch | Aligned to `{"error":"code","message":"text"}` per API spec |
+| S1: config/health tests use t.Errorf | Migrated to testify assert/require |
+| S2: Record<string,unknown> cast | Added typed `KeycloakTokenParsed` interface |
+| S4: Loose security header assertions | Changed `assert.Contains` to `assert.Equal` |
+
+### Deferred Code Review Findings
+
+| ID | Severity | Finding | Reason Deferred | Target |
+|----|----------|---------|-----------------|--------|
+| M2 | MAJOR | Frontend test coverage ~7% (1 test for 13 files) | Requires significant effort; backend coverage is 90%+ | Sprint 2 |
+| M3 | MINOR | Service tests (audit, user, provision) not table-driven | Functional and passing; refactor is cosmetic | When touching these files |
+| S3 | SUGGESTION | CORS origin hardcoded to localhost:5173 | Acceptable for dev; must be configurable in production | Production deployment |
+| S5 | SUGGESTION | No TypeScript types for API entities | No entity endpoints yet; add with Sprint 2 Person CRUD | Sprint 2 |
+
+### Verification Results
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | PASS (75+ cases across 8 packages) |
+| `go vet ./...` | PASS |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| realm-export.json | Valid JSON, no secrets |
+
+---
+
+### Local Dev Setup Automation (same session)
+
+Added automated local development setup flow:
+- **`keycloak/init-realm.sh`** expanded to: configure User Profile, disable conditional OTP for dev, create 5 test users (one per RBAC role)
+- **`README.md`** updated with numbered setup steps, test user table, service URLs
+- **Decision**: Conditional OTP (MFA for ADMIN) is disabled in dev via `browserFlow: browser`. Production deployment must re-enable the custom `Browser with Conditional OTP` flow.
+- **Decision**: `userProfile` removed from `realm-export.json` (Keycloak 26.0 doesn't support it in import). Configured via Admin API in `init-realm.sh` instead.
+- **Decision**: `KC_HOSTNAME` removed from `docker-compose.yml` — Keycloak uses request hostname dynamically, API uses `SkipIssuerCheck` for dev.
+- **Audience mapper** added to `chesed-pwa` client in realm-export.json — ensures `aud` claim includes `chesed-pwa` for JWT audience validation.
+
+---
+
 ## Next Recommended Steps
 
-### Immediate (Next Session — Sprint 1: Auth & Infrastructure)
+### Immediate (Next Session)
 
-1. **Write database migrations** (Task 1.1)
-   - `campus`, `person`, `address`, `person_role`, `assisted_profile`, `app_user`, `service_type`, `audit_log` tables
-   - `.up.sql` and `.down.sql` for each migration
+1. **Set up CI/CD**
+   - GitHub Actions: Go test + lint, React build + lint
+   - PostgreSQL service container for integration tests
+   - Add gitleaks/trufflehog for secret scanning
 
-2. **Implement Go OIDC middleware** (Task 1.2)
-   - Token validation using `coreos/go-oidc` + Keycloak JWKS
-   - Extract claims: `sub`, `realm_access.roles`, `campus_id`, `person_id`
-
-3. **Implement local user auto-provisioning** (Task 1.3)
-   - First login creates `app_user` from Keycloak `sub` claim
-
-4. **Implement RBAC middleware** (Task 1.4)
-   - Role-based access from Keycloak token claims
-
-5. **Implement audit logging middleware** (Task 1.5)
-   - Log all data mutations to `audit_log` table
-
-6. **Implement campus-scoped data access** (Task 1.6)
-   - `campus_id` filter on all data queries from JWT claims
-
-7. **Create seed data** (Task 1.7)
-   - Service types, default campus
-
-8. **React OIDC integration** (Task 1.8)
-   - keycloak-js adapter, redirect flow, token management
-
-9. **React layout shell** (Task 1.9)
-   - Responsive navbar, sidebar, mobile-first
-
-10. **React auth context** (Task 1.10)
-    - Auth state management wrapping keycloak-js
-
-11. **Set up CI/CD**
-    - GitHub Actions: Go test + lint, React build + lint
-    - PostgreSQL service container for integration tests
+2. **Production docker-compose** (or deployment config)
+   - Env var references for all credentials
+   - Keycloak admin console not publicly exposed
 
 ### Medium-Term (Phase 1 Sprints 2-4)
 
-12. Person CRUD API + React pages (Sprint 2)
-13. Triage and Attendance API + React forms (Sprint 3)
-14. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
-15. Basic reports with CSV export (Sprint 4)
+3. Person CRUD API + React pages (Sprint 2)
+4. Triage and Attendance API + React forms (Sprint 3)
+5. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
+6. Basic reports with CSV export (Sprint 4)
 
 ---
 

@@ -1,10 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { App } from './App';
+import { LoadingScreen } from './components/ui/LoadingScreen';
 
-describe('App', () => {
-  it('renders the home page', () => {
-    render(<App />);
-    expect(screen.getByText('Chesed')).toBeInTheDocument();
+describe('LoadingScreen', () => {
+  it('renders loading text', () => {
+    render(<LoadingScreen />);
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
   });
 });

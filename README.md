@@ -51,25 +51,63 @@ chesed/
 ## Getting Started
 
 ### Prerequisites
-- Go 1.22+
-- Node.js 20+
 - Docker and Docker Compose
-- PostgreSQL 16 (or use Docker)
+- Go 1.22+ (for running backend outside Docker)
+- Node.js 20+ (for running frontend outside Docker)
+- [golang-migrate CLI](https://github.com/golang-migrate/migrate) (`brew install golang-migrate`)
 
-### Development
+### Local Development Setup
+
 ```bash
-# Start all services
-docker compose up
+# 1. Start all services (PostgreSQL, Keycloak, Go API, React dev server)
+docker compose up -d
 
-# Backend only
-cd backend && make run
+# 2. Wait for Keycloak to be healthy (~30-60 seconds)
+docker inspect --format='{{.State.Health.Status}}' chesed-keycloak-1
 
-# Frontend only
-cd frontend && npm run dev
+# 3. Run database migrations
+cd backend && make migrate-up
 
-# Run tests
+# 4. Initialize Keycloak realm (User Profile + test users)
+./keycloak/init-realm.sh
+
+# 5. Open the frontend
+open http://localhost:5173
+```
+
+### Test Users
+
+All test users share the password **`Test1234!`** and belong to the default campus (Instituto Nova SOS).
+
+| Username | Password | Role | Access Level |
+|----------|----------|------|-------------|
+| `volunteer` | `Test1234!` | VOLUNTEER | Basic data entry, triage creation |
+| `secretary` | `Test1234!` | SECRETARY | Person registration, scheduling |
+| `professional` | `Test1234!` | PROFESSIONAL | Service attendance recording |
+| `coordinator` | `Test1234!` | COORDINATOR | Full operational access within campus |
+| `admin` | `Test1234!` | ADMIN | Full system access, cross-campus queries |
+
+### Service URLs
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:5173 |
+| API | http://localhost:8080/api/v1/health |
+| Keycloak Admin | http://localhost:8180/admin (admin/admin) |
+| PostgreSQL | localhost:5432 (chesed/chesed) |
+
+### Running Tests
+```bash
 cd backend && make test
 cd frontend && npm test
+```
+
+### Fresh Restart
+```bash
+# Wipe everything and start clean
+docker compose down -v
+docker compose up -d
+# Wait for Keycloak, then re-run steps 3-4 above
 ```
 
 ## Documentation
