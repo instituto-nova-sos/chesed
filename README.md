@@ -79,13 +79,13 @@ open http://localhost:5173
 
 All test users share the password **`Test1234!`** and belong to the default campus (Instituto Nova SOS).
 
-| Username | Password | Role | Access Level |
-|----------|----------|------|-------------|
-| `volunteer` | `Test1234!` | VOLUNTEER | Basic data entry, triage creation |
-| `secretary` | `Test1234!` | SECRETARY | Person registration, scheduling |
-| `professional` | `Test1234!` | PROFESSIONAL | Service attendance recording |
-| `coordinator` | `Test1234!` | COORDINATOR | Full operational access within campus |
-| `admin` | `Test1234!` | ADMIN | Full system access, cross-campus queries |
+| Username | Email | Password | Role | Access Level |
+|----------|-----------|----------|------|-------------|
+| `volunteer` | `volunteer@chesed.test` | `Test1234!` | VOLUNTEER | Basic data entry, triage creation |
+| `secretary` | `secretary@chesed.test` | `Test1234!` | SECRETARY | Person registration, scheduling |
+| `professional` | `professional@chesed.test` | `Test1234!` | PROFESSIONAL | Service attendance recording |
+| `coordinator` | `coordinator@chesed.test` | `Test1234!` | COORDINATOR | Full operational access within campus |
+| `admin` | `admin@chesed.test` | `Test1234!` | ADMIN | Full system access, cross-campus queries |
 
 ### Service URLs
 

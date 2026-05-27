@@ -25,6 +25,7 @@ export function useAuth() {
     isLoading: store.isLoading,
     initialized: store.initialized,
     email: store.email,
+    emailVerified: store.emailVerified,
     roles: store.roles,
     campusId: store.campusId,
     personId: store.personId,

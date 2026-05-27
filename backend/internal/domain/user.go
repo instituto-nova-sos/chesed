@@ -13,7 +13,7 @@ type AppUser struct {
 	Email             string     `json:"email"`
 	KeycloakSubjectID string     `json:"-"`
 	AccessProfile     string     `json:"access_profile"`
-	CampusID          uuid.UUID  `json:"campus_id"`
+	CampusID          *uuid.UUID `json:"campus_id,omitempty"`
 	IsActive          bool       `json:"is_active"`
 	LastLogin         *time.Time `json:"last_login,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`

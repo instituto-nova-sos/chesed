@@ -15,6 +15,8 @@ import (
 type UserRepository interface {
 	FindByKeycloakSubject(ctx context.Context, subjectID string) (*domain.AppUser, error)
 	Create(ctx context.Context, user domain.AppUser) (*domain.AppUser, error)
+	LinkPersonID(ctx context.Context, userID uuid.UUID, personID uuid.UUID) error
+	LinkPersonAndCampus(ctx context.Context, userID uuid.UUID, personID uuid.UUID, campusID uuid.UUID) error
 	UpdateLastLogin(ctx context.Context, id uuid.UUID) error
 }
 
@@ -66,12 +68,17 @@ func (s *UserService) EnsureUser(ctx context.Context, claims auth.AuthClaims, ip
 func (s *UserService) provisionUser(ctx context.Context, claims auth.AuthClaims, ip, userAgent string) (*domain.AppUser, error) {
 	profile := resolveAccessProfile(claims.Roles)
 
+	var campusPtr *uuid.UUID
+	if claims.CampusID != uuid.Nil {
+		campusPtr = &claims.CampusID
+	}
+
 	newUser := domain.AppUser{
 		ID:                uuid.New(),
 		Email:             claims.Email,
 		KeycloakSubjectID: claims.Subject,
 		AccessProfile:     profile,
-		CampusID:          claims.CampusID,
+		CampusID:          campusPtr,
 		IsActive:          true,
 	}
 
@@ -96,6 +103,19 @@ func (s *UserService) provisionUser(ctx context.Context, claims auth.AuthClaims,
 	}
 
 	return created, nil
+}
+
+// ResolveCampusFromDB looks up the campus_id from an existing app_user record.
+// Returns uuid.Nil if user not found or campus not set.
+func (s *UserService) ResolveCampusFromDB(ctx context.Context, subject string) (uuid.UUID, error) {
+	user, err := s.repo.FindByKeycloakSubject(ctx, subject)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if user.CampusID == nil {
+		return uuid.Nil, nil
+	}
+	return *user.CampusID, nil
 }
 
 func resolveAccessProfile(roles []string) string {

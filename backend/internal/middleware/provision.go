@@ -11,8 +11,10 @@ import (
 	"github.com/instituto-nova-sos/chesed/internal/service"
 )
 
-// AutoProvision creates middleware that ensures an app_user record exists.
+// AutoProvision creates middleware that ensures an app_user record exists
+// and resolves the campus_id from the database.
 // Runs after OIDCAuth. Calls UserService.EnsureUser with claims from context.
+// Campus is resolved from app_user.campus_id (not from JWT).
 func AutoProvision(userSvc *service.UserService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -22,18 +24,10 @@ func AutoProvision(userSvc *service.UserService) func(http.Handler) http.Handler
 				return
 			}
 
-			if claims.CampusID == uuid.Nil {
-				slog.WarnContext(r.Context(), "middleware.AutoProvision: missing campus_id claim",
-					"subject", claims.Subject,
-				)
-				writeError(w, http.StatusForbidden, "forbidden", "missing campus assignment")
-				return
-			}
-
 			ip := extractIP(r)
 			userAgent := r.UserAgent()
 
-			_, err := userSvc.EnsureUser(r.Context(), claims, ip, userAgent)
+			appUser, err := userSvc.EnsureUser(r.Context(), claims, ip, userAgent)
 			if err != nil {
 				slog.ErrorContext(r.Context(), "middleware.AutoProvision: failed",
 					"error", err.Error(),
@@ -43,7 +37,19 @@ func AutoProvision(userSvc *service.UserService) func(http.Handler) http.Handler
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Resolve campus from app_user record in DB
+			if appUser.CampusID == nil || *appUser.CampusID == uuid.Nil {
+				slog.WarnContext(r.Context(), "middleware.AutoProvision: no campus assigned",
+					"subject", claims.Subject,
+				)
+				writeError(w, http.StatusForbidden, "forbidden", "missing campus assignment")
+				return
+			}
+
+			// Enrich auth context with resolved campus
+			claims.CampusID = *appUser.CampusID
+			ctx := auth.NewContext(r.Context(), claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

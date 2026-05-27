@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: '/persons', label: 'Pessoas', icon: '👤' },
   { path: '/triages', label: 'Triagens', icon: '📋' },
   { path: '/attendances', label: 'Atendimentos', icon: '🩺' },
+  { path: '/campuses', label: 'Campus', icon: '🏢' },
 ];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {

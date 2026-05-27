@@ -7,7 +7,22 @@ const (
 	RoleProfessional = "PROFESSIONAL"
 	RoleSecretary    = "SECRETARY"
 	RoleVolunteer    = "VOLUNTEER"
+	RoleAssisted     = "ASSISTED"
 )
+
+// rolesRequiringVolunteerBase lists person roles that auto-require VOLUNTEER.
+// ASSISTED and VOLUNTEER itself are excluded.
+var rolesRequiringVolunteerBase = map[string]bool{
+	RoleProfessional: true,
+	RoleCoordinator:  true,
+	RoleAdmin:        true,
+}
+
+// RequiresVolunteerBase returns true if the given person role type
+// requires VOLUNTEER to be assigned as a base role.
+func RequiresVolunteerBase(roleType string) bool {
+	return rolesRequiringVolunteerBase[roleType]
+}
 
 // RoleHierarchy defines the privilege level of each role.
 // Higher number = more permissions.

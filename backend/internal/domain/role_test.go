@@ -92,3 +92,24 @@ func TestRoleHierarchy(t *testing.T) {
 	assert.Less(t, RoleHierarchy[RoleProfessional], RoleHierarchy[RoleCoordinator])
 	assert.Less(t, RoleHierarchy[RoleCoordinator], RoleHierarchy[RoleAdmin])
 }
+
+func TestRequiresVolunteerBase(t *testing.T) {
+	tests := []struct {
+		roleType string
+		want     bool
+	}{
+		{RoleProfessional, true},
+		{RoleCoordinator, true},
+		{RoleAdmin, true},
+		{RoleVolunteer, false},
+		{RoleAssisted, false},
+		{RoleSecretary, false},
+		{"UNKNOWN", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.roleType, func(t *testing.T) {
+			assert.Equal(t, tt.want, RequiresVolunteerBase(tt.roleType))
+		})
+	}
+}

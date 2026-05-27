@@ -67,6 +67,9 @@ No `/auth/*` endpoints exist in the Chesed API.
 | POST | `/persons/:id/roles` | Yes | Coordinator+ | Add role |
 | PATCH | `/persons/:id/roles/:roleId` | Yes | Coordinator+ | Activate/deactivate role |
 | GET | `/persons/check-duplicate` | Yes | All | Check for duplicates |
+| GET | `/persons/:id/agreement` | Yes | Coordinator+ | Get person's volunteer agreements |
+| POST | `/persons/:id/agreement/upload` | Yes | Coordinator+ | Upload signed agreement document (multipart) |
+| GET | `/persons/:id/agreement/document` | Yes | Coordinator+ | Download uploaded agreement document |
 
 #### Duplicate Detection
 ```
@@ -129,7 +132,12 @@ Matching algorithm: exact match on `document_number` + `document_type`. Fuzzy na
 }
 ```
 
-#### GET /persons?q=joão&page=1&per_page=20
+#### GET /persons?q=joão&page=1&per_page=20&agreement_status=with_agreement
+
+**Additional query parameters:**
+- `agreement_status` — Filter by volunteer agreement status. Values: `with_agreement` (accepted), `without_agreement` (pending or no agreement), `rejected`.
+
+
 ```json
 // Response 200
 {
@@ -176,6 +184,185 @@ Matching algorithm: exact match on `document_number` + `document_type`. Fuzzy na
     }
   ]
 }
+```
+
+---
+
+## Onboarding Endpoints
+
+| Method | Path | Auth | Roles | Description |
+|--------|------|------|-------|-------------|
+| GET | `/auth/me` | Yes | All | Returns onboarding status for authenticated user |
+
+#### GET /auth/me
+
+Returns the onboarding state of the authenticated user. Auto-links pre-created persons by email when applicable.
+
+Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
+
+```json
+// Response 200
+{
+  "person_id": "uuid-or-null",
+  "needs_profile_completion": false,
+  "needs_agreement": false,
+  "roles": ["VOLUNTEER"]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `person_id` | `uuid \| null` | Person ID if linked (may be auto-linked by email on this call) |
+| `needs_profile_completion` | `boolean` | `true` if user has no linked person — must complete `/complete-profile` |
+| `campus_id` | `uuid \| null` | Campus ID resolved from backend (app_user or person) |
+| `needs_campus_assignment` | `boolean` | `true` if user has no campus — must select during profile completion |
+| `needs_agreement` | `boolean` | `true` if user has active VOLUNTEER role but no accepted agreement |
+| `roles` | `string[]` | Keycloak realm roles from token |
+
+---
+
+## Campus Endpoints
+
+| Method | Path | Auth | Roles | Description |
+|--------|------|------|-------|-------------|
+| GET | `/campuses` | Yes | All | Returns active campuses (for onboarding selector) |
+| GET | `/campuses/all` | Yes | ADMIN | Returns all campuses including inactive |
+| GET | `/campuses/{id}` | Yes | ADMIN | Returns campus by ID |
+| POST | `/campuses` | Yes | ADMIN | Creates a new campus |
+| PUT | `/campuses/{id}` | Yes | ADMIN | Updates an existing campus |
+
+#### GET /campuses
+```json
+// Response 200
+{
+  "data": [
+    {
+      "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "name": "São Paulo",
+      "region": "BRAZIL",
+      "city": "São Paulo",
+      "state": "SP",
+      "country": "BRA",
+      "is_active": true,
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+#### POST /campuses
+```json
+// Request
+{
+  "name": "New York",
+  "region": "USA",
+  "city": "New York",
+  "state": "NY",
+  "country": "USA"
+}
+
+// Response 201
+{ "id": "uuid", "name": "New York", "region": "USA", ... }
+```
+
+---
+
+## Volunteer Agreement Endpoints
+
+| Method | Path | Auth | Roles | Description |
+|--------|------|------|-------|-------------|
+| GET | `/volunteer-agreement/text` | Yes | All | Returns current agreement text and version |
+| POST | `/volunteer-agreement/accept` | Yes | All | Digital acceptance of agreement (self-service) |
+| POST | `/volunteer-agreement/reject` | Yes | All | Rejection with optional reason |
+
+#### GET /volunteer-agreement/text
+```json
+// Response 200
+{
+  "version": "1.0",
+  "title": "Termo de Adesão ao Voluntariado",
+  "content": "Full agreement text in HTML or markdown...",
+  "effective_date": "2026-01-01"
+}
+```
+
+#### POST /volunteer-agreement/accept
+```json
+// Request (no body required — person identified from JWT claims)
+
+// Response 200
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "status": "ACCEPTED",
+  "signature_method": "DIGITAL",
+  "agreement_version": "1.0",
+  "accepted_at": "2026-04-10T14:30:00Z"
+}
+```
+
+#### POST /volunteer-agreement/reject
+```json
+// Request
+{
+  "reason": "I do not agree with the terms (optional)"
+}
+
+// Response 200
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "status": "REJECTED",
+  "rejected_at": "2026-04-10T14:30:00Z"
+}
+```
+
+#### GET /persons/:id/agreement
+```json
+// Response 200 (Coordinator+ only)
+{
+  "person_id": "uuid",
+  "agreements": [
+    {
+      "id": "uuid",
+      "person_role_id": "uuid",
+      "role_type": "VOLUNTEER",
+      "status": "ACCEPTED",
+      "signature_method": "DIGITAL",
+      "agreement_version": "1.0",
+      "accepted_at": "2026-04-10T14:30:00Z",
+      "has_document": false
+    }
+  ]
+}
+```
+
+#### POST /persons/:id/agreement/upload
+```
+Content-Type: multipart/form-data (Coordinator+ only)
+
+Fields:
+- file: PDF or image file of the signed agreement
+- notes: Optional text notes
+
+Response 200:
+{
+  "id": "uuid",
+  "status": "ACCEPTED",
+  "signature_method": "MANUAL_UPLOAD",
+  "document_path": "/agreements/uuid/document.pdf",
+  "uploaded_at": "2026-04-10T14:30:00Z"
+}
+```
+
+#### GET /persons/:id/agreement/document
+```
+Response 200 (Coordinator+ only):
+Content-Type: application/pdf (or image/*)
+Content-Disposition: attachment; filename="agreement-<person_name>.pdf"
+
+Binary file content
 ```
 
 ---

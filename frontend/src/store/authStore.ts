@@ -3,8 +3,8 @@ import { keycloak } from '../auth/keycloak';
 
 interface KeycloakTokenParsed {
   email?: string;
+  email_verified?: boolean;
   realm_access?: { roles: string[] };
-  campus_id?: string;
   person_id?: string;
 }
 
@@ -13,6 +13,7 @@ interface AuthState {
   isLoading: boolean;
   initialized: boolean;
   email: string | null;
+  emailVerified: boolean;
   roles: string[];
   campusId: string | null;
   personId: string | null;
@@ -20,6 +21,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   logout: () => void;
   getToken: () => Promise<string | null>;
+  setCampusId: (campusId: string) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -27,6 +29,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
   initialized: false,
   email: null,
+  emailVerified: false,
   roles: [],
   campusId: null,
   personId: null,
@@ -47,8 +50,9 @@ export const useAuthStore = create<AuthState>((set) => ({
           isLoading: false,
           initialized: true,
           email: parsed?.email ?? null,
+          emailVerified: parsed?.email_verified ?? false,
           roles: parsed?.realm_access?.roles ?? [],
-          campusId: parsed?.campus_id ?? null,
+          campusId: null,
           personId: parsed?.person_id ?? null,
           token: keycloak.token ?? null,
         });
@@ -89,5 +93,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       keycloak.login();
       return null;
     }
+  },
+
+  setCampusId: (campusId: string) => {
+    set({ campusId });
   },
 }));

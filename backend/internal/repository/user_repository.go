@@ -63,6 +63,32 @@ func (r *UserRepository) Create(ctx context.Context, user domain.AppUser) (*doma
 	return &user, nil
 }
 
+// LinkPersonID sets the person_id for an app_user that has no person linked yet.
+// Idempotent: does nothing if person_id is already set.
+func (r *UserRepository) LinkPersonID(ctx context.Context, userID uuid.UUID, personID uuid.UUID) error {
+	query := `UPDATE app_user SET person_id = $2, updated_at = NOW() WHERE id = $1 AND person_id IS NULL`
+
+	_, err := r.pool.Exec(ctx, query, userID, personID)
+	if err != nil {
+		return fmt.Errorf("userRepository.LinkPersonID: %w", err)
+	}
+
+	return nil
+}
+
+// LinkPersonAndCampus sets person_id and campus_id for an app_user.
+// Used during self-registration when an app_user was auto-provisioned without these.
+func (r *UserRepository) LinkPersonAndCampus(ctx context.Context, userID uuid.UUID, personID uuid.UUID, campusID uuid.UUID) error {
+	query := `UPDATE app_user SET person_id = $2, campus_id = $3, updated_at = NOW() WHERE id = $1`
+
+	_, err := r.pool.Exec(ctx, query, userID, personID, campusID)
+	if err != nil {
+		return fmt.Errorf("userRepository.LinkPersonAndCampus: %w", err)
+	}
+
+	return nil
+}
+
 // UpdateLastLogin updates the last_login timestamp for an app_user.
 func (r *UserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE app_user SET last_login = NOW(), updated_at = NOW() WHERE id = $1`

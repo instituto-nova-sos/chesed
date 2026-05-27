@@ -73,6 +73,11 @@ PersonRole
 | `COORDINATOR` | Team lead managing campaigns and volunteers |
 | `ADMIN` | System administrator |
 
+**Role Hierarchy Rule:**
+- `VOLUNTEER` is the base operational role. When a person is assigned `PROFESSIONAL`, `COORDINATOR`, or `ADMIN`, the `VOLUNTEER` role is automatically added if not already present.
+- `ASSISTED` is independent and does not imply or require `VOLUNTEER`.
+- This hierarchy is enforced at the service layer during role assignment, not at the database level.
+
 > **Person Roles vs. Access Profiles**
 >
 > These are two distinct taxonomies:
@@ -82,6 +87,39 @@ PersonRole
 > Example: A person who is both a beneficiary and a volunteer has person roles [ASSISTED, VOLUNTEER] and might have an app_user with access_profile VOLUNTEER.
 >
 > Note: SECRETARY is an access profile only (not a person role). It represents staff who register persons and create triages but are not volunteers or professionals in the field.
+
+### 2.1. VolunteerAgreement (TermoVoluntariado)
+
+Tracks the acceptance or rejection of the volunteer agreement for persons with operational roles (VOLUNTEER, PROFESSIONAL, COORDINATOR, ADMIN). Volunteers must accept the agreement before accessing platform features.
+
+```
+VolunteerAgreement
+├── id (UUID)
+├── person_id (FK → Person)
+├── person_role_id (FK → PersonRole)
+├── campus_id (FK → Campus)
+├── status (PENDING, ACCEPTED, REJECTED)
+├── signature_method (DIGITAL, MANUAL_UPLOAD)
+├── accepted_at (nullable)
+├── accepted_by_user (FK → User, nullable)
+├── ip_address (nullable)
+├── user_agent (nullable)
+├── document_path (nullable — for manual uploads)
+├── uploaded_at (nullable)
+├── uploaded_by (FK → User, nullable)
+├── rejected_at (nullable)
+├── rejection_reason (nullable)
+├── agreement_version
+├── notes (nullable)
+├── created_at
+└── updated_at
+```
+
+**Design decisions:**
+- Linked to both `person_id` and `person_role_id` for traceability (which role triggered the agreement).
+- Supports two signature methods: `DIGITAL` (self-service acceptance via the platform) and `MANUAL_UPLOAD` (coordinator uploads a signed physical document).
+- Rejection is recorded in the database; the person remains visible for coordinator follow-up but cannot access platform features.
+- `agreement_version` enables tracking which version of the agreement text the person accepted.
 
 ### 3. AssistedProfile (PerfilAssistido)
 
@@ -408,6 +446,7 @@ Campus ──────────────┐
                      │
 Person ──────────────┤
   ├── PersonRole     │
+  │   └── VolunteerAgreement
   ├── AssistedProfile│
   ├── User           │
   ├── Document       │

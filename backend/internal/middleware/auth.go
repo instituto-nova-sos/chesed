@@ -20,7 +20,6 @@ type keycloakClaims struct {
 	RealmAccess   struct {
 		Roles []string `json:"roles"`
 	} `json:"realm_access"`
-	CampusID string `json:"campus_id"`
 	PersonID string `json:"person_id"`
 }
 
@@ -132,15 +131,6 @@ func extractClaims(idToken *oidc.IDToken) (auth.AuthClaims, error) {
 		return auth.AuthClaims{}, fmt.Errorf("extractClaims: %w", err)
 	}
 
-	var campusID uuid.UUID
-	if kc.CampusID != "" {
-		parsed, err := uuid.Parse(kc.CampusID)
-		if err != nil {
-			return auth.AuthClaims{}, fmt.Errorf("extractClaims: invalid campus_id: %w", err)
-		}
-		campusID = parsed
-	}
-
 	var personID uuid.UUID
 	if kc.PersonID != "" {
 		parsed, err := uuid.Parse(kc.PersonID)
@@ -155,7 +145,6 @@ func extractClaims(idToken *oidc.IDToken) (auth.AuthClaims, error) {
 		Email:         kc.Email,
 		EmailVerified: kc.EmailVerified,
 		Roles:         kc.RealmAccess.Roles,
-		CampusID:      campusID,
 		PersonID:      personID,
 	}, nil
 }

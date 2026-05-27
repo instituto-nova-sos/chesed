@@ -1,0 +1,18 @@
+export type {
+  Person,
+  PersonListItem,
+  Address,
+  PersonRole,
+  VolunteerAgreement,
+  PersonDetail,
+  Pagination,
+  PersonListResponse,
+  DuplicateMatch,
+  DuplicateCheckResult,
+  HistoryEntry,
+  CreatePersonInput,
+  UpdatePersonInput,
+  AddressInput,
+  AddRoleInput,
+  SelfRegisterInput,
+} from './person';

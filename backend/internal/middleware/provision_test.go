@@ -35,6 +35,16 @@ func (m *mockUserRepo) Create(ctx context.Context, user domain.AppUser) (*domain
 	return args.Get(0).(*domain.AppUser), args.Error(1)
 }
 
+func (m *mockUserRepo) LinkPersonID(ctx context.Context, userID uuid.UUID, personID uuid.UUID) error {
+	args := m.Called(ctx, userID, personID)
+	return args.Error(0)
+}
+
+func (m *mockUserRepo) LinkPersonAndCampus(ctx context.Context, userID uuid.UUID, personID uuid.UUID, campusID uuid.UUID) error {
+	args := m.Called(ctx, userID, personID, campusID)
+	return args.Error(0)
+}
+
 func (m *mockUserRepo) UpdateLastLogin(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
@@ -123,26 +133,32 @@ func TestExtractIP(t *testing.T) {
 
 func TestAutoProvision(t *testing.T) {
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		// Verify campus was enriched in context
+		claims := auth.ClaimsFromContext(r.Context())
+		if claims.CampusID != uuid.Nil {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusTeapot) // signal missing campus
+		}
 	})
 
-	t.Run("existing user passes through", func(t *testing.T) {
+	t.Run("existing user with campus passes through", func(t *testing.T) {
 		userRepo := new(mockUserRepo)
 		auditRepo := new(mockAuditRepo)
 		auditSvc := service.NewAuditService(auditRepo)
 		userSvc := service.NewUserService(userRepo, auditSvc)
 
+		campusID := uuid.New()
 		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			Email:    "test@chesed.test",
-			Roles:    []string{"VOLUNTEER"},
-			CampusID: uuid.New(),
+			Subject: uuid.New().String(),
+			Email:   "test@chesed.test",
+			Roles:   []string{"VOLUNTEER"},
 		}
 
-		existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email}
+		existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: &campusID}
 		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
 		userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
-		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil) // LOGIN audit
+		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
 		mw := AutoProvision(userSvc)
 		handler := mw(okHandler)
@@ -156,23 +172,24 @@ func TestAutoProvision(t *testing.T) {
 		userRepo.AssertExpectations(t)
 	})
 
-	t.Run("new user provisioned", func(t *testing.T) {
+	t.Run("new user provisioned with campus passes through", func(t *testing.T) {
 		userRepo := new(mockUserRepo)
 		auditRepo := new(mockAuditRepo)
 		auditSvc := service.NewAuditService(auditRepo)
 		userSvc := service.NewUserService(userRepo, auditSvc)
 
+		campusID := uuid.New()
 		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			Email:    "new@chesed.test",
-			Roles:    []string{"SECRETARY"},
-			CampusID: uuid.New(),
+			Subject: uuid.New().String(),
+			Email:   "new@chesed.test",
+			Roles:   []string{"SECRETARY"},
 		}
 
 		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, domain.ErrNotFound)
 		userRepo.On("Create", mock.Anything, mock.Anything).Return(&domain.AppUser{
-			ID:    uuid.New(),
-			Email: claims.Email,
+			ID:       uuid.New(),
+			Email:    claims.Email,
+			CampusID: &campusID,
 		}, nil)
 		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
@@ -188,7 +205,7 @@ func TestAutoProvision(t *testing.T) {
 		userRepo.AssertExpectations(t)
 	})
 
-	t.Run("missing campus_id returns 403", func(t *testing.T) {
+	t.Run("user with nil campus returns 403", func(t *testing.T) {
 		userRepo := new(mockUserRepo)
 		auditRepo := new(mockAuditRepo)
 		auditSvc := service.NewAuditService(auditRepo)
@@ -198,8 +215,13 @@ func TestAutoProvision(t *testing.T) {
 			Subject: uuid.New().String(),
 			Email:   "test@chesed.test",
 			Roles:   []string{"VOLUNTEER"},
-			// CampusID intentionally left as uuid.Nil
 		}
+
+		// App user exists but has no campus
+		existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: nil}
+		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
+		userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
+		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
 		mw := AutoProvision(userSvc)
 		handler := mw(okHandler)
@@ -235,10 +257,9 @@ func TestAutoProvision(t *testing.T) {
 		userSvc := service.NewUserService(userRepo, auditSvc)
 
 		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			Email:    "test@chesed.test",
-			Roles:    []string{"VOLUNTEER"},
-			CampusID: uuid.New(),
+			Subject: uuid.New().String(),
+			Email:   "test@chesed.test",
+			Roles:   []string{"VOLUNTEER"},
 		}
 
 		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, assert.AnError)

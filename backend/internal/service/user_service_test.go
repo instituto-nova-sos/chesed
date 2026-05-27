@@ -34,6 +34,16 @@ func (m *MockUserRepository) Create(ctx context.Context, user domain.AppUser) (*
 	return args.Get(0).(*domain.AppUser), args.Error(1)
 }
 
+func (m *MockUserRepository) LinkPersonID(ctx context.Context, userID uuid.UUID, personID uuid.UUID) error {
+	args := m.Called(ctx, userID, personID)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) LinkPersonAndCampus(ctx context.Context, userID uuid.UUID, personID uuid.UUID, campusID uuid.UUID) error {
+	args := m.Called(ctx, userID, personID, campusID)
+	return args.Error(0)
+}
+
 func (m *MockUserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
@@ -63,7 +73,7 @@ func TestUserService_EnsureUser(t *testing.T) {
 			Email:             claims.Email,
 			KeycloakSubjectID: claims.Subject,
 			AccessProfile:     "VOLUNTEER",
-			CampusID:          claims.CampusID,
+			CampusID:          &claims.CampusID,
 			IsActive:          true,
 		}
 
@@ -97,7 +107,7 @@ func TestUserService_EnsureUser(t *testing.T) {
 			return user.Email == claims.Email &&
 				user.KeycloakSubjectID == claims.Subject &&
 				user.AccessProfile == "COORDINATOR" &&
-				user.CampusID == claims.CampusID &&
+				user.CampusID != nil && *user.CampusID == claims.CampusID &&
 				user.IsActive &&
 				user.ID != uuid.Nil
 		})).Return(&domain.AppUser{
@@ -105,7 +115,7 @@ func TestUserService_EnsureUser(t *testing.T) {
 			Email:             claims.Email,
 			KeycloakSubjectID: claims.Subject,
 			AccessProfile:     "COORDINATOR",
-			CampusID:          claims.CampusID,
+			CampusID:          &claims.CampusID,
 			IsActive:          true,
 		}, nil)
 		auditRepo.On("Create", ctx, mock.Anything).Return(nil)

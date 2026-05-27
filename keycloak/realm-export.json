@@ -7,7 +7,8 @@
 
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "registrationAllowed": false,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
   "editUsernameAllowed": false,
   "resetPasswordAllowed": true,
   "rememberMe": false,
@@ -97,30 +98,13 @@
   "clientScopes": [
     {
       "name": "chesed-custom-claims",
-      "description": "Custom claims for Chesed application (campus_id, person_id)",
+      "description": "Custom claims for Chesed application (person_id)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
       },
       "protocolMappers": [
-        {
-          "name": "campus_id",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
-          "consentRequired": false,
-          "config": {
-            "user.attribute": "campus_id",
-            "claim.name": "campus_id",
-            "jsonType.label": "String",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "introspection.token.claim": "true",
-            "userinfo.token.claim": "true",
-            "multivalued": "false",
-            "aggregate.attrs": "false"
-          }
-        },
         {
           "name": "person_id",
           "protocol": "openid-connect",

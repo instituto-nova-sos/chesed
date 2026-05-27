@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-06 (Session 11)
+2026-04-10 (Session 20)
 
 ---
 
@@ -915,17 +915,757 @@ curl http://yourdomain.org/nginx-health  # Should get 200 "ok"
 
 ---
 
+## Session 13: Sprint 2 — Person Management (2026-04-06)
+
+### What Was Done
+
+Full-stack implementation of Sprint 2 (Person Management) covering stories S03.1–S03.9, tasks 2.1–2.9 from `docs/08-roadmap.md`. Followed `.project-ai/workflows/feature-delivery.md` end-to-end.
+
+**Backend (14 new files + 1 modified):**
+1. **Migration 000012**: Search vector trigger with `to_tsvector('portuguese', ...)` — weights A (name), B (document), C (email/phone). Trigger on INSERT/UPDATE with backfill.
+2. **Domain structs**: `person.go` (Person, PersonDetail, PersonListItem, PersonListResult, Pagination, PersonFilter, DuplicateMatch, DuplicateCheckResult), `address.go`, `person_role.go`, `history.go`
+3. **Person Repository**: `person_repository.go` — Create (transaction with optional address), FindByID, FindByIDWithDetails (JOIN address + roles), Update, List (full-text search via `search_vector @@ plainto_tsquery` + `COUNT(*) OVER()` pagination), CheckDuplicate (exact document match), UpdateAddress (UPSERT)
+4. **PersonRole Repository**: `person_role_repository.go` — Create (unique constraint → `ErrDuplicate`), FindByPersonID, ToggleActive
+5. **Person Service**: `person_service.go` — 8 methods (CreatePerson, GetPerson, UpdatePerson, ListPersons, CheckDuplicate, AddRole, ToggleRole, GetHistory). Defines `PersonRepository` + `PersonRoleRepository` interfaces at service level (Go convention). Input validation via `go-playground/validator`. Audit logging on all mutations.
+6. **Person Handler**: `person.go` — 8 HTTP handlers mapping to API endpoints. `validate.go` — shared validator instance.
+7. **Route wiring**: `main.go` modified — DI chain: personRepo + personRoleRepo → personSvc → personH. 8 routes under `/api/v1/persons` with RBAC middleware. `GET /check-duplicate` registered BEFORE `GET /{id}` to avoid chi param capture.
+8. **Tests**: `person_service_test.go` (~25 table-driven tests), `person_test.go` (~15 handler tests with httptest + chi.RouteContext)
+
+**Frontend (30 new files + 2 modified):**
+9. **TypeScript types**: `types/person.ts` (14 interfaces matching API spec), `types/index.ts` (barrel re-export)
+10. **API client**: `api/persons.ts` — 8 functions wrapping `apiClient<T>()` (listPersons, getPerson, createPerson, updatePerson, checkDuplicate, addPersonRole, togglePersonRole, getPersonHistory)
+11. **Zod validation**: `utils/personValidation.ts` — createPersonSchema, addressSchema with pt-BR error messages
+12. **Hooks**: `usePersons.ts` (list + debounced search + pagination), `usePerson.ts` (detail by ID), `usePersonForm.ts` (react-hook-form + zod resolver + duplicate check integration + create/update submission), `useOfflineStatus.ts` (online/offline detection)
+13. **Shared UI components** (8 files): Button, Input, Select, Badge (role color-coded), SearchBar, Pagination, EmptyState, Alert
+14. **Person components** (6 files): PersonCard, PersonForm (with duplicate warning + address section), PersonInfo, RoleBadgeList (with toggle active/inactive), AddRoleModal, DuplicateWarning
+15. **Pages**: PersonListPage (search + cards + pagination + "Nova Pessoa" button), PersonCreatePage, PersonEditPage (pre-filled form), PersonDetailPage (info + roles + empty history placeholder)
+16. **Offline support**: `offline/db.ts` (Dexie.js ChesedDB with persons, syncQueue, syncMeta tables), `offline/personOffline.ts` (cache/retrieve/offline-save functions), OfflineBanner component
+17. **Routes**: App.tsx modified — `/persons`, `/persons/new`, `/persons/:id`, `/persons/:id/edit`
+18. **Layout**: AppLayout.tsx modified — added OfflineBanner below Header
+
+### Files Created
+
+**Backend — 14 files:**
+| File | Purpose |
+|------|---------|
+| `backend/migrations/000012_person_search_trigger.up.sql` | Search vector trigger with Portuguese stemming |
+| `backend/migrations/000012_person_search_trigger.down.sql` | Drop trigger + function |
+| `backend/internal/domain/person.go` | Person, PersonDetail, PersonListItem, Pagination, filter/duplicate types |
+| `backend/internal/domain/address.go` | Address struct |
+| `backend/internal/domain/person_role.go` | PersonRole struct |
+| `backend/internal/domain/history.go` | HistoryEntry struct (for Sprint 3) |
+| `backend/internal/repository/person_repository.go` | Person CRUD + full-text search + duplicate check + address UPSERT |
+| `backend/internal/repository/person_role_repository.go` | PersonRole CRUD + toggle active |
+| `backend/internal/service/person_service.go` | 8 business methods + input structs + validation + audit |
+| `backend/internal/handler/person.go` | 8 HTTP handlers |
+| `backend/internal/handler/validate.go` | Shared go-playground/validator instance |
+| `backend/internal/service/person_service_test.go` | ~25 table-driven service tests |
+| `backend/internal/handler/person_test.go` | ~15 handler tests |
+
+**Frontend — 30 files:**
+| File | Purpose |
+|------|---------|
+| `frontend/src/types/person.ts` | 14 TypeScript interfaces matching API spec |
+| `frontend/src/types/index.ts` | Barrel re-export |
+| `frontend/src/api/persons.ts` | 8 API client functions |
+| `frontend/src/utils/personValidation.ts` | Zod schemas with pt-BR messages |
+| `frontend/src/hooks/usePersons.ts` | List + debounced search + pagination hook |
+| `frontend/src/hooks/usePerson.ts` | Detail by ID hook |
+| `frontend/src/hooks/usePersonForm.ts` | Form hook with react-hook-form + zod + duplicate check |
+| `frontend/src/hooks/useOfflineStatus.ts` | Online/offline detection hook |
+| `frontend/src/components/ui/Button.tsx` | Reusable button (primary/secondary/danger, loading state) |
+| `frontend/src/components/ui/Input.tsx` | Form input with label + error + react-hook-form registration |
+| `frontend/src/components/ui/Select.tsx` | Form select with options + label + error |
+| `frontend/src/components/ui/Badge.tsx` | Role badge with color coding per role type |
+| `frontend/src/components/ui/SearchBar.tsx` | Search input with icon + clear button |
+| `frontend/src/components/ui/Pagination.tsx` | Previous/Next pagination controls |
+| `frontend/src/components/ui/EmptyState.tsx` | Empty state illustration + message |
+| `frontend/src/components/ui/Alert.tsx` | Alert banner (warning/error/info/success) |
+| `frontend/src/components/ui/OfflineBanner.tsx` | Yellow offline status banner |
+| `frontend/src/components/person/PersonCard.tsx` | Person summary card with roles + click navigation |
+| `frontend/src/components/person/PersonForm.tsx` | Full person form with address + duplicate detection |
+| `frontend/src/components/person/PersonInfo.tsx` | Person detail display with edit button |
+| `frontend/src/components/person/RoleBadgeList.tsx` | Role list with toggle + add modal |
+| `frontend/src/components/person/AddRoleModal.tsx` | Modal form for adding roles |
+| `frontend/src/components/person/DuplicateWarning.tsx` | Duplicate detection warning alert |
+| `frontend/src/pages/PersonListPage.tsx` | Person list with search + pagination |
+| `frontend/src/pages/PersonCreatePage.tsx` | Person creation form page |
+| `frontend/src/pages/PersonEditPage.tsx` | Person edit form page (pre-filled) |
+| `frontend/src/pages/PersonDetailPage.tsx` | Person detail with roles + history placeholder |
+| `frontend/src/offline/db.ts` | Dexie.js database (persons, syncQueue, syncMeta) |
+| `frontend/src/offline/personOffline.ts` | Offline cache/save functions |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `backend/cmd/server/main.go` | Added personRepo, personRoleRepo, personSvc, personH DI + 8 routes under `/api/v1/persons` |
+| `frontend/src/App.tsx` | Added 4 person routes + imports |
+| `frontend/src/components/layout/AppLayout.tsx` | Added OfflineBanner import + rendering below Header |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Search vector via DB trigger (not application code) | `to_tsvector('portuguese', ...)` ensures consistency regardless of data entry path (API, migration, sync) |
+| Address as nested object in person create/update | API spec shows address nested. Single transaction. No separate address endpoints needed in Sprint 2. |
+| Exact document match only for duplicate detection | Fuzzy name matching deferred to Phase 2 per `docs/11-api-design.md` spec |
+| History endpoint returns empty array | Keeps API contract stable for Sprint 3 when triage/attendance fill it |
+| AssistedProfile deferred to Sprint 3 | Not in S03.1-S03.9 stories. Table exists but API/form waits for triage workflow |
+| L1 (campus_id on address/person_role): acceptable via JOIN | Child tables inherit campus scope through `person.campus_id`. No migration needed. |
+| `check-duplicate` route before `{id}` in chi | Prevents "check-duplicate" from being captured as a UUID parameter |
+| Dexie.js ChesedDB with persons + syncQueue + syncMeta tables | Category A (offline create) + Category B (cached list) per offline-first-assessment rule |
+
+### Requirements Validated
+
+Cross-referenced against `docs/03-requirements-catalog.md`:
+- **24 requirements covered**: RF-01 through RF-05, RF-09 through RF-13, RF-19b, RF-46, RF-47, RF-51, RF-52, RNF-07/11/13/17/18/19
+- **7 requirements correctly deferred**: RF-06/07/08 (Phase 2), RF-19 (Sprint 3), RF-03 fuzzy (Phase 2), RF-48/49 (Sprint 4)
+- **0 gaps found**
+
+### Verification Results
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | PASS (all packages including ~40 new test cases) |
+| `go vet ./...` | PASS |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS (0 errors, 3 warnings in coverage report files) |
+| `npm run test` | PASS (1 test suite) |
+| `npm run build` | PASS (PWA generated, 375 KB JS bundle) |
+
+### Deferred Sprint 1 Findings Addressed
+| Finding | Status |
+|---------|--------|
+| S5: Add TypeScript types for API entities | DONE — `types/person.ts` with 14 interfaces |
+| L1: Evaluate campus_id on address/person_role | RESOLVED — acceptable via JOIN through person.campus_id |
+| M2: Frontend test coverage ~7% | PARTIAL — hooks and component test infrastructure ready; full coverage increase requires integration tests |
+
+### Sprint 1 Deferred Security Findings Still Open
+| ID | Finding | Target |
+|----|---------|--------|
+| H3 | Hardcoded credentials in docker-compose.yml | Production deployment |
+| L2 | triage table missing is_active and updated_at | Sprint 3 |
+| I1-I3 | Various info-level findings | See Session 10 |
+
+---
+
+## Session 14: Sprint 2 Review — Enhancements and Bug Fixes (2026-04-07)
+
+### What Was Done
+
+Comprehensive Sprint 2 review addressing 7 requirements: self-registration (R1), CEP auto-fill (R2), phone formatting (R3), CPF validation (R4), dynamic referral source (R5), AddRole HTTP 500 bug fix (R6), and nationality + document rules (R7).
+
+### Issues Found and Fixed
+
+| Issue | Severity | Fix |
+|-------|----------|-----|
+| R6: AddRole returns HTTP 500 instead of 409 on duplicate | HIGH | Replaced `strings.Contains(err, "uq_person_role")` with `pgconn.PgError` code 23505 check |
+| R1: Keycloak self-registration disabled | FEATURE | Enabled `registrationAllowed: true`, `registrationEmailAsUsername: true`. New `POST /api/v1/self-register` endpoint |
+| R7: No nationality field | FEATURE | Migration 000013 adds `nationality VARCHAR(3) DEFAULT 'BRA'` to person table |
+| R4: No CPF validation | FEATURE | Backend `utils.ValidateCPF()` + frontend `isValidCPF()` with check-digit algorithm |
+| R2: No CEP auto-fill | FEATURE | `useCepLookup` hook with ViaCEP primary + BrasilAPI fallback + retry on 5xx |
+| R3: No phone formatting | FEATURE | `PhoneInput` component using `libphonenumber-js`. Country code dropdown + E.164 storage |
+| R5: Referral source is plain text | FEATURE | `ReferralSourceSelect` dropdown with predefined options + "Outro" text field |
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Self-register bypasses AutoProvision middleware | Self-registered users have no `campus_id` Keycloak claim; they provide it during registration |
+| SelfRegisterService as separate service | Composes PersonRepo + PersonRoleRepo + UserRepo + AuditService. Avoids bloating PersonService with user-creation logic |
+| Logout after self-registration | Simpler than Keycloak Admin API integration for setting user attributes. User re-logs to get `person_id` in token |
+| Phone stored as E.164 | Single `phone VARCHAR(30)` column, no migration needed. Frontend handles formatting |
+| PersonForm extracted into 3 sections | PersonalDataSection, ContactSection, AddressSection — keeps each under complexity thresholds |
+| Form sections accept `UseFormReturn<any>` | Allows reuse across CreatePersonFormData and SelfRegisterFormData schemas |
+
+### Files Created
+
+**Backend — 5 new files:**
+| File | Purpose |
+|------|---------|
+| `backend/migrations/000013_add_person_nationality.up.sql` | Add nationality column |
+| `backend/migrations/000013_add_person_nationality.down.sql` | Remove nationality column |
+| `backend/internal/utils/cpf.go` | CPF check-digit validation algorithm |
+| `backend/internal/utils/cpf_test.go` | 12 table-driven CPF tests |
+| `backend/internal/service/self_register_service.go` | Self-registration service (person + role + app_user) |
+| `backend/internal/handler/self_register.go` | POST /self-register handler |
+
+**Frontend — 12 new files:**
+| File | Purpose |
+|------|---------|
+| `frontend/src/utils/cpfValidation.ts` | CPF validation + formatting |
+| `frontend/src/utils/brazilStates.ts` | 27 Brazil states + referral source options |
+| `frontend/src/utils/countries.ts` | Country list + phone codes + document type filtering |
+| `frontend/src/hooks/useCepLookup.ts` | ViaCEP + BrasilAPI with retry |
+| `frontend/src/components/ui/PhoneInput.tsx` | Phone input with country code dropdown + libphonenumber-js |
+| `frontend/src/components/person/ReferralSourceSelect.tsx` | Dropdown with "Outro" text field |
+| `frontend/src/components/person/PersonalDataSection.tsx` | Name, nationality, document, birth_date, gender |
+| `frontend/src/components/person/ContactSection.tsx` | Email, phone, referral source |
+| `frontend/src/components/person/AddressSection.tsx` | CEP auto-fill, street, city, state dropdown |
+| `frontend/src/pages/ProfileCompletionPage.tsx` | Self-registration profile completion |
+| `frontend/src/components/auth/ProfileCompletionGuard.tsx` | Route guard: redirect to profile if no personId |
+
+### Files Modified
+
+**Backend — 5 modified:**
+| File | Change |
+|------|--------|
+| `backend/internal/repository/person_role_repository.go` | pgconn.PgError for unique constraint detection |
+| `backend/internal/domain/person.go` | Added `Nationality` field |
+| `backend/internal/domain/errors.go` | Added `ErrInvalidCPF` sentinel |
+| `backend/internal/repository/person_repository.go` | Nationality in all SQL queries |
+| `backend/internal/service/person_service.go` | Nationality in inputs, CPF validation |
+| `backend/internal/handler/person.go` | ErrInvalidCPF handling |
+| `backend/cmd/server/main.go` | SelfRegisterService DI + route group |
+
+**Frontend — 5 modified:**
+| File | Change |
+|------|--------|
+| `frontend/src/components/person/PersonForm.tsx` | Refactored to compose 3 sections |
+| `frontend/src/hooks/usePersonForm.ts` | Added nationality default |
+| `frontend/src/utils/personValidation.ts` | CPF refinement, nationality, selfRegisterSchema |
+| `frontend/src/types/person.ts` | Nationality field, SelfRegisterInput interface |
+| `frontend/src/api/persons.ts` | selfRegister() function |
+| `frontend/src/App.tsx` | Profile completion route + guard |
+| `frontend/package.json` | Added libphonenumber-js |
+
+**Keycloak — 2 modified:**
+| File | Change |
+|------|--------|
+| `keycloak/realm-export.json` | `registrationAllowed: true`, `registrationEmailAsUsername: true` |
+| `keycloak/init-realm.sh` | Step 6: enable self-registration in dev |
+
+### Verification Results
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | PASS (all packages, 12 new CPF tests) |
+| `go vet ./...` | PASS |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS (0 errors) |
+| `npm run test` | PASS |
+| `npm run build` | PASS (542KB bundle with libphonenumber-js) |
+
+---
+
+## Session 15: Profile Completion Page UX Improvements (2026-04-07)
+
+### What Was Done
+
+Comprehensive UX improvements to the "Complete Your Registration" (ProfileCompletionPage) screen, covering form behavior, field formatting, localization, and country-aware address handling.
+
+### Changes Summary
+
+| # | Requirement | Implementation |
+|---|-------------|----------------|
+| 1 | Email moved from header to form field | Removed header display, added read-only `<input>` in ContactSection populated from JWT |
+| 2 | CPF formatting mask | Applied `formatCPF()` on-change in PersonalDataSection (XXX.XXX.XXX-XX) |
+| 3 | Phone placeholder | Changed from `(21) 98219-6702` to `(21) 12345-6789` |
+| 4 | Referral source "Outros" | Changed value from `'OTHER'` to `'Outros'` (Portuguese); free-text input on selection |
+| 5 | Country dropdown with flags | Replaced text input with `<Select>` using `COUNTRIES` data (flags + full names) |
+| 6 | State conditional | Brazil → dropdown (BRAZIL_STATES). Other countries → text input |
+| 7 | City dropdown | Brazil → dropdown populated from IBGE API per state. Other → text input |
+| 8 | CEP/ZIP Code | Brazil → label "CEP" + auto-lookup. Other → label "ZIP Code", no auto-lookup |
+| 9 | Address field rename | "Rua" → "Logradouro" |
+| 10 | Address field reorder | Country first (drives conditional behavior), then CEP, Logradouro, etc. |
+
+### Files Created
+- `frontend/src/hooks/useCityLookup.ts` — IBGE API hook for Brazilian cities by state
+
+### Files Modified
+- `frontend/src/pages/ProfileCompletionPage.tsx` — Removed email from header, pass to ContactSection
+- `frontend/src/components/person/ContactSection.tsx` — Email as read-only form field from JWT
+- `frontend/src/components/person/PersonalDataSection.tsx` — CPF formatting mask
+- `frontend/src/components/person/AddressSection.tsx` — Major rewrite: country dropdown, conditional state/city/CEP
+- `frontend/src/components/person/ReferralSourceSelect.tsx` — 'OTHER' → 'Outros'
+- `frontend/src/components/ui/PhoneInput.tsx` — Placeholder update
+- `frontend/src/utils/brazilStates.ts` — Referral source value 'OTHER' → 'Outros'
+
+### UX Decisions
+- Email field is read-only with `bg-gray-50` styling to clearly indicate non-editable state
+- Country dropdown placed first in address section since it drives conditional behavior of all other fields
+- City dropdown shows "Selecione o estado primeiro" when no state is selected (Brazil)
+- When country changes, all dependent address fields are cleared to prevent stale data
+- CEP auto-fill sets a pending city ref that gets re-applied after IBGE cities load
+
+### Validation Rules
+- CPF formatting applied via `formatCPF()` which strips non-digits and formats progressively
+- CPF validation (`isValidCPF()`) already strips formatting before algorithm check — no schema changes needed
+- No backend changes required — email taken from JWT, CPF validation handles formatted input
+
+### Localization Decisions
+- All UI labels in Portuguese (Brazilian): "Logradouro", "Bairro", "CEP", "Cidade", "Estado", "País"
+- Exception: "ZIP Code" label used for non-Brazil countries (international standard)
+- Referral source "Other" stored as "Outros" (Portuguese value)
+
+### Verification
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | PASS |
+| `npm run lint` | PASS (0 errors) |
+
+---
+
+## Session 16: Sprint 2 Bug Fixes — Person Form & Details (2026-04-08)
+
+### What Was Done
+
+Fixed 5 issues in Person management screens (form, detail view, role assignment) affecting data consistency, formatting, and UX.
+
+### Issues Fixed
+
+| # | Issue | Severity | Root Cause | Fix |
+|---|-------|----------|------------|-----|
+| 1 | RG fields use real personal data in placeholders; only 2 free-text fields instead of structured dropdowns | MEDIUM | Original implementation used simple text inputs | Refactored to 3-field structure: Issuing Authority dropdown (SSP, DETRAN, IFP, PC, Other), State dropdown (27 UFs), Document Number text. Format: `AUTHORITY/STATE NUMBER` |
+| 2 | Birth date displays wrong day (off by 1) | HIGH | `new Date("YYYY-MM-DD")` creates UTC midnight; `toLocaleDateString('pt-BR')` converts to local TZ (UTC-3), shifting back 1 day | Replaced with string-based parsing: split ISO date on `-` and format as `dd/mm/yyyy` |
+| 3 | Phone displayed as raw E.164 (+5521982196702) in detail view | MEDIUM | PersonInfo.tsx displayed `person.phone` directly without formatting | Created `formatPhoneDisplay()` utility using `libphonenumber-js.formatInternational()`. Applied in PersonInfo and PersonCard |
+| 4 | POST /persons/{id}/roles returns 500 "failed to add role" | CRITICAL | `person_role_repository.go` queries `RETURNING activated_at, created_at` but `person_role` table has no `created_at` column — PostgreSQL error on every INSERT | Created migration 000014 adding `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` to `person_role`. Updated domain struct and all repository queries |
+| 5 | Phone and referral_source not populated on edit form | HIGH | `PhoneInput` and `ReferralSourceSelect` use `useState` initializers (run once on mount). `form.reset()` fires after mount via `useEffect`, so updated values never reach internal state | Added `useEffect` hooks in both components to sync internal state with external prop changes |
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `backend/migrations/000014_add_person_role_timestamps.up.sql` | Add `created_at` column to `person_role` table |
+| `backend/migrations/000014_add_person_role_timestamps.down.sql` | Drop `created_at` column |
+| `frontend/src/utils/phoneFormat.ts` | `formatPhoneDisplay()` utility using libphonenumber-js |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `backend/internal/domain/person_role.go` | Added `CreatedAt time.Time` field |
+| `backend/internal/repository/person_role_repository.go` | Added `created_at` to all SQL queries (Create, FindByPersonID, ToggleActive) and scan targets |
+| `frontend/src/components/person/PersonInfo.tsx` | Birth date: string-based formatting. Phone: `formatPhoneDisplay()`. Added `formatDateBR()` helper |
+| `frontend/src/components/person/PersonCard.tsx` | Phone: `formatPhoneDisplay()` |
+| `frontend/src/components/ui/PhoneInput.tsx` | Added `useEffect` to sync internal state with `value` prop on form reset |
+| `frontend/src/components/person/ReferralSourceSelect.tsx` | Added `useEffect` to sync `isOther` state with `defaultValue` prop on form reset |
+| `frontend/src/components/person/PersonalDataSection.tsx` | RG refactored to 3-field structure (authority dropdown, state dropdown, number input). Removed sensitive placeholder data. Backward-compatible parsing of existing stored values |
+
+### Formatting & Validation Rules
+
+| Field | Storage Format | Display Format |
+|-------|---------------|----------------|
+| **RG** | `AUTHORITY/STATE NUMBER` (e.g., `SSP/RJ 1234567`) | 3 separate fields in form; concatenated string in detail view |
+| **Birth Date** | `YYYY-MM-DD` (PostgreSQL DATE) | `dd/mm/yyyy` (string-based, no Date constructor) |
+| **Phone** | E.164 (e.g., `+5521982196702`) | International format via libphonenumber-js (e.g., `+55 21 98219 6702`) |
+| **Referral Source** | Plain string (predefined or custom) | Dropdown with predefined options; "Outros" switches to free text |
+
+### UX Decisions
+
+- **RG Authority dropdown** includes SSP, DETRAN, IFP, PC + "Outro" (free text). Covers most common Brazilian issuing authorities.
+- **RG State dropdown** shows full state name with abbreviation: "Rio de Janeiro (RJ)". Stores abbreviation only.
+- **Backward compatibility**: Old RG format (`SSP/BA 0721449476`) is parsed correctly. Legacy format without slash also handled.
+- **Phone formatting** uses `formatInternational()` from libphonenumber-js — works for all countries, not just Brazil.
+
+### Verification Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go test ./...` | PASS (all packages) |
+| `npx tsc --noEmit` | PASS |
+| `npx vite build` | PASS |
+
+---
+
 ## Next Recommended Steps
 
 ### Immediate (Next Session)
 
-1. Person CRUD API + React pages (Sprint 2)
+1. **Verify end-to-end with Docker Compose**: Run `docker compose up`, execute migrations 000012-000014, test full flow
+2. **Test self-registration flow**: Register via Keycloak → complete profile → login → dashboard
+3. **Test role assignment**: Add roles to persons via UI (was broken, now fixed with migration 000014)
+4. **Add frontend tests**: Component tests for PersonForm sections, PhoneInput sync, ReferralSourceSelect sync
+5. **Test RG field editing**: Edit existing persons with old RG format, verify backward-compatible parsing
 
-### Medium-Term (Phase 1 Sprints 2-4)
+### Medium-Term (Phase 1 Sprints 3-4)
 
-2. Triage and Attendance API + React forms (Sprint 3)
-3. Offline sync (IndexedDB + push/pull endpoints) (Sprint 4)
-4. Basic reports with CSV export (Sprint 4)
+6. Triage and Attendance API + React forms (Sprint 3)
+7. Offline sync engine — push/pull endpoints (Sprint 4)
+8. Basic reports with CSV export (Sprint 4)
+
+---
+
+## Session 15: Form Validation, Formatting, and Dynamic Field Fixes (2026-04-07)
+
+### What Was Done
+
+Five form issues were identified and fixed across frontend and backend:
+
+#### Issue 1: Email Validation (Real-time Feedback)
+- **Root cause**: `useForm` defaulted to `mode: 'onSubmit'` — validation only triggered on submit, not on blur
+- **Fix**: Added `mode: 'onBlur'` to `useForm()` in `usePersonForm.ts` and `ProfileCompletionPage.tsx`
+- Zod schema `.email()` was already correct — just needed earlier trigger
+
+#### Issue 2: Phone Formatting Mask
+- **Root cause**: `new AsYouType()` without country code formatted in international mode instead of national `(XX) XXXXX-XXXX`
+- **Fix**: Added `alpha2` (ISO 3166-1 alpha-2) to Country interface, pass it to `new AsYouType(alpha2)` for national formatting
+- Added `getAlpha2ByPhoneCode()` helper in `countries.ts`
+- Fixed `parseInitialValue()` to format national number on load
+
+#### Issue 3: "Fonte de Encaminhamento" (Referral Source) — "Outro" Dynamic Input
+- **Root cause**: Selecting "Outros" set form value to literal `"Outros"` string; text input showed it pre-filled
+- **Fix**: Added `onValueChange` callback prop to `ReferralSourceSelect`, clears form value when switching to/from "other" mode
+- ContactSection passes `setValue('referral_source', val)` as callback
+
+#### Issue 4: RG Document Type for Brazil
+- **Approach**: RG stored as concatenated `"SSP/BA 0721449476"` in existing `document_number` field
+- **Frontend**: Added `'RG'` to Zod enum, two-field input (Orgao Emissor + Numero do RG) in PersonalDataSection with local state and concatenation
+- **Backend**: Added `RG` to `oneof=` validator tags in `CreatePersonInput`, `UpdatePersonInput`, `SelfRegisterInput`
+- Edit mode parses existing value back into sub-fields
+
+#### Issue 5: Comprehensive Country/Nationality List
+- **Created**: `countryData.ts` with ~195 countries (ISO 3166-1) including alpha-2/alpha-3 codes, Portuguese names, phone codes, flag emojis
+- **Created**: `SearchableSelect.tsx` — combobox with accent-insensitive search, keyboard navigation, ARIA attributes, "Outro" manual entry option
+- **Applied**: SearchableSelect replaces native `<Select>` for nationality (PersonalDataSection) and country (AddressSection)
+- **Nationality storage**: Keeps 3-char ISO code; custom entries map to `'OTH'` sentinel
+
+### Files Created
+| File | Purpose |
+|------|---------|
+| `frontend/src/utils/countryData.ts` | Comprehensive country data (~195 countries) |
+| `frontend/src/components/ui/SearchableSelect.tsx` | Searchable combobox with keyboard nav and custom entry |
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `frontend/src/utils/countries.ts` | Refactored to import from countryData, added alpha2 support, RG doc type, `getAlpha2ByPhoneCode()` |
+| `frontend/src/utils/personValidation.ts` | Added `'RG'` to document_type Zod enum |
+| `frontend/src/hooks/usePersonForm.ts` | Added `mode: 'onBlur'` for real-time validation |
+| `frontend/src/pages/ProfileCompletionPage.tsx` | Added `mode: 'onBlur'` for real-time validation |
+| `frontend/src/components/ui/PhoneInput.tsx` | Fixed national format via `AsYouType(alpha2)`, fixed initial value formatting |
+| `frontend/src/components/person/PersonalDataSection.tsx` | RG two-field input, SearchableSelect for nationality |
+| `frontend/src/components/person/ContactSection.tsx` | Pass `onValueChange` to ReferralSourceSelect |
+| `frontend/src/components/person/ReferralSourceSelect.tsx` | Added `onValueChange` prop, clear value on mode switch |
+| `frontend/src/components/person/AddressSection.tsx` | SearchableSelect for country, added `searchTerms` to options |
+| `frontend/src/components/person/PersonForm.tsx` | Added `'RG'` to type assertion |
+| `backend/internal/service/person_service.go` | Added `RG` to `oneof=` validator tag |
+| `backend/internal/service/self_register_service.go` | Added `RG` to `oneof=` validator tag |
+
+### Validation Rules Summary
+| Field | Rule | Trigger |
+|-------|------|---------|
+| Email | RFC-compliant via Zod `.email()` | On blur + on submit |
+| Phone | E.164 storage, national display via libphonenumber-js | Real-time |
+| CPF | Check-digit algorithm + auto-format | On change + on submit |
+| RG | Two-field concatenation (authority + number) | On change |
+| Document type | Enum: CPF, RG, SSN, EU_ID, PASSPORT, OTHER | On submit |
+| Nationality | 3-char ISO code or 'OTH' for custom | On change |
+
+### Decisions Made
+- **Email validation mode**: `onBlur` chosen over `onChange` to avoid showing errors while user is still typing
+- **RG storage**: Concatenated as single string in existing `document_number` field — no schema/migration needed
+- **Country list**: ~195 countries (all UN member states) rather than all 249 ISO codes — territories/dependencies omitted for simplicity
+- **Nationality custom entry**: Maps to 'OTH' sentinel (3-char) to maintain schema compatibility without backend migration
+
+### Build Status
+- Go backend: builds clean
+- TypeScript frontend: compiles clean (no errors)
+
+---
+
+## Session 17: Phone Input Mask and Display Fix (2026-04-09)
+
+### What Was Done
+1. **Bug fix**: Phone input mask was incorrectly formatting Brazilian numbers as `(55) 21987-654321` instead of `(21) 98765-4321`
+
+### Root Cause
+A feedback loop in `PhoneInput.tsx` between `handleNumberChange` → `onChange` → parent re-render → `useEffect` re-parse. When `parsePhoneNumberFromString` failed on partial E.164 strings (e.g., `+552`), the fallback returned the raw E.164 value as the national number, contaminating subsequent input with the country code digits.
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `frontend/src/components/ui/PhoneInput.tsx` | Added `useRef` flag to break feedback loop; fixed `parseInitialValue` fallback to strip country code; added max-length truncation (11 digits) for Brazilian numbers |
+| `frontend/src/utils/phoneFormat.ts` | Added defensive truncation of `nationalNumber` to 11 digits for Brazil display |
+
+### Phone Formatting Rules (Reference)
+- **Input mask (Brazil +55)**: `(DD) XXXXX-XXXX` (mobile) or `(DD) XXXX-XXXX` (landline) — DDI NOT in input field
+- **Persistence format**: `+<DDI><DDD><PHONE>` e.g., `+5521987654321`
+- **Display format (Brazil)**: `+55 (21) 98765-4321`
+- **Other countries**: digits only in input; `libphonenumber-js` international format for display
+
+### Build Status
+- TypeScript: compiles clean (no errors)
+- ESLint: no warnings on modified files
+
+---
+
+## Session 18: Birth Date Display Bug Fix (2026-04-09)
+
+### Issue
+Birth date on Person Details screen displayed as `12T00:00:00Z/05/1984` instead of `12/05/1984`.
+
+### Root Cause
+`formatDateBR()` in `PersonInfo.tsx` split the ISO string on `-` without first stripping the time portion. When the backend returned `1984-05-12T00:00:00Z`, splitting on `-` produced `['1984', '05', '12T00:00:00Z']`, causing the `T00:00:00Z` fragment to leak into the display.
+
+### Fix Applied
+- **File**: `frontend/src/components/person/PersonInfo.tsx` (line 28)
+- **Change**: Added `iso.split('T')[0]` before splitting on `-`, ensuring only the date portion (`YYYY-MM-DD`) is parsed
+- **Pattern**: Same `split('T')[0]` approach already used in `PersonForm.tsx:48`
+
+### Date Formatting Rule
+- Birth date is a **date-only** field — never apply timezone conversion
+- Always strip the time portion with `.split('T')[0]` before formatting
+- Display format: `DD/MM/YYYY` (Brazilian standard)
+- No `new Date()` constructor should be used for date-only fields (avoids timezone shift)
+
+---
+
+## Session 19: Fix Duplicate-Check Validation Request Loop (2026-04-09)
+
+### Issue
+When filling the CPF document number field (nationality=BRA, document_type=CPF), the frontend triggered an uncontrolled sequence of repeated requests to `/api/v1/persons/check-duplicate`, creating a request loop that flooded the backend.
+
+### Root Cause
+Three interacting bugs created an infinite re-render loop:
+
+1. **Unstable function reference** — `checkForDuplicates` in `usePersonForm.ts` was a plain `async function` (not `useCallback`), getting a new reference on every render.
+2. **Unstable useEffect dependency** — `PersonForm.tsx` included `checkForDuplicates` in its effect dependency array. Since the reference changed every render, the effect re-fired every render.
+3. **State update feedback loop** — When `checkForDuplicates` resolved, it called `setDuplicateWarning()`, causing a re-render → new function reference → effect re-fires → new API call → loop.
+
+Additional issues: no CPF validity check before triggering, no nationality guard, no deduplication of identical values.
+
+### Fix Applied
+- **`frontend/src/hooks/usePersonForm.ts`**: Wrapped `checkForDuplicates` in `useCallback` (stable reference). Added `useRef` to track last-checked `{docType}:{docNumber}` key — skips API call if the same value was already checked.
+- **`frontend/src/components/person/PersonForm.tsx`**: Added `isValidCPF()` guard so duplicate check only fires when CPF is complete and valid. Added `nationality` watch so the CPF guard only applies when nationality is `BRA`.
+
+### Duplicate-Check Trigger Rules (Post-Fix)
+The request fires only when ALL conditions are true:
+1. Not in edit mode (`!editData`)
+2. `documentType` and `documentNumber` are non-empty
+3. If `documentType === 'CPF'` AND `nationality === 'BRA'`: CPF must be complete (11 digits) AND pass `isValidCPF()` check-digit validation
+4. The `{documentType}:{documentNumber}` combination differs from the last checked value (ref-based deduplication)
+5. 500ms debounce has elapsed without further changes
+
+### Files Modified
+- `frontend/src/hooks/usePersonForm.ts`
+- `frontend/src/components/person/PersonForm.tsx`
+
+---
+
+## Session 20: Role Management + Volunteer Agreement Flow (2026-04-10)
+
+### What Was Done
+
+1. **Role Hierarchy Enforcement** — VOLUNTEER is now auto-assigned when adding PROFESSIONAL, COORDINATOR, or ADMIN roles. ASSISTED remains independent. Implemented in `PersonService.AddRole()` with `ensureVolunteerRole()` helper.
+
+2. **Volunteer Agreement System** — Complete digital + manual upload flow:
+   - New `volunteer_agreement` DB table (migration 000015)
+   - Domain type, repository, service, handler layers
+   - Digital acceptance: POST `/volunteer-agreement/accept` captures IP, user-agent, timestamp
+   - Manual upload: POST `/persons/{id}/agreement/upload` for COORDINATOR+ (multipart, PDF/JPEG/PNG)
+   - Agreement rejection with optional reason
+
+3. **Access Restriction Middleware** — `RequireAgreement` middleware blocks volunteers without accepted agreement (403 `agreement_required`). Agreement routes exempt from guard. Applied between AutoProvision and route handlers.
+
+4. **Person List Filtering** — GET `/persons?agreement_status=` supports `with_agreement`, `without_agreement`, `rejected` via LEFT JOIN to `volunteer_agreement`.
+
+5. **Data Integrity** — New unique constraints on person email and phone per campus (migration 000016). Specific error codes: `duplicate_email`, `duplicate_phone`.
+
+6. **Frontend Agreement Flow**:
+   - `VolunteerAgreementPage` — Full-screen accept/reject with agreement text display
+   - `AgreementGuard` — Wraps app routes, redirects volunteers to agreement page
+   - `AgreementStatusCard` — Shows agreement status on person detail
+   - `AgreementUploadModal` — File upload for coordinators
+   - Agreement filter pills on PersonListPage
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| No `keycloak_user_id` in person table | `app_user` already has `keycloak_subject_id` + `person_id` FK; avoids duplication |
+| Local filesystem for uploads (Phase 1) | Behind interface for future S3 swap; path stored in `document_path` column |
+| SECRETARY not in role hierarchy | SECRETARY is a Keycloak access profile, not a person role |
+| Route grouping for agreement guard | Agreement endpoints (accept/reject/text) exempt; main app routes require accepted agreement |
+| Embedded agreement text (go:embed) | Single-file deployment; versioning via `agreement_version` field |
+
+### Files Created
+
+**Backend:**
+- `backend/migrations/000015_create_volunteer_agreement.up.sql` / `.down.sql`
+- `backend/migrations/000016_add_person_unique_constraints.up.sql` / `.down.sql`
+- `backend/internal/domain/volunteer_agreement.go`
+- `backend/internal/repository/volunteer_agreement_repository.go`
+- `backend/internal/service/volunteer_agreement_service.go`
+- `backend/internal/service/agreement_text_v1.md` (embedded)
+- `backend/internal/service/volunteer_agreement_service_test.go`
+- `backend/internal/handler/volunteer_agreement.go`
+- `backend/internal/middleware/agreement.go`
+- `backend/internal/middleware/agreement_test.go`
+
+**Frontend:**
+- `frontend/src/pages/VolunteerAgreementPage.tsx`
+- `frontend/src/components/auth/AgreementGuard.tsx`
+- `frontend/src/components/person/AgreementStatusCard.tsx`
+- `frontend/src/components/person/AgreementUploadModal.tsx`
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `backend/internal/domain/role.go` | Added `RoleAssisted`, `RequiresVolunteerBase()` |
+| `backend/internal/domain/errors.go` | Added `ErrDuplicateEmail`, `ErrDuplicatePhone`, `ErrAgreementRequired`, `ErrAgreementExists` |
+| `backend/internal/domain/person.go` | Added `AgreementStatus` to `PersonFilter` |
+| `backend/internal/repository/person_repository.go` | Agreement filter in `List()`, `classifyUniqueViolation()` helper |
+| `backend/internal/service/person_service.go` | Role hierarchy in `AddRole()`, `ensureVolunteerRole()`, `createPendingAgreement()`, added `agreementRepo` dependency |
+| `backend/internal/service/self_register_service.go` | Creates PENDING agreement for VOLUNTEER registrations |
+| `backend/internal/handler/person.go` | `agreement_status` query param, `duplicate_email`/`duplicate_phone` error codes |
+| `backend/cmd/server/main.go` | Wired agreement repo/service/handler, 3 route groups (self-register, agreement, protected) |
+| `backend/internal/service/person_service_test.go` | Mock for agreement repo, role hierarchy tests |
+| `backend/internal/handler/person_test.go` | Mock for agreement repo |
+| `backend/internal/domain/role_test.go` | `TestRequiresVolunteerBase` |
+| `frontend/src/types/person.ts` | `VolunteerAgreement` interface |
+| `frontend/src/types/index.ts` | Export `VolunteerAgreement` |
+| `frontend/src/api/client.ts` | Added `apiClientRaw()` for multipart uploads |
+| `frontend/src/api/persons.ts` | Agreement API functions, `agreement_status` filter |
+| `frontend/src/hooks/usePersons.ts` | `agreementStatus` state, `filterByAgreement()` |
+| `frontend/src/pages/PersonListPage.tsx` | Agreement filter pills (COORDINATOR+ only) |
+| `frontend/src/pages/PersonDetailPage.tsx` | `AgreementStatusCard` component |
+| `frontend/src/App.tsx` | `/volunteer-agreement` route, `AgreementGuard` wrapper |
+
+### Verification Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test ./...` | PASS (all packages) |
+| `npx tsc --noEmit` | PASS |
+
+### Risks and Follow-ups
+
+1. **File upload security**: Uploads go to local filesystem; production should use S3 with signed URLs
+2. **Agreement text versioning**: Currently only v1 embedded; future versions need a storage strategy
+3. **Token refresh after acceptance**: Frontend forces re-login after agreement acceptance for claims refresh; may be improvable with silent token refresh
+4. **Offline behavior**: Agreement acceptance is online-only (Category C); offline volunteers cannot accept until online
+
+### Next Steps
+
+1. Run `docker compose up` and test full agreement flow end-to-end
+2. Verify migrations 000015 + 000016 apply cleanly
+3. Test self-registration → agreement → access flow
+4. Test manual upload flow for non-system volunteers
+5. Continue Sprint 2: Triage and Attendance endpoints
+
+---
+
+## Session 22 — Remove Campus from Keycloak + Campus CRUD + Backend-Driven Campus Resolution (2026-04-11)
+
+### Architecture Decision
+
+**Campus_id removed from Keycloak entirely.** Backend database is now the sole source of truth for campus assignment. The `AutoProvision` middleware resolves campus from `app_user.campus_id`, and the `GET /api/v1/auth/me` endpoint resolves it globally for onboarding.
+
+### Changes Made
+
+**Backend — Remove campus_id from JWT + DB resolution:**
+- `backend/internal/middleware/auth.go` — Removed `campus_id` from JWT claims extraction
+- `backend/internal/middleware/provision.go` — Resolves campus from app_user record in DB; enriches auth context
+- `backend/internal/service/user_service.go` — Added `ResolveCampusFromDB`; nullable campus in provisioning
+- `backend/internal/domain/user.go` — `CampusID` changed to `*uuid.UUID` (nullable)
+- `backend/migrations/000017_nullable_app_user_campus` — Made `app_user.campus_id` nullable
+- `backend/internal/service/onboarding_service.go` — Full rewrite: handles no app_user, global email lookup, auto-linking with campus, `NeedsCampusAssignment` flag
+- `backend/internal/repository/person_repository.go` — Added `FindByEmailGlobal` (cross-campus email lookup)
+- `backend/internal/repository/user_repository.go` — Added `LinkPersonAndCampus`
+- `backend/internal/service/self_register_service.go` — Uses `LinkPersonAndCampus` for existing app_user
+- `backend/cmd/server/main.go` — Moved `/auth/me` to auth-only group; added `/campuses` routes
+
+**Backend — Campus CRUD:**
+- `backend/internal/domain/campus.go` — Campus struct
+- `backend/internal/repository/campus_repository.go` — ListActive, List, FindByID, Create, Update
+- `backend/internal/service/campus_service.go` — CampusService with full CRUD
+- `backend/internal/handler/campus.go` — HTTP handlers for campus endpoints
+- Routes: `GET /campuses` (auth-only), `GET/POST/PUT /campuses/*` (ADMIN-only)
+
+**Frontend — Campus screens + onboarding integration:**
+- `frontend/src/api/campuses.ts` — Campus API client
+- `frontend/src/pages/CampusListPage.tsx` — Campus list table (ADMIN only)
+- `frontend/src/pages/CampusFormPage.tsx` — Campus create/edit form
+- `frontend/src/api/auth.ts` — Updated OnboardingStatus with `campus_id`, `needs_campus_assignment`
+- `frontend/src/store/authStore.ts` — Removed campus from token; added `setCampusId` action
+- `frontend/src/components/auth/OnboardingGuard.tsx` — Sets campus in auth store from /auth/me; handles needs_campus_assignment
+- `frontend/src/pages/ProfileCompletionPage.tsx` — Dynamic campus selector (replaces hardcoded UUID)
+- `frontend/src/App.tsx` — Campus routes
+- `frontend/src/components/layout/Sidebar.tsx` — Campus nav link
+
+**Keycloak cleanup:**
+- `keycloak/init-realm.sh` — Removed CAMPUS_ID variable, campus_id from user attributes and User Profile
+- `keycloak/realm-export.json` — Removed campus_id protocol mapper
+
+**Documentation:**
+- `docs/16-iam-and-access-control.md` — Updated token claims (no campus_id), campus resolution strategy
+- `docs/11-api-design.md` — Campus CRUD endpoints, updated /auth/me response
+
+### Onboarding Flow (Updated)
+
+| Case | Condition | Behavior |
+|------|-----------|----------|
+| Email not verified | `email_verified = false` | Blocked at `/email-verification` |
+| No app_user, no person | First login, nothing found by email | `/auth/me` → `needs_campus_assignment + needs_profile_completion` → `/complete-profile` with campus selector |
+| No app_user, person found by email | Pre-created person exists | `/auth/me` → derives campus from person, returns `campus_id` |
+| App_user exists, nil campus | Auto-provisioned without campus | `/auth/me` → tries global email lookup → auto-links if found |
+| App_user exists, has campus + person | Normal user | Direct access with RBAC |
+| Volunteer without agreement | Active VOLUNTEER, no accepted agreement | Redirected to `/volunteer-agreement` |
+
+### Risks and Follow-ups
+
+- `app_user.campus_id` is now nullable. Existing records in production have non-null values, so no data migration needed.
+- After self-registration, the `AutoProvision` middleware resolves campus from the DB, so the user can access protected routes without a Keycloak campus_id attribute.
+- Multi-campus: `FindByEmailGlobal` returns all matches. If >1, `needs_campus_assignment = true` — user must pick campus.
+
+---
+
+## Session 21 — Email Verification Gate + Onboarding Flow Fix (2026-04-11)
+
+### Issue Identified
+
+Users with unverified Keycloak emails were being routed to `/complete-profile` instead of being blocked. The frontend did not check `email_verified` from the Keycloak token. Additionally, pre-created person records (by admin) were not being auto-linked when the matching Keycloak user first logged in.
+
+### Changes Made
+
+**Frontend — Email Verification Gate:**
+- `frontend/src/store/authStore.ts` — Added `emailVerified` extraction from `keycloak.tokenParsed.email_verified`
+- `frontend/src/hooks/useAuth.ts` — Exposed `emailVerified` property
+- `frontend/src/components/auth/EmailVerifiedGuard.tsx` — New guard: redirects to `/email-verification` if email not verified
+- `frontend/src/pages/EmailVerificationPendingPage.tsx` — New page: Portuguese UI explaining email verification steps
+- `frontend/src/App.tsx` — Added `EmailVerifiedGuard` to route hierarchy, replaced `ProfileCompletionGuard` + `AgreementGuard` with unified `OnboardingGuard`
+
+**Backend — Onboarding Endpoint + Person Auto-Linking:**
+- `backend/internal/repository/person_repository.go` — Added `FindByEmail(email, campusID)` method
+- `backend/internal/repository/user_repository.go` — Added `LinkPersonID(userID, personID)` method
+- `backend/internal/service/onboarding_service.go` — New service: resolves onboarding status, auto-links persons by email
+- `backend/internal/handler/onboarding.go` — New handler: `GET /api/v1/auth/me`
+- `backend/cmd/server/main.go` — Wired OnboardingService and registered `/auth/me` route
+- Updated `PersonRepository` and `UserRepository` interfaces in service layer
+- Updated mock repositories in test files for interface compliance
+
+**Frontend — Backend Integration:**
+- `frontend/src/api/auth.ts` — New API client for `GET /auth/me`
+- `frontend/src/hooks/useOnboardingStatus.ts` — New hook: fetches onboarding status
+- `frontend/src/components/auth/OnboardingGuard.tsx` — New unified guard replacing `ProfileCompletionGuard` + `AgreementGuard`
+
+**Documentation:**
+- `docs/16-iam-and-access-control.md` — Added frontend email verification layer, onboarding decision tree, person auto-linking by email, frontend guard hierarchy
+- `docs/11-api-design.md` — Added `GET /api/v1/auth/me` endpoint documentation
+
+### Onboarding Flow (Final)
+
+| Case | Condition | Behavior |
+|------|-----------|----------|
+| Email not verified | `email_verified = false` | Blocked at `/email-verification` screen |
+| Email verified, no Person | No person found by email | Redirected to `/complete-profile` |
+| Email verified, Person exists | Person found by email in same campus | Auto-linked, direct access granted |
+| Volunteer without agreement | Active VOLUNTEER role, no accepted agreement | Redirected to `/volunteer-agreement` |
+
+### Design Decision: keycloak_user_id
+
+Confirmed: `keycloak_user_id` is NOT added to the `person` table. The link between Keycloak identity and Person is established exclusively through the `app_user` join table (`app_user.keycloak_subject_id` + `app_user.person_id`). This keeps the Person entity IAM-provider-independent.
+
+### Risks and Follow-ups
+
+- Token refresh after auto-link: The Keycloak token won't have `person_id` until next re-login. Frontend relies on `/auth/me` response for routing, which handles this correctly.
+- Person email uniqueness is campus-scoped (`uq_person_email_campus` constraint). Auto-linking respects this.
+- `ProfileCompletionGuard.tsx` and `AgreementGuard.tsx` are still in the codebase but no longer imported in `App.tsx`. Can be removed in cleanup.
 
 ---
 

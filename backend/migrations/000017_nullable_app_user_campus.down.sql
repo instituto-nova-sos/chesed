@@ -1,0 +1,1 @@
+ALTER TABLE app_user ALTER COLUMN campus_id SET NOT NULL;

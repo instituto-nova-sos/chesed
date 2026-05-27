@@ -61,6 +61,7 @@ Person (domain entity — may or may not have a system account)
 - **`app_user`** is a local projection table that maps a Keycloak subject (`sub` claim) to application-specific data: `person_id`, `campus_id`, `is_active`, and timestamps.
 - **Not all persons have system accounts.** A Person is anyone known to the NGO (beneficiary, volunteer, professional). An `app_user` record exists only for people who need system access.
 - **One Keycloak user maps to one `app_user`, which maps to at most one Person.**
+- **No `keycloak_user_id` on the `person` table.** The link between a Keycloak identity and a Person is established exclusively through the `app_user` join table (`app_user.keycloak_subject_id` + `app_user.person_id`). This avoids duplicating identity references and keeps the Person entity independent of the IAM provider.
 
 ### app_user Table
 
@@ -188,19 +189,19 @@ The Keycloak-issued JWT access token contains standard OIDC claims plus custom c
   "realm_access": {
     "roles": ["COORDINATOR"]
   },
-  "campus_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "person_id": "c56a4180-65aa-42ec-a945-5fd21dec0538"
 }
 ```
+
+**Note:** `campus_id` is NOT in the JWT token. It is resolved from the backend database (`app_user.campus_id` or `person.campus_id`) by the `AutoProvision` middleware and `GET /api/v1/auth/me` endpoint.
 
 ### Custom Protocol Mappers (Keycloak Configuration)
 
 | Mapper Name | Type | User Attribute | Token Claim | Claim Type |
 |-------------|------|---------------|-------------|------------|
-| campus_id | User Attribute | campus_id | campus_id | String |
 | person_id | User Attribute | person_id | person_id | String |
 
-These mappers are configured in the Keycloak `chesed-api` client scope to inject application-specific attributes into the access token.
+These mappers are configured in the Keycloak `chesed-custom-claims` client scope to inject application-specific attributes into the access token.
 
 ### Offline Token for Field Workers
 
@@ -278,10 +279,54 @@ Roles are extracted from the `realm_access.roles` array in the JWT access token.
 | Assign roles | No | No | No | No | Yes |
 | **Audit** |
 | View audit logs | No | No | No | No | Yes |
+| **Volunteer Agreement** |
+| Accept/reject own agreement | Yes | Yes | Yes | Yes | Yes |
+| View person's agreements | No | No | No | Yes | Yes |
+| Upload signed agreement | No | No | No | Yes | Yes |
+| Download agreement document | No | No | No | Yes | Yes |
 | **Consent** |
 | Create consent | Yes | Yes | Yes | Yes | Yes |
 | View consents | No | Campus | Own assigned | Campus | All |
 | Revoke consent | No | No | No | No | Yes |
+
+### Volunteer Agreement Access Restriction
+
+Beyond RBAC role checks, volunteers must accept the **Volunteer Agreement** before accessing platform features. This is enforced by the `RequireAgreement` middleware.
+
+**Middleware chain order:**
+
+```
+OIDC Token Validation → AutoProvision (app_user) → RequireAgreement → RBAC (RequireRole) → Handler
+```
+
+**How it works:**
+
+1. After the user is authenticated and the `app_user` record is provisioned, `RequireAgreement` checks whether the user's person record has an accepted `volunteer_agreement`.
+2. If the agreement is not accepted, all API requests (except agreement-related routes) return HTTP 403 with a specific error code indicating agreement is required.
+3. The frontend detects this error and redirects the user to the agreement acceptance flow.
+
+**Exempt routes (not subject to RequireAgreement):**
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/v1/volunteer-agreement/text` | Fetch agreement text for display |
+| `POST /api/v1/volunteer-agreement/accept` | Accept the agreement |
+| `POST /api/v1/volunteer-agreement/reject` | Reject the agreement |
+| `GET /api/v1/users/me` | Fetch current user profile |
+| `POST /api/v1/self-register` | Self-registration flow |
+
+**Rejection behavior:**
+
+- If a volunteer rejects the agreement, the rejection is stored in the `volunteer_agreement` table with an optional reason and timestamp.
+- The person record remains visible to coordinators for follow-up.
+- The rejected user cannot access platform features until they accept the agreement in a subsequent attempt.
+- Coordinators can view rejection status via `GET /api/v1/persons/{id}/agreement`.
+
+**Manual upload flow (Coordinator):**
+
+- For volunteers who sign a physical document, a coordinator can upload the signed agreement via `POST /api/v1/persons/{id}/agreement/upload`.
+- This creates an `ACCEPTED` agreement with `signature_method = MANUAL_UPLOAD`.
+- The uploaded document is stored at `document_path` and can be downloaded via `GET /api/v1/persons/{id}/agreement/document`.
 
 ---
 
@@ -450,10 +495,11 @@ No application endpoints are needed for password recovery.
 
 ### Email Verification
 
-Email verification is enforced at two layers:
+Email verification is enforced at three layers:
 
 1. **Keycloak (primary)**: `verifyEmail: true` in realm configuration. Keycloak adds `VERIFY_EMAIL` as a required action on new accounts. Users must click a verification link sent via SMTP before completing login.
 2. **Go API (defense-in-depth)**: The OIDC middleware checks the `email_verified` claim in the JWT. Requests with `email_verified: false` are rejected with HTTP 403.
+3. **React Frontend (UX gate)**: The `EmailVerifiedGuard` component checks `email_verified` from the Keycloak token. Users with unverified emails are redirected to `/email-verification`, which shows a guidance screen explaining how to verify their email. All other routes (including `/complete-profile`) are blocked until verification is complete.
 
 **SMTP Configuration**: Required for email verification and password reset. In development, Mailpit (local SMTP trap) is used. In production, configure an external SMTP provider (Amazon SES, SendGrid, or self-hosted) via Keycloak Admin Console.
 
@@ -504,6 +550,23 @@ Implementation in Keycloak:
 | Role change | Admin updates realm role in Keycloak; change reflected in next token issuance |
 | Deactivation | Admin disables user in Keycloak + sets `is_active = false` in `app_user`; all sessions revoked |
 | Reactivation | Admin enables user in Keycloak + sets `is_active = true` in `app_user` |
+
+### Onboarding Decision Tree
+
+After authentication, the system determines the user's onboarding state via `GET /api/v1/auth/me`. The frontend uses the response to route users:
+
+| Case | Condition | Behavior |
+|------|-----------|----------|
+| **Email not verified** | `email_verified = false` in Keycloak token | Frontend blocks all routes, shows `/email-verification` guidance screen. Backend rejects with HTTP 403. |
+| **Email verified, no Person record** | `email_verified = true`, no person found by email in the same campus | Frontend redirects to `/complete-profile` for self-registration. |
+| **Email verified, Person exists (pre-created)** | `email_verified = true`, person found by email in the same campus | Backend auto-links `app_user.person_id` to the existing person. Frontend grants direct access with RBAC. |
+| **Email verified, Person linked, Volunteer without agreement** | Person has active VOLUNTEER role but no accepted agreement | Frontend redirects to `/volunteer-agreement`. |
+
+### Person Auto-Linking by Email
+
+When a user logs in for the first time and their `app_user` has no linked `person_id`, the `GET /api/v1/auth/me` endpoint checks if a person record with the same email exists in the user's campus. If found, the system automatically links the `app_user` to the existing person (sets `app_user.person_id`). This supports the workflow where an admin pre-creates a person record before the Keycloak user is created.
+
+The link is established exclusively through the `app_user` join table — no `keycloak_user_id` field is added to the `person` table. This keeps the Person entity independent of the IAM provider.
 
 ---
 
@@ -825,6 +888,24 @@ function handleLogout() {
   });
 }
 ```
+
+### Frontend Route Guard Hierarchy
+
+The frontend enforces a layered guard chain that mirrors the backend middleware:
+
+```
+ProtectedRoute (isAuthenticated?)
+  └─ EmailVerifiedGuard (email_verified in token?)
+       └─ OnboardingGuard (calls GET /auth/me)
+            ├─ needs_profile_completion? → redirect /complete-profile
+            ├─ needs_agreement? → redirect /volunteer-agreement
+            └─ OK → render main app
+```
+
+Route groups:
+1. `/email-verification` — `ProtectedRoute` only (must be reachable with unverified email)
+2. `/complete-profile`, `/volunteer-agreement` — `ProtectedRoute` + `EmailVerifiedGuard`
+3. Main app routes — `ProtectedRoute` + `EmailVerifiedGuard` + `OnboardingGuard`
 
 ### Extracting User Info from Token
 

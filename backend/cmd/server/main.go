@@ -70,15 +70,30 @@ func setupRouter(
 	auditRepo := repository.NewAuditRepository(pool)
 	userRepo := repository.NewUserRepository(pool)
 	serviceTypeRepo := repository.NewServiceTypeRepository(pool)
+	personRepo := repository.NewPersonRepository(pool)
+	personRoleRepo := repository.NewPersonRoleRepository(pool)
+	agreementRepo := repository.NewVolunteerAgreementRepository(pool)
+	campusRepo := repository.NewCampusRepository(pool)
 
 	// Services
 	auditSvc := service.NewAuditService(auditRepo)
 	userSvc := service.NewUserService(userRepo, auditSvc)
 	serviceTypeSvc := service.NewServiceTypeService(serviceTypeRepo)
+	personSvc := service.NewPersonService(personRepo, personRoleRepo, agreementRepo, auditSvc)
+	selfRegisterSvc := service.NewSelfRegisterService(personRepo, personRoleRepo, userRepo, agreementRepo, auditSvc)
+	agreementSvc := service.NewVolunteerAgreementService(agreementRepo, personRoleRepo, auditSvc)
+	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
+	campusSvc := service.NewCampusService(campusRepo, auditSvc)
 
 	// Handlers
+	uploadDir := "uploads/agreements"
 	healthH := handler.NewHealthHandler(pool)
 	serviceTypeH := handler.NewServiceTypeHandler(serviceTypeSvc)
+	personH := handler.NewPersonHandler(personSvc)
+	selfRegisterH := handler.NewSelfRegisterHandler(selfRegisterSvc)
+	agreementH := handler.NewVolunteerAgreementHandler(agreementSvc, uploadDir)
+	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
+	campusH := handler.NewCampusHandler(campusSvc)
 
 	// Router
 	r := chi.NewRouter()
@@ -90,13 +105,63 @@ func setupRouter(
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", healthH.ServeHTTP)
 
-		// Protected routes
+		// Auth-only: onboarding status, self-register, campus list (no AutoProvision, no RBAC)
+		r.Group(func(r chi.Router) {
+			r.Use(authMW)
+			r.Get("/auth/me", onboardingH.GetStatus)
+			r.Post("/self-register", selfRegisterH.Register)
+			r.Get("/campuses", campusH.ListActive)
+		})
+
+		// Agreement routes: require auth + provision, but NOT agreement guard
 		r.Group(func(r chi.Router) {
 			r.Use(authMW)
 			r.Use(middleware.AutoProvision(userSvc))
+			r.Get("/volunteer-agreement/text", agreementH.GetText)
+			r.Post("/volunteer-agreement/accept", agreementH.Accept)
+			r.Post("/volunteer-agreement/reject", agreementH.Reject)
+		})
 
-			r.With(middleware.RequireRole("VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")).
-			Get("/service-types", serviceTypeH.List)
+		// Protected routes: require auth + provision + agreement
+		r.Group(func(r chi.Router) {
+			r.Use(authMW)
+			r.Use(middleware.AutoProvision(userSvc))
+			r.Use(middleware.RequireAgreement(agreementRepo, personRoleRepo))
+
+			allRoles := middleware.RequireRole("VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+
+			r.With(allRoles).Get("/service-types", serviceTypeH.List)
+
+				// Campus management (ADMIN only)
+				r.Route("/campuses", func(r chi.Router) {
+					r.With(middleware.RequireRole("ADMIN")).Get("/all", campusH.ListAll)
+					r.With(middleware.RequireRole("ADMIN")).Get("/{id}", campusH.Get)
+					r.With(middleware.RequireRole("ADMIN")).Post("/", campusH.Create)
+					r.With(middleware.RequireRole("ADMIN")).Put("/{id}", campusH.Update)
+				})
+
+			r.Route("/persons", func(r chi.Router) {
+				r.With(allRoles).Post("/", personH.Create)
+				r.With(allRoles).Get("/", personH.List)
+				r.With(allRoles).Get("/check-duplicate", personH.CheckDuplicate)
+				r.With(allRoles).Get("/{id}", personH.Get)
+				r.With(middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")).
+					Put("/{id}", personH.Update)
+				r.With(middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")).
+					Get("/{id}/history", personH.GetHistory)
+				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
+					Post("/{id}/roles", personH.AddRole)
+				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
+					Patch("/{id}/roles/{roleId}", personH.ToggleRole)
+
+				// Agreement management for specific persons (COORDINATOR+)
+				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
+					Get("/{id}/agreement", agreementH.GetPersonAgreement)
+				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
+					Post("/{id}/agreement/upload", agreementH.Upload)
+				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
+					Get("/{id}/agreement/document", agreementH.DownloadDocument)
+			})
 		})
 	})
 
