@@ -74,6 +74,8 @@ func setupRouter(
 	personRoleRepo := repository.NewPersonRoleRepository(pool)
 	agreementRepo := repository.NewVolunteerAgreementRepository(pool)
 	campusRepo := repository.NewCampusRepository(pool)
+	triageRepo := repository.NewTriageRepository(pool)
+	attendanceRepo := repository.NewAttendanceRepository(pool)
 
 	// Services
 	auditSvc := service.NewAuditService(auditRepo)
@@ -84,6 +86,8 @@ func setupRouter(
 	agreementSvc := service.NewVolunteerAgreementService(agreementRepo, personRoleRepo, auditSvc)
 	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
 	campusSvc := service.NewCampusService(campusRepo, auditSvc)
+	triageSvc := service.NewTriageService(triageRepo, auditSvc)
+	attendanceSvc := service.NewAttendanceService(attendanceRepo, auditSvc)
 
 	// Handlers
 	uploadDir := "uploads/agreements"
@@ -94,6 +98,8 @@ func setupRouter(
 	agreementH := handler.NewVolunteerAgreementHandler(agreementSvc, uploadDir)
 	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
 	campusH := handler.NewCampusHandler(campusSvc)
+	triageH := handler.NewTriageHandler(triageSvc)
+	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
 
 	// Router
 	r := chi.NewRouter()
@@ -161,6 +167,23 @@ func setupRouter(
 					Post("/{id}/agreement/upload", agreementH.Upload)
 				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
 					Get("/{id}/agreement/document", agreementH.DownloadDocument)
+			})
+
+			triageRoles := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+			r.Route("/triages", func(r chi.Router) {
+				r.With(triageRoles).Post("/", triageH.Create)
+				r.With(allRoles).Get("/", triageH.List)
+				r.With(allRoles).Get("/{id}", triageH.Get)
+				r.With(triageRoles).Patch("/{id}", triageH.Update)
+			})
+
+			attendanceRoles := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
+			r.Route("/attendances", func(r chi.Router) {
+				r.With(attendanceRoles).Post("/", attendanceH.Create)
+				r.With(allRoles).Get("/", attendanceH.List)
+				r.With(allRoles).Get("/{id}", attendanceH.Get)
+				r.With(attendanceRoles).Post("/{id}/transitions", attendanceH.Transition)
+				r.With(attendanceRoles).Patch("/{id}/notes", attendanceH.UpdateNotes)
 			})
 		})
 	})
