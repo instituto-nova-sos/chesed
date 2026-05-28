@@ -110,7 +110,7 @@ export function VolunteerAgreementPage() {
 
           {error && (
             <div className="px-6">
-              <Alert type="error">{error}</Alert>
+              <Alert variant="error">{error}</Alert>
             </div>
           )}
 

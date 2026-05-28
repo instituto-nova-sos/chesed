@@ -25,8 +25,9 @@ const genderLabels: Record<string, string> = {
 };
 
 function formatDateBR(iso: string): string {
-  const dateOnly = iso.split('T')[0];
-  const [y, m, d] = dateOnly.split('-');
+  const [datePart] = iso.split('T');
+  if (!datePart) return iso;
+  const [y, m, d] = datePart.split('-');
   return `${d}/${m}/${y}`;
 }
 

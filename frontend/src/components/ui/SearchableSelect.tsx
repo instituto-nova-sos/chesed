@@ -110,10 +110,11 @@ export function SearchableSelect({
           e.preventDefault();
           setHighlightedIndex((i) => (i - 1 + totalItems) % totalItems);
           break;
-        case 'Enter':
+        case 'Enter': {
           e.preventDefault();
-          if (highlightedIndex < filtered.length) {
-            selectOption(filtered[highlightedIndex]);
+          const highlighted = filtered[highlightedIndex];
+          if (highlighted) {
+            selectOption(highlighted);
           } else if (allowCustom) {
             setIsCustom(true);
             setIsOpen(false);
@@ -121,6 +122,7 @@ export function SearchableSelect({
             onChange('OTH');
           }
           break;
+        }
         case 'Escape':
           e.preventDefault();
           setIsOpen(false);

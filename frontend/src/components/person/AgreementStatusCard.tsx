@@ -10,9 +10,14 @@ interface AgreementStatusCardProps {
   hasVolunteerRole: boolean;
 }
 
-const statusLabels: Record<string, { label: string; classes: string }> = {
+type StatusBadge = { label: string; classes: string };
+const FALLBACK_STATUS: StatusBadge = {
+  label: 'Pendente',
+  classes: 'bg-yellow-100 text-yellow-800',
+};
+const statusLabels: Record<string, StatusBadge> = {
   ACCEPTED: { label: 'Aceito', classes: 'bg-green-100 text-green-800' },
-  PENDING: { label: 'Pendente', classes: 'bg-yellow-100 text-yellow-800' },
+  PENDING: FALLBACK_STATUS,
   REJECTED: { label: 'Recusado', classes: 'bg-red-100 text-red-800' },
 };
 
@@ -57,7 +62,7 @@ export function AgreementStatusCard({ personId, hasVolunteerRole }: AgreementSta
 
   const latestAgreement = agreements[0];
   const status = latestAgreement?.status ?? 'PENDING';
-  const statusInfo = statusLabels[status] ?? statusLabels.PENDING;
+  const statusInfo = statusLabels[status] ?? FALLBACK_STATUS;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">

@@ -86,10 +86,9 @@ export function CampusListPage() {
                   </td>
                   <td className="px-4 py-3">
                     <Badge
+                      label={campus.is_active ? 'Ativo' : 'Inativo'}
                       variant={campus.is_active ? 'success' : 'neutral'}
-                    >
-                      {campus.is_active ? 'Ativo' : 'Inativo'}
-                    </Badge>
+                    />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link

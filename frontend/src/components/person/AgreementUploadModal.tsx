@@ -79,7 +79,7 @@ export function AgreementUploadModal({ personId, onClose, onUploaded }: Agreemen
 
         {error && (
           <div className="mt-3">
-            <Alert type="error">{error}</Alert>
+            <Alert variant="error">{error}</Alert>
           </div>
         )}
 

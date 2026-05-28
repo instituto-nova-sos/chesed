@@ -113,15 +113,10 @@ export function CampusFormPage() {
 
         <Select
           label="Região *"
+          options={REGIONS}
           {...form.register('region', { required: 'Região é obrigatória' })}
           error={form.formState.errors.region?.message}
-        >
-          {REGIONS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </Select>
+        />
 
         <Input label="Cidade" {...form.register('city')} />
 

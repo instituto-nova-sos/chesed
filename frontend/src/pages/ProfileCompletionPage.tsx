@@ -58,8 +58,9 @@ export function ProfileCompletionPage() {
     listActiveCampuses()
       .then(({ data }) => {
         setCampuses(data);
-        if (data.length === 1) {
-          form.setValue('campus_id', data[0].id);
+        const only = data.length === 1 ? data[0] : undefined;
+        if (only) {
+          form.setValue('campus_id', only.id);
         }
       })
       .catch(() => setCampuses([]));
@@ -151,7 +152,7 @@ export function ProfileCompletionPage() {
           )}
 
           <PersonalDataSection form={form} />
-          <ContactSection form={form} emailReadOnly emailValue={email} />
+          <ContactSection form={form} emailReadOnly emailValue={email ?? undefined} />
           <AddressSection form={form} />
 
           <div className="space-y-4 border-t pt-4">
