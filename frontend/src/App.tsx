@@ -17,6 +17,12 @@ import { VolunteerAgreementPage } from './pages/VolunteerAgreementPage';
 import { EmailVerificationPendingPage } from './pages/EmailVerificationPendingPage';
 import { CampusListPage } from './pages/CampusListPage';
 import { CampusFormPage } from './pages/CampusFormPage';
+import { TriageListPage } from './pages/TriageListPage';
+import { TriageCreatePage } from './pages/TriageCreatePage';
+import { TriageDetailPage } from './pages/TriageDetailPage';
+import { AttendanceListPage } from './pages/AttendanceListPage';
+import { AttendanceCreatePage } from './pages/AttendanceCreatePage';
+import { AttendanceDetailPage } from './pages/AttendanceDetailPage';
 
 export function App() {
   const { initialized, isLoading, initialize } = useAuthStore();
@@ -86,6 +92,12 @@ export function App() {
           <Route path="campuses" element={<CampusListPage />} />
           <Route path="campuses/new" element={<CampusFormPage />} />
           <Route path="campuses/:id/edit" element={<CampusFormPage />} />
+          <Route path="triages" element={<TriageListPage />} />
+          <Route path="triages/new" element={<TriageCreatePage />} />
+          <Route path="triages/:id" element={<TriageDetailPage />} />
+          <Route path="attendances" element={<AttendanceListPage />} />
+          <Route path="attendances/new" element={<AttendanceCreatePage />} />
+          <Route path="attendances/:id" element={<AttendanceDetailPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

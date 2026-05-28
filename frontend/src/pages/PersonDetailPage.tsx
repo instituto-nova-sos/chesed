@@ -39,13 +39,28 @@ export function PersonDetailPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={() => navigate('/persons')}>
           Voltar
         </Button>
         <h1 className="text-lg font-semibold text-gray-900">
           Detalhes da Pessoa
         </h1>
+        <div className="ml-auto flex gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate(`/triages/new?person_id=${person.id}`)}
+          >
+            Nova Triagem
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => navigate(`/attendances/new?person_id=${person.id}`)}
+          >
+            Novo Atendimento
+          </Button>
+        </div>
       </div>
 
       <PersonInfo person={person} />

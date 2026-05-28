@@ -16,3 +16,23 @@ export type {
   AddRoleInput,
   SelfRegisterInput,
 } from './person';
+
+export type {
+  Triage,
+  TriageListItem,
+  TriageListResponse,
+  CreateTriageInput,
+  UpdateTriageInput,
+} from './triage';
+
+export type {
+  Attendance,
+  AttendanceStatus,
+  AttendanceTransition,
+  AttendanceDetail,
+  AttendanceListItem,
+  AttendanceListResponse,
+  CreateAttendanceInput,
+  TransitionAttendanceInput,
+  UpdateAttendanceNotesInput,
+} from './attendance';

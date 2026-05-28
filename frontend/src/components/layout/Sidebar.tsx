@@ -8,6 +8,8 @@ interface SidebarProps {
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: '📊' },
   { path: '/persons', label: 'Pessoas', icon: '👤' },
+  { path: '/triages', label: 'Triagens', icon: '📋' },
+  { path: '/attendances', label: 'Atendimentos', icon: '🩺' },
   { path: '/campuses', label: 'Campus', icon: '🏢' },
 ];
 
