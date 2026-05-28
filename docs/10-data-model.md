@@ -22,6 +22,7 @@ The following tables are created in Phase 1 database migrations:
 - `attendance` — Service delivery records
 - `attendance_transition` — Workflow state change history
 - `audit_log` — Immutable audit trail
+- `volunteer_agreement` — Volunteer agreement acceptance tracking
 
 ### Phase 2 Tables
 The following tables are added in Phase 2 migrations:
@@ -137,6 +138,49 @@ CREATE TABLE person_role (
 CREATE INDEX idx_person_role_person ON person_role(person_id);
 CREATE INDEX idx_person_role_type ON person_role(role_type);
 ```
+
+### volunteer_agreement
+
+Tracks volunteer agreement acceptance for persons with operational roles. Added in migrations 000015 and 000016.
+
+```sql
+CREATE TABLE volunteer_agreement (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    person_id         UUID NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+    person_role_id    UUID NOT NULL REFERENCES person_role(id) ON DELETE CASCADE,
+    campus_id         UUID NOT NULL REFERENCES campus(id),
+    status            VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                      CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
+    signature_method  VARCHAR(20)
+                      CHECK (signature_method IN ('DIGITAL', 'MANUAL_UPLOAD')),
+    accepted_at       TIMESTAMPTZ,
+    accepted_by_user  UUID,
+    ip_address        INET,
+    user_agent        TEXT,
+    document_path     VARCHAR(500),
+    uploaded_at       TIMESTAMPTZ,
+    uploaded_by       UUID,
+    rejected_at       TIMESTAMPTZ,
+    rejection_reason  TEXT,
+    agreement_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+    notes             TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_volunteer_agreement_person ON volunteer_agreement(person_id);
+CREATE INDEX idx_volunteer_agreement_role ON volunteer_agreement(person_role_id);
+CREATE INDEX idx_volunteer_agreement_campus ON volunteer_agreement(campus_id);
+CREATE INDEX idx_volunteer_agreement_status ON volunteer_agreement(status);
+CREATE UNIQUE INDEX uq_volunteer_agreement_role ON volunteer_agreement(person_role_id)
+    WHERE status IN ('PENDING', 'ACCEPTED');
+```
+
+**Migrations:**
+- `000015_create_volunteer_agreement` — Creates the `volunteer_agreement` table with all columns and indexes.
+- `000016_add_person_unique_constraints` — Adds unique constraints for email and phone per campus:
+  - `uq_person_email_campus`: `UNIQUE (email, campus_id) WHERE email IS NOT NULL`
+  - `uq_person_phone_campus`: `UNIQUE (phone, campus_id) WHERE phone IS NOT NULL`
 
 ### assisted_profile
 
@@ -499,7 +543,8 @@ CREATE POLICY campus_isolation ON person
 
 | Table | Key Indexes | Purpose |
 |-------|-----------|---------|
-| person | campus_id, document, name, search_vector (GIN) | Lookup, search, deduplication |
+| person | campus_id, document, name, search_vector (GIN), email+campus (unique), phone+campus (unique) | Lookup, search, deduplication |
+| volunteer_agreement | person_id, person_role_id, campus_id, status | Agreement lookup, filtering |
 | attendance | person_id, professional_id, campus_id, status, date | List, filter, dashboard |
 | triage | person_id, campaign_id, campus_id, date | List, filter |
 | audit_log | user_id, timestamp, entity, module, campus_id | Compliance queries |

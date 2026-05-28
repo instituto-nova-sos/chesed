@@ -1,0 +1,98 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: chesed_test
+          POSTGRES_USER: chesed
+          POSTGRES_PASSWORD: chesed
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: backend
+
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.18.3/migrate.linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin/ migrate
+
+      - name: Run database migrations
+        run: migrate -path migrations -database "$DATABASE_URL" up
+        env:
+          DATABASE_URL: postgres://chesed:chesed@localhost:5432/chesed_test?sslmode=disable
+
+      - name: Test with coverage
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        env:
+          DATABASE_URL: postgres://chesed:chesed@localhost:5432/chesed_test?sslmode=disable
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print substr($3, 1, length($3)-1)}')
+          # Sprint 2.5 ratchet. Sprint 3 introduces diff-coverage at 80% for new
+          # code per CLAUDE.md quality gate; this floor guards regressions only.
+          THRESHOLD=50
+          echo "Total coverage: ${COVERAGE}%"
+          echo "Threshold: ${THRESHOLD}%"
+          if awk "BEGIN {exit !(${COVERAGE} < ${THRESHOLD})}"; then
+            echo "::error::Coverage ${COVERAGE}% is below the required threshold of ${THRESHOLD}%"
+            exit 1
+          fi
+          echo "Coverage check passed"
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.out
+          retention-days: 14

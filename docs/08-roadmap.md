@@ -17,11 +17,11 @@ Documentation  MVP Core    Extended     Scale &
 
 **Goal**: Establish project foundation, documentation, and development environment.
 
-**Status**: All tasks completed across Sessions 1-3 (documentation, project scaffolding, Keycloak IAM setup).
+**Status**: All tasks completed. Documentation, project scaffolding, Docker Compose, and Keycloak realm configuration are in place.
 
 | # | Task | Dependencies | Status |
 |---|------|-------------|--------|
-| 0.1 | Complete architecture documentation (docs 01-18) | None | Done |
+| 0.1 | Complete architecture documentation (docs 01-20 + quality/) | None | Done |
 | 0.2 | Create Go project skeleton (`backend/`) | 0.1 | Done |
 | 0.3 | Create React project skeleton (`frontend/`) | 0.1 | Done |
 | 0.4 | Set up Docker Compose (Go + PostgreSQL + React dev + Keycloak) | 0.2, 0.3 | Done |

@@ -61,6 +61,7 @@ Person (domain entity — may or may not have a system account)
 - **`app_user`** is a local projection table that maps a Keycloak subject (`sub` claim) to application-specific data: `person_id`, `campus_id`, `is_active`, and timestamps.
 - **Not all persons have system accounts.** A Person is anyone known to the NGO (beneficiary, volunteer, professional). An `app_user` record exists only for people who need system access.
 - **One Keycloak user maps to one `app_user`, which maps to at most one Person.**
+- **No `keycloak_user_id` on the `person` table.** The link between a Keycloak identity and a Person is established exclusively through the `app_user` join table (`app_user.keycloak_subject_id` + `app_user.person_id`). This avoids duplicating identity references and keeps the Person entity independent of the IAM provider.
 
 ### app_user Table
 
@@ -165,7 +166,7 @@ The application uses the standard OIDC Authorization Code Flow with Proof Key fo
 | Token | Issuer | Format | TTL | Storage | Purpose |
 |-------|--------|--------|-----|---------|---------|
 | Access token | Keycloak | JWT (signed RS256) | 15 minutes | In-memory only | API authorization |
-| Refresh token | Keycloak | Opaque | 7 days | keycloak-js manages internally | Silent token renewal |
+| Refresh token | Keycloak | Opaque | 24 hours | keycloak-js manages internally | Silent token renewal |
 | Offline token | Keycloak | Opaque | 14 days | IndexedDB (encrypted) | Field workers without connectivity |
 | ID token | Keycloak | JWT | 15 minutes | In-memory only | User profile display (not sent to API) |
 
@@ -188,19 +189,19 @@ The Keycloak-issued JWT access token contains standard OIDC claims plus custom c
   "realm_access": {
     "roles": ["COORDINATOR"]
   },
-  "campus_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "person_id": "c56a4180-65aa-42ec-a945-5fd21dec0538"
 }
 ```
+
+**Note:** `campus_id` is NOT in the JWT token. It is resolved from the backend database (`app_user.campus_id` or `person.campus_id`) by the `AutoProvision` middleware and `GET /api/v1/auth/me` endpoint.
 
 ### Custom Protocol Mappers (Keycloak Configuration)
 
 | Mapper Name | Type | User Attribute | Token Claim | Claim Type |
 |-------------|------|---------------|-------------|------------|
-| campus_id | User Attribute | campus_id | campus_id | String |
 | person_id | User Attribute | person_id | person_id | String |
 
-These mappers are configured in the Keycloak `chesed-api` client scope to inject application-specific attributes into the access token.
+These mappers are configured in the Keycloak `chesed-custom-claims` client scope to inject application-specific attributes into the access token.
 
 ### Offline Token for Field Workers
 
@@ -278,10 +279,54 @@ Roles are extracted from the `realm_access.roles` array in the JWT access token.
 | Assign roles | No | No | No | No | Yes |
 | **Audit** |
 | View audit logs | No | No | No | No | Yes |
+| **Volunteer Agreement** |
+| Accept/reject own agreement | Yes | Yes | Yes | Yes | Yes |
+| View person's agreements | No | No | No | Yes | Yes |
+| Upload signed agreement | No | No | No | Yes | Yes |
+| Download agreement document | No | No | No | Yes | Yes |
 | **Consent** |
 | Create consent | Yes | Yes | Yes | Yes | Yes |
 | View consents | No | Campus | Own assigned | Campus | All |
 | Revoke consent | No | No | No | No | Yes |
+
+### Volunteer Agreement Access Restriction
+
+Beyond RBAC role checks, volunteers must accept the **Volunteer Agreement** before accessing platform features. This is enforced by the `RequireAgreement` middleware.
+
+**Middleware chain order:**
+
+```
+OIDC Token Validation → AutoProvision (app_user) → RequireAgreement → RBAC (RequireRole) → Handler
+```
+
+**How it works:**
+
+1. After the user is authenticated and the `app_user` record is provisioned, `RequireAgreement` checks whether the user's person record has an accepted `volunteer_agreement`.
+2. If the agreement is not accepted, all API requests (except agreement-related routes) return HTTP 403 with a specific error code indicating agreement is required.
+3. The frontend detects this error and redirects the user to the agreement acceptance flow.
+
+**Exempt routes (not subject to RequireAgreement):**
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/v1/volunteer-agreement/text` | Fetch agreement text for display |
+| `POST /api/v1/volunteer-agreement/accept` | Accept the agreement |
+| `POST /api/v1/volunteer-agreement/reject` | Reject the agreement |
+| `GET /api/v1/users/me` | Fetch current user profile |
+| `POST /api/v1/self-register` | Self-registration flow |
+
+**Rejection behavior:**
+
+- If a volunteer rejects the agreement, the rejection is stored in the `volunteer_agreement` table with an optional reason and timestamp.
+- The person record remains visible to coordinators for follow-up.
+- The rejected user cannot access platform features until they accept the agreement in a subsequent attempt.
+- Coordinators can view rejection status via `GET /api/v1/persons/{id}/agreement`.
+
+**Manual upload flow (Coordinator):**
+
+- For volunteers who sign a physical document, a coordinator can upload the signed agreement via `POST /api/v1/persons/{id}/agreement/upload`.
+- This creates an `ACCEPTED` agreement with `signature_method = MANUAL_UPLOAD`.
+- The uploaded document is stored at `document_path` and can be downloaded via `GET /api/v1/persons/{id}/agreement/document`.
 
 ---
 
@@ -351,10 +396,11 @@ All session parameters are configured as **Keycloak realm settings** in the `che
 | Parameter | Value | Keycloak Setting |
 |-----------|-------|-----------------|
 | Access token TTL | 15 minutes | Realm > Tokens > Access Token Lifespan |
-| Refresh token TTL | 7 days | Realm > Tokens > Client Session Idle / Max |
-| Offline token TTL | 14 days | Realm > Tokens > Offline Session Idle |
+| Refresh token TTL | 24 hours | Realm > Tokens > Client Session Max |
+| Offline token idle | 14 days | Realm > Tokens > Offline Session Idle |
+| Offline token max | 30 days | Realm > Tokens > Offline Session Max |
 | SSO session idle | 30 minutes | Realm > Sessions > SSO Session Idle |
-| SSO session max | 10 hours | Realm > Sessions > SSO Session Max |
+| SSO session max | 24 hours | Realm > Sessions > SSO Session Max |
 | Concurrent sessions | Unlimited | Default (multi-device support) |
 
 ### Session Lifecycle
@@ -370,7 +416,7 @@ User opens app
   │     │
   │     └── keycloak-js exchanges code for tokens
   │           ├── access_token (15 min)
-  │           ├── refresh_token (7 days)
+  │           ├── refresh_token (24 hours)
   │           └── id_token (15 min)
   │
   ├── Token in memory → API call with Authorization: Bearer <access_token>
@@ -447,32 +493,80 @@ No application endpoints are needed for password recovery.
 
 **Email configuration**: Keycloak is configured with SMTP settings (e.g., Amazon SES, SendGrid, or a self-hosted SMTP server) to send password reset and account verification emails.
 
+### Email Verification
+
+Email verification is enforced at three layers:
+
+1. **Keycloak (primary)**: `verifyEmail: true` in realm configuration. Keycloak adds `VERIFY_EMAIL` as a required action on new accounts. Users must click a verification link sent via SMTP before completing login.
+2. **Go API (defense-in-depth)**: The OIDC middleware checks the `email_verified` claim in the JWT. Requests with `email_verified: false` are rejected with HTTP 403.
+3. **React Frontend (UX gate)**: The `EmailVerifiedGuard` component checks `email_verified` from the Keycloak token. Users with unverified emails are redirected to `/email-verification`, which shows a guidance screen explaining how to verify their email. All other routes (including `/complete-profile`) are blocked until verification is complete.
+
+**SMTP Configuration**: Required for email verification and password reset. In development, Mailpit (local SMTP trap) is used. In production, configure an external SMTP provider (Amazon SES, SendGrid, or self-hosted) via Keycloak Admin Console.
+
+| Environment Variable | Description | Example |
+|---------------------|-------------|---------|
+| `KC_SMTP_HOST` | SMTP server hostname | `smtp.sendgrid.net` |
+| `KC_SMTP_PORT` | SMTP port (587 for TLS) | `587` |
+| `KC_SMTP_FROM` | Sender email address | `noreply@institutanovasos.org` |
+| `KC_SMTP_FROM_DISPLAY_NAME` | Sender display name | `Instituto Nova SOS` |
+| `KC_SMTP_USER` | SMTP username | (from secrets manager) |
+| `KC_SMTP_PASSWORD` | SMTP password | (from secrets manager) |
+| `KC_SMTP_STARTTLS` | Enable STARTTLS | `true` |
+
 ### Multi-Factor Authentication (MFA)
 
-MFA is configured via Keycloak **conditional authentication flows**:
+MFA is configured via Keycloak **conditional authentication flows** with two methods available:
 
-| Role | MFA Required | Method |
-|------|-------------|--------|
-| ADMIN | Yes (always) | TOTP (Google Authenticator, Authy) |
-| COORDINATOR | Recommended (optional) | TOTP |
-| PROFESSIONAL | No | - |
-| SECRETARY | No | - |
-| VOLUNTEER | No | - |
+- **TOTP** (Google Authenticator, Authy, etc.) — time-based one-time passwords
+- **Email OTP** — one-time code sent to verified email address (requires SMTP)
+
+Users choose their preferred method during MFA enrollment.
+
+| Role | MFA Policy | Available Methods |
+|------|-----------|-------------------|
+| ADMIN | **Mandatory** | TOTP or Email OTP |
+| COORDINATOR | **Mandatory** | TOTP or Email OTP |
+| PROFESSIONAL | Optional (opt-in) | TOTP or Email OTP |
+| SECRETARY | Optional (opt-in) | TOTP or Email OTP |
+| VOLUNTEER | Optional (opt-in) | TOTP or Email OTP |
 
 Implementation in Keycloak:
-1. Create a conditional authentication flow that checks for the `ADMIN` realm role.
-2. If the user has the ADMIN role, require TOTP as a second factor.
-3. On first login, ADMIN users are prompted to configure TOTP.
+1. Custom browser flow "Browser with Conditional MFA" checks realm roles.
+2. ADMIN and COORDINATOR users are required to enroll in MFA on first login.
+3. Other users can opt-in via the Keycloak Account Console (`/realms/chesed/account`).
+4. Email OTP is available as an alternative to TOTP for users who cannot install authenticator apps.
+
+**Development note**: MFA is disabled in dev mode by `init-realm.sh` (switches to built-in `browser` flow). Production must use the custom `Browser with Conditional MFA` flow.
 
 ### Account Lifecycle
 
 | Event | Action |
 |-------|--------|
-| Account creation | Admin creates user in Keycloak (via Admin Console or Go API proxy); user receives "set password" email |
-| First login | User sets password; `app_user` record auto-created via `keycloak_subject_id` mapping |
+| Account creation | Admin creates user in Keycloak (via Admin Console or Go API proxy); Keycloak sends email verification link |
+| Email verification | User clicks link in email; Keycloak marks `emailVerified: true` |
+| Password setup | User sets password on first login via Keycloak |
+| MFA enrollment | ADMIN/COORDINATOR prompted to configure TOTP or Email OTP; other roles can opt-in |
+| First API access | `app_user` record auto-created via `keycloak_subject_id` mapping |
 | Role change | Admin updates realm role in Keycloak; change reflected in next token issuance |
 | Deactivation | Admin disables user in Keycloak + sets `is_active = false` in `app_user`; all sessions revoked |
 | Reactivation | Admin enables user in Keycloak + sets `is_active = true` in `app_user` |
+
+### Onboarding Decision Tree
+
+After authentication, the system determines the user's onboarding state via `GET /api/v1/auth/me`. The frontend uses the response to route users:
+
+| Case | Condition | Behavior |
+|------|-----------|----------|
+| **Email not verified** | `email_verified = false` in Keycloak token | Frontend blocks all routes, shows `/email-verification` guidance screen. Backend rejects with HTTP 403. |
+| **Email verified, no Person record** | `email_verified = true`, no person found by email in the same campus | Frontend redirects to `/complete-profile` for self-registration. |
+| **Email verified, Person exists (pre-created)** | `email_verified = true`, person found by email in the same campus | Backend auto-links `app_user.person_id` to the existing person. Frontend grants direct access with RBAC. |
+| **Email verified, Person linked, Volunteer without agreement** | Person has active VOLUNTEER role but no accepted agreement | Frontend redirects to `/volunteer-agreement`. |
+
+### Person Auto-Linking by Email
+
+When a user logs in for the first time and their `app_user` has no linked `person_id`, the `GET /api/v1/auth/me` endpoint checks if a person record with the same email exists in the user's campus. If found, the system automatically links the `app_user` to the existing person (sets `app_user.person_id`). This supports the workflow where an admin pre-creates a person record before the Keycloak user is created.
+
+The link is established exclusively through the `app_user` join table — no `keycloak_user_id` field is added to the `person` table. This keeps the Person entity independent of the IAM provider.
 
 ---
 
@@ -681,7 +775,7 @@ import Keycloak from "keycloak-js";
 const keycloak = new Keycloak({
   url: import.meta.env.VITE_KEYCLOAK_URL,       // e.g. "https://auth.chesed.org"
   realm: import.meta.env.VITE_KEYCLOAK_REALM,   // "chesed"
-  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID, // "chesed-web"
+  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID, // "chesed-pwa"
 });
 
 export default keycloak;
@@ -794,6 +888,24 @@ function handleLogout() {
   });
 }
 ```
+
+### Frontend Route Guard Hierarchy
+
+The frontend enforces a layered guard chain that mirrors the backend middleware:
+
+```
+ProtectedRoute (isAuthenticated?)
+  └─ EmailVerifiedGuard (email_verified in token?)
+       └─ OnboardingGuard (calls GET /auth/me)
+            ├─ needs_profile_completion? → redirect /complete-profile
+            ├─ needs_agreement? → redirect /volunteer-agreement
+            └─ OK → render main app
+```
+
+Route groups:
+1. `/email-verification` — `ProtectedRoute` only (must be reachable with unverified email)
+2. `/complete-profile`, `/volunteer-agreement` — `ProtectedRoute` + `EmailVerifiedGuard`
+3. Main app routes — `ProtectedRoute` + `EmailVerifiedGuard` + `OnboardingGuard`
 
 ### Extracting User Info from Token
 
@@ -966,9 +1078,9 @@ For compliance reporting, a unified view can be constructed by:
 
 | Client ID | Type | Purpose |
 |-----------|------|---------|
-| `chesed-web` | Public (SPA) | React frontend; Authorization Code + PKCE |
+| `chesed-pwa` | Public (SPA) | React frontend; Authorization Code + PKCE |
 | `chesed-api` | Bearer-only | Go API; validates tokens (does not initiate login) |
-| `chesed-admin-cli` | Confidential | Go API service account for Keycloak Admin API calls (user provisioning) |
+| `chesed-api` | Confidential | Go API service account for Keycloak Admin API calls (user provisioning) |
 
 ### Client Scopes
 

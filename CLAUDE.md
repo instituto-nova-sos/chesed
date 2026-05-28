@@ -30,6 +30,8 @@ This file defines permanent rules for Claude Code when working on this repositor
 9. All authentication is delegated to Keycloak. The Go API validates Keycloak-issued OIDC tokens via JWKS. No custom login/registration endpoints.
 10. User provisioning goes through Keycloak Admin API. The `app_user` table is a local projection, not the source of truth for identity.
 11. Keycloak realm configuration changes must be exported to `keycloak/realm-export.json` and committed.
+12. The Go API MUST check `email_verified` claim in JWT tokens. Unverified users are rejected with HTTP 403.
+13. MFA is mandatory for ADMIN and COORDINATOR roles (TOTP or Email OTP). Other roles can opt-in.
 
 ### MUST NOT do:
 1. Never use global mutable state or singletons.
@@ -142,6 +144,7 @@ Before considering any task complete:
 6. Offline behavior considered (will this feature degrade gracefully?)
 7. Audit logging present for data mutations
 8. Campus scoping applied
+9. **HANDOFF.md updated** with task progress (files created/modified, decisions, current state, next steps)
 
 ---
 

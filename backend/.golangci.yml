@@ -1,0 +1,26 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+    - gofmt
+    - revive
+    - cyclop
+    - funlen
+    - nestif
+
+linters-settings:
+  cyclop:
+    max-complexity: 10
+  funlen:
+    lines: 40
+  nestif:
+    min-complexity: 4
+  revive:
+    rules:
+      - name: exported
+        severity: warning

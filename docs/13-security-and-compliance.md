@@ -197,10 +197,11 @@ Complete physical deletion is performed only when legally mandated. Anonymizatio
 ### Session Security
 
 - Access token TTL: 15 minutes (Keycloak realm setting)
-- Refresh token TTL: 7 days (Keycloak realm setting)
-- Offline token TTL: 14 days (for field workers with `offline_access` scope)
+- Refresh token TTL: 24 hours (Keycloak realm setting)
+- Offline token TTL: 14 days idle, 30 days max (for field workers with `offline_access` scope)
 - SSO Session idle timeout: 30 minutes (Keycloak realm setting)
-- MFA: TOTP-based 2FA enforced for ADMIN role via Keycloak conditional authentication flow
+- Email verification: Required before system access (Keycloak `verifyEmail: true` + API `email_verified` claim check)
+- MFA: TOTP or Email OTP, mandatory for ADMIN and COORDINATOR, opt-in for other roles via Keycloak conditional authentication flow
 - Password policy: Minimum 8 characters, 1 letter, 1 number, password history (3), enforced by Keycloak
 - Account lockout: Keycloak brute-force detection — 10 failures, 15-minute lockout (realm setting)
 - Concurrent sessions: Allowed, configurable per-client in Keycloak

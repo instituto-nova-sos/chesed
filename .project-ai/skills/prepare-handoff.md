@@ -6,9 +6,12 @@ Prepare a session handoff document that captures everything needed for the next 
 
 ## When to Use / Trigger
 
-- At the end of every coding session.
+- **After every completed task or story** — incremental update to HANDOFF.md reflecting what was just done, files created/modified, decisions, and updated next steps.
+- **At the end of every coding session** — full session summary with verification.
 - When a user says "prepare handoff", "session end", or "wrap up".
 - Before switching to a different feature or sprint.
+
+**Key principle**: HANDOFF.md must be a **live document** that reflects the current project state at all times, not a snapshot written only at session boundaries. If the session is interrupted at any point, HANDOFF.md should already contain enough context for the next agent to continue.
 
 ## Role / Expertise
 

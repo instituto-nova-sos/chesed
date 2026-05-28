@@ -20,21 +20,36 @@ This document covers realm setup, client configuration, role mapping, custom cla
 | Email as username | Enabled | Simplifies user management |
 | Forgot password | Enabled | Built-in password reset flow |
 | Remember me | Disabled | Security preference for shared devices |
-| Verify email | Enabled (Phase 2) | Requires SMTP configuration |
+| Verify email | **Enabled** | Users must verify email before accessing the system |
 | User registration | Disabled | Users are created by admins only |
 | Edit username | Disabled | Prevents identity confusion |
 
 ### SMTP Configuration
 
-Required for password reset and email verification flows.
+Required for email verification, password reset, and email OTP flows.
 
-| Setting | Value |
-|---------|-------|
-| Host | Configured per environment |
-| Port | 587 (TLS) |
-| From | `noreply@institutanovasos.org` |
-| Authentication | Enabled |
-| Credentials | From environment variables |
+| Setting | Development (Mailpit) | Production |
+|---------|----------------------|------------|
+| Host | `mailpit` (Docker service) | SMTP provider (e.g., Amazon SES, SendGrid) |
+| Port | `1025` | `587` (STARTTLS) |
+| From | `noreply@chesed.test` | `noreply@institutanovasos.org` |
+| From Display Name | `Instituto Nova SOS` | `Instituto Nova SOS` |
+| Authentication | Disabled | Enabled |
+| STARTTLS | Disabled | Enabled |
+| Credentials | N/A | From secrets manager |
+
+**Development**: Mailpit captures all emails at `http://localhost:8025`. No real emails are sent.
+
+**Production environment variables**:
+```
+KC_SMTP_HOST=smtp.sendgrid.net
+KC_SMTP_PORT=587
+KC_SMTP_FROM=noreply@institutanovasos.org
+KC_SMTP_FROM_DISPLAY_NAME=Instituto Nova SOS
+KC_SMTP_USER=<from-secrets-manager>
+KC_SMTP_PASSWORD=<from-secrets-manager>
+KC_SMTP_STARTTLS=true
+```
 
 ---
 
@@ -196,19 +211,42 @@ Configure in: **Realm Settings → Security Defenses → Brute Force Detection**
 
 ## MFA Configuration
 
-### TOTP for Admin Accounts
+### MFA Policy
 
-Configure in: **Authentication → Flows → Browser**
+| Role | Policy | Enforcement |
+|------|--------|-------------|
+| ADMIN | **Mandatory** | Conditional auth flow requires MFA on every login |
+| COORDINATOR | **Mandatory** | Conditional auth flow requires MFA on every login |
+| PROFESSIONAL | Optional (opt-in) | Users can enroll via Keycloak Account Console |
+| SECRETARY | Optional (opt-in) | Users can enroll via Keycloak Account Console |
+| VOLUNTEER | Optional (opt-in) | Users can enroll via Keycloak Account Console |
 
-1. Duplicate the default "Browser" flow (name: `Browser with Conditional OTP`)
-2. Add an execution: **Conditional OTP Form**
-3. Configure the condition:
-   - Type: **User Role**
-   - Role: `ADMIN`
-   - Requirement: **Required**
-4. Bind the custom flow to the Browser flow binding
+### Available MFA Methods
 
-This makes TOTP mandatory for users with the ADMIN role and optional for others.
+Users with mandatory or opt-in MFA can choose between:
+
+1. **TOTP (Authenticator App)** — Google Authenticator, Authy, Microsoft Authenticator, or any TOTP-compatible app. Scans QR code during enrollment.
+2. **Email OTP** — One-time code sent to the user's verified email address. Requires SMTP to be configured. Useful for users without smartphones.
+
+### Browser Authentication Flow
+
+Custom flow: `Browser with Conditional MFA`
+
+```
+Cookie Authentication (ALTERNATIVE)
+Identity Provider Redirector (ALTERNATIVE)
+Username/Password Form (REQUIRED)
+  ├─ Conditional MFA - ADMIN (CONDITIONAL)
+  │   ├─ Condition: User has ADMIN role
+  │   └─ Action: Require OTP
+  └─ Conditional MFA - COORDINATOR (CONDITIONAL)
+      ├─ Condition: User has COORDINATOR role
+      └─ Action: Require OTP
+```
+
+On first login, ADMIN and COORDINATOR users are prompted to configure their preferred MFA method (TOTP or Email OTP).
+
+**Development note**: `init-realm.sh` switches the browser flow to the built-in `browser` flow (no MFA) for testing. Production must use `Browser with Conditional MFA`.
 
 ### TOTP Policy
 
@@ -222,6 +260,10 @@ Configure in: **Authentication → OTP Policy**
 | Period | 30 seconds |
 | Look Ahead Window | 1 |
 | Initial Counter | 0 |
+
+### Email OTP
+
+Keycloak 26 supports email-based OTP natively when SMTP is configured. Users who cannot install an authenticator app can select "Email" as their MFA method during enrollment. A 6-digit code is sent to their verified email address on each login.
 
 ---
 
