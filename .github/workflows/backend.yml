@@ -78,8 +78,9 @@ jobs:
       - name: Check coverage threshold
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print substr($3, 1, length($3)-1)}')
-          # Ramp-up: 40% (Sprint 1) → 70% (Sprint 2) → 80% (Sprint 3+)
-          THRESHOLD=40
+          # Sprint 2.5 ratchet. Sprint 3 introduces diff-coverage at 80% for new
+          # code per CLAUDE.md quality gate; this floor guards regressions only.
+          THRESHOLD=50
           echo "Total coverage: ${COVERAGE}%"
           echo "Threshold: ${THRESHOLD}%"
           if awk "BEGIN {exit !(${COVERAGE} < ${THRESHOLD})}"; then
