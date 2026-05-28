@@ -1753,6 +1753,140 @@ Frontend (React):
 
 ---
 
+## Session 24 — Sprint 3: Triage + Attendance Core Loop (2026-05-28)
+
+### Context
+
+Building the MVP core loop on top of the stabilized Sprint 2 branch. After this
+session, the application supports person → triage → attendance → history end
+to end via the API and a working UI.
+
+### Backend Deliverables (commit `35911c3`)
+
+**Migration 018** — `triage` catch-up:
+- Added `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+- Added `is_active BOOLEAN NOT NULL DEFAULT TRUE` + partial index
+
+**Triage vertical:**
+- `domain/triage.go` — `Triage`, `TriageListItem`, `TriageListResult`, `TriageFilter`
+- `repository/triage_repository.go` — transactional Create with requested-service
+  junction, FindByID resolving services, paginated List joining person,
+  Update with optional service replacement
+- `service/triage_service.go` — Create/Get/List/Update with audit logging,
+  campus scoping from auth context, helpers for parsing optional time/uuid
+- `handler/triage.go` — POST/GET/PATCH on `/api/v1/triages`, date range and
+  person_id filters
+- Routes: SECRETARY+ can create/update; all authenticated roles can read
+
+**Attendance vertical with state machine:**
+- `domain/attendance.go` — full domain plus state machine: `CanTransition`,
+  `ValidAttendanceTransitions`, `ErrInvalidTransition`. Phase 1 states:
+  SCHEDULED → IN_PROGRESS → COMPLETED/CANCELLED. FOLLOW_UP is reserved for
+  Phase 2 and explicitly rejected by the transition table.
+- `repository/attendance_repository.go` — Create, FindByID, FindByIDWithTransitions
+  (joins attendance_transition history), paginated List joining person +
+  service_type, **Transition** as atomic transaction (UPDATE guarded by
+  from-status to prevent races, INSERT into attendance_transition),
+  UpdateNotes
+- `service/attendance_service.go` — full CRUD plus `TransitionAttendance`
+  enforcing the state machine in domain layer before calling repo; audit
+  logs every transition with from/to status
+- `handler/attendance.go` — POST `/attendances`, GET `/attendances[/:id]`,
+  POST `/:id/transitions` (returns 409 on `ErrInvalidTransition`), PATCH
+  `/:id/notes`
+- Routes: PROFESSIONAL+ creates/transitions/edits notes; all roles read
+
+**Tests** (passes; added to clear the 50% backend gate):
+- `domain/attendance_test.go` — 11 transition cases including Phase 2
+  FOLLOW_UP rejection
+- `service/triage_service_test.go` — create/list/get/update plus parse helpers,
+  forbidden-without-campus paths
+- `service/attendance_service_test.go` — create, valid transitions (success +
+  audit), invalid transitions (SCHEDULED→COMPLETED, COMPLETED→IN_PROGRESS),
+  validation rejection of FOLLOW_UP, get, list, notes
+
+### Frontend Deliverables (commit pending)
+
+**Type system:**
+- `types/triage.ts`, `types/attendance.ts`, re-exported via `types/index.ts`
+
+**API modules:**
+- `api/triages.ts` — list/get/create/update with query-string filters
+- `api/attendances.ts` — list/get/create/transition/updateNotes
+- `api/serviceTypes.ts` — service type list
+
+**Hooks:**
+- `useTriages`, `useTriage`, `useAttendances`, `useAttendance`
+
+**Pages:**
+- `TriageListPage` — paginated table grouped by person, click to detail
+- `TriageCreatePage` — requires `?person_id=` query param, shows person
+  context, supports multi-select service-type chips
+- `TriageDetailPage` — full triage view + "Iniciar Atendimento" CTA that
+  forwards `person_id` and `triage_id`
+- `AttendanceListPage` — paginated table with status filter pills and
+  color-coded status badges
+- `AttendanceCreatePage` — requires `?person_id=` (optional `?triage_id=`),
+  defaults `professional_id` from auth store's `personId`
+- `AttendanceDetailPage` — status badge, transition action buttons enforcing
+  Phase 1 state machine client-side (Iniciar/Concluir/Cancelar), editable
+  notes (observations + recommendations), full transition history timeline
+
+**Wiring:**
+- `App.tsx` — 6 new routes
+- `Sidebar.tsx` — Triagens + Atendimentos restored
+- `PersonDetailPage.tsx` — "Nova Triagem" + "Novo Atendimento" CTAs
+
+**Dashboard rebuild:**
+- `DashboardPage.tsx` — 4 metric cards (attendances today, attendances week,
+  attendances in progress, triages week) computed via `pagination.total`
+  from filtered list calls; shortcut links to Pessoas/Triagens/Atendimentos.
+
+### Validation
+
+- Backend: `go build ./...`, `go vet ./...`, `go test -short ./...` — all clean
+- Frontend: `npm run typecheck` clean, `npm run build` clean, `npm run lint`
+  0 errors / 34 warnings (complexity warnings on new page components)
+
+### Skipped / Deferred
+
+- **assisted_profile + address CRUD** (originally Sprint 3 Task #13): not on
+  the critical MVP loop. Address is already created/updated as part of the
+  person flow; the dedicated CRUD is Phase 2 polish.
+- **TanStack Query introduction** (originally Sprint 3 Task #17): substantial
+  refactor across all existing hooks. The `react-hooks/set-state-in-effect`
+  ESLint rule stays at `warn`. Sprint 4 will handle this.
+
+### Plan for Sprint 4
+
+Backend:
+- `POST /api/v1/sync/push` and `GET /api/v1/sync/pull` per
+  `docs/12-offline-sync-strategy.md`
+- `GET /api/v1/reports/attendance` with `?from&to&format=csv|json` streaming
+- Migrate volunteer agreement uploads from local FS to S3-compatible storage
+  (env-toggled; MinIO local / S3 prod)
+
+Frontend:
+- Dexie schema v2: triage + attendance offline tables
+- Sync queue drainer (`useOnlineSync`), exponential backoff, conflict UI
+- PWA icons (192/512/maskable), service worker validation
+- `ReportsPage` with date range + CSV download
+- i18next setup with pt-BR catalog (extract hardcoded strings)
+- TanStack Query refactor, ratchet `set-state-in-effect` back to `error`
+- Refactor complexity-warning components and ratchet complexity rules to
+  `error`
+
+Hardening + Release:
+- Update Keycloak realm export with prod redirect URIs
+- Postgres backup sidecar in `docker-compose.prod.yml`
+- Rollback path for the deploy script
+- Playwright E2E on the golden path
+- Production staging deploy, validate the 10 MVP acceptance criteria from
+  `docs/07-mvp-scope.md`
+- Final security review (`docs/18-threat-model.md`)
+
+---
+
 ## Context for Future AI Sessions
 
 When starting a new session on this repository:
