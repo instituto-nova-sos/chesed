@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-04-10 (Session 20)
+2026-05-29 (Session 25)
 
 ---
 
@@ -1884,6 +1884,128 @@ Hardening + Release:
 - Production staging deploy, validate the 10 MVP acceptance criteria from
   `docs/07-mvp-scope.md`
 - Final security review (`docs/18-threat-model.md`)
+
+---
+
+## Session 25 — Sprint 4: Attendance Reports + CSV Export (2026-05-29)
+
+### Context
+
+First Sprint 4 deliverable on branch `phase1-sprint4-reports`, branched
+from `main` post-Sprint 3 merge. Reports unlock the "basic reports" MVP
+acceptance criterion (E06 in `docs/09-backlog.md`) and the report-page
+roadmap tasks 4.5 + 4.6. Built strictly TDD: tests first for service and
+handler layers; repository layer is integration-only (covered by the
+service+handler mocks).
+
+### Backend Deliverables
+
+**Domain (`internal/domain/report.go`):**
+- `ReportPeriod`, `ServiceTypeCount`, `MonthCount`,
+  `AttendanceReport`, `AttendanceReportFilter`, `AttendanceCSVRow`
+
+**Service (`internal/service/report_service.go`):**
+- `ReportService` with `GetAttendanceReport`, `StreamAttendanceCSV`
+- Campus-scoped via auth context; rejects inverted/zero range with
+  `ErrInvalidReportRange`; forbidden when campus is missing
+- 9 service test cases (RED → GREEN) cover scoping, validation,
+  callback streaming, repository error propagation
+
+**Repository (`internal/repository/report_repository.go`):**
+- Four campus-scoped aggregation queries against `attendance` (totals,
+  by_status, by_service_type, by_month) using `date_trunc + to_char`
+- `StreamAttendancesForCSV` joins `person`, `service_type`, and
+  self-joins `person` for `professional_id`; emits rows via callback
+  for streaming response
+
+**Handler (`internal/handler/report.go`):**
+- `GET /api/v1/reports/attendances` (JSON)
+- `GET /api/v1/reports/attendances/export?format=csv` (streaming CSV)
+- `parseReportRange` enforces YYYY-MM-DD format, ordering, and a 366-day
+  cap; CSV header writer + `encoding/csv.Writer` flushed after streaming
+- 11 handler test cases (RED → GREEN) cover happy path, malformed
+  start/end, missing range, inverted range, oversize range, format
+  validation, forbidden, 500 propagation, default-format-csv, and full
+  CSV header+row content via `csv.NewReader` round-trip
+
+**Routes (`cmd/server/main.go`):**
+- `/reports/attendances` and `/reports/attendances/export` mounted under
+  the protected group, gated by `RequireRole("COORDINATOR", "ADMIN")`
+
+### Frontend Deliverables
+
+**Types + API client:**
+- `types/report.ts`, `api/reports.ts`
+- `getAttendanceReport`, `downloadAttendancesCSV` (manual bearer header
+  for binary response), `suggestedCSVFilename`
+- 4 Vitest cases mocking `fetch` cover query-string construction, bearer
+  token, blob return, and `ApiError` propagation
+
+**Hook + page:**
+- `hooks/useAttendanceReport.ts` with cancellable effect pattern
+- `pages/ReportsPage.tsx` with date-range form, "Gerar relatório" +
+  "Exportar CSV" buttons, 4 metric cards (totals + unique persons +
+  completed + in-progress), and three breakdown cards (status, service
+  type, month). Default range = first day of current month → today
+- Route `/reports` wired in `App.tsx`; "Relatórios" link added to
+  sidebar (between Atendimentos and Campus)
+- `triggerDownload` helper uses anchor + `URL.createObjectURL` for the
+  CSV save dialog
+
+### Documentation
+
+- `docs/11-api-design.md` — Reports section rewritten with Phase 1
+  Sprint 4 markers, exact contract (required params, error codes, CSV
+  columns), date semantics
+
+### Validation Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -short ./...` | PASS (all packages, +20 new test cases) |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS (0 errors / 38 warnings, 1 fewer than baseline) |
+| `npm test -- --run` | PASS (5/5, +4 new) |
+| `npm run build` | PASS (PWA bundle generated) |
+
+### Risks and Follow-ups
+
+1. **Pre-existing bug in `attendance_repository.go:138`** — uses `st.code`
+   but `service_type` only has `name` + `category` columns per
+   migration 000007. `GET /attendances` will fail at runtime until
+   patched. Out of scope for this PR but tracked for the next sprint
+   pass. The new report queries use `st.name` / `st.category` and are
+   not affected.
+2. **Pre-existing `golangci-lint` typecheck errors in
+   `internal/middleware/*_test.go`** — `mock.Mock` embedding not
+   resolved by linter version. Confirmed on `main`. Tests pass under
+   `go test`; lint regression is environmental, not from this branch.
+3. **No integration test on the repository SQL** — the streaming +
+   aggregation queries are covered by service mocks but not against a
+   real Postgres. To be picked up when Sprint 4 stands up the docker
+   compose integration test harness.
+4. **Range cap of 366 days** is generous for a single-campus MVP but
+   should be revisited if/when multi-campus admin reporting is added.
+
+### Plan for Sprint 4 (continued)
+
+Remaining Sprint 4 backend:
+- `POST /api/v1/sync/push` + `GET /api/v1/sync/pull` for offline records
+- Migrate volunteer agreement uploads from local FS to S3/MinIO
+- Patch the `st.code` regression in `attendance_repository.go`
+
+Remaining Sprint 4 frontend:
+- Dexie schema v2 (triage + attendance offline tables) + sync drainer
+- PWA icons (192/512/maskable) and i18next pt-BR catalog
+- TanStack Query refactor, ratchet `set-state-in-effect` to `error`
+- Refactor complexity-warning components
+
+Sprint 4 hardening:
+- Update Keycloak realm export with prod redirect URIs
+- Postgres backup sidecar in `docker-compose.prod.yml`
+- Playwright E2E on the golden path including reports
 
 ---
 

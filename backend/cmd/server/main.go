@@ -76,6 +76,7 @@ func setupRouter(
 	campusRepo := repository.NewCampusRepository(pool)
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
+	reportRepo := repository.NewReportRepository(pool)
 
 	// Services
 	auditSvc := service.NewAuditService(auditRepo)
@@ -88,6 +89,7 @@ func setupRouter(
 	campusSvc := service.NewCampusService(campusRepo, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, auditSvc)
+	reportSvc := service.NewReportService(reportRepo)
 
 	// Handlers
 	uploadDir := "uploads/agreements"
@@ -100,6 +102,7 @@ func setupRouter(
 	campusH := handler.NewCampusHandler(campusSvc)
 	triageH := handler.NewTriageHandler(triageSvc)
 	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
+	reportH := handler.NewReportHandler(reportSvc)
 
 	// Router
 	r := chi.NewRouter()
@@ -184,6 +187,12 @@ func setupRouter(
 				r.With(allRoles).Get("/{id}", attendanceH.Get)
 				r.With(attendanceRoles).Post("/{id}/transitions", attendanceH.Transition)
 				r.With(attendanceRoles).Patch("/{id}/notes", attendanceH.UpdateNotes)
+			})
+
+			reportRoles := middleware.RequireRole("COORDINATOR", "ADMIN")
+			r.Route("/reports", func(r chi.Router) {
+				r.With(reportRoles).Get("/attendances", reportH.AttendanceSummary)
+				r.With(reportRoles).Get("/attendances/export", reportH.AttendanceExport)
 			})
 		})
 	})

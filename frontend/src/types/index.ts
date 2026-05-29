@@ -36,3 +36,11 @@ export type {
   TransitionAttendanceInput,
   UpdateAttendanceNotesInput,
 } from './attendance';
+
+export type {
+  ReportPeriod,
+  ServiceTypeCount,
+  MonthCount,
+  AttendanceReport,
+  AttendanceReportParams,
+} from './report';
