@@ -23,6 +23,7 @@ import { TriageDetailPage } from './pages/TriageDetailPage';
 import { AttendanceListPage } from './pages/AttendanceListPage';
 import { AttendanceCreatePage } from './pages/AttendanceCreatePage';
 import { AttendanceDetailPage } from './pages/AttendanceDetailPage';
+import { ReportsPage } from './pages/ReportsPage';
 
 export function App() {
   const { initialized, isLoading, initialize } = useAuthStore();
@@ -98,6 +99,7 @@ export function App() {
           <Route path="attendances" element={<AttendanceListPage />} />
           <Route path="attendances/new" element={<AttendanceCreatePage />} />
           <Route path="attendances/:id" element={<AttendanceDetailPage />} />
+          <Route path="reports" element={<ReportsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

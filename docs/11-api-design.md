@@ -599,14 +599,20 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ## Report Endpoints
 
-| Method | Path | Auth | Roles | Description |
-|--------|------|------|-------|-------------|
-| GET | `/reports/attendances` | Yes | Coordinator+ | Attendance summary |
-| GET | `/reports/attendances/export` | Yes | Coordinator+ | CSV export |
-| GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics |
-| GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs |
+| Method | Path | Auth | Roles | Description | Status |
+|--------|------|------|-------|-------------|--------|
+| GET | `/reports/attendances` | Yes | Coordinator+ | Attendance summary | **Phase 1 (Sprint 4)** |
+| GET | `/reports/attendances/export` | Yes | Coordinator+ | CSV export | **Phase 1 (Sprint 4)** |
+| GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics | Phase 2 |
+| GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs | Phase 2 |
 
 #### GET /reports/attendances?start=2026-01-01&end=2026-03-31
+
+Both `start` and `end` are required `YYYY-MM-DD` dates. The end day is inclusive
+(server interprets as `< end + 1 day`). Range may not exceed 366 days. The query
+is automatically campus-scoped from the caller's token. `FOLLOW_UP` is reserved
+for Phase 2 and will not appear in `by_status` until then.
+
 ```json
 // Response 200
 {
@@ -615,13 +621,13 @@ COMPLETED → FOLLOW_UP (reopen)
   "unique_persons": 187,
   "by_status": {
     "COMPLETED": 198,
-    "FOLLOW_UP": 20,
     "SCHEDULED": 10,
+    "IN_PROGRESS": 20,
     "CANCELLED": 6
   },
   "by_service_type": [
-    { "service_type": "Legal", "count": 45 },
-    { "service_type": "Medical", "count": 78 }
+    { "service_type": "LEGAL", "count": 45 },
+    { "service_type": "MEDICAL", "count": 78 }
   ],
   "by_month": [
     { "month": "2026-01", "count": 72 },
@@ -631,8 +637,24 @@ COMPLETED → FOLLOW_UP (reopen)
 }
 ```
 
+Error codes: `invalid_range` (missing/inverted/oversize), `invalid_start` /
+`invalid_end` (malformed date), `forbidden` (no campus in token),
+`range_too_large` (>366 days).
+
 #### GET /reports/attendances/export?start=2026-01-01&end=2026-03-31&format=csv
-Returns: `Content-Type: text/csv` with attendance detail rows.
+
+Streams `Content-Type: text/csv; charset=utf-8` with one row per attendance.
+`format` defaults to `csv` if omitted; other values return `400 invalid_format`.
+Response sets `Content-Disposition: attachment; filename="attendances_<start>_<end>.csv"`.
+
+CSV columns (header included on the first line):
+
+```
+attendance_id,attendance_date,person_name,person_document,service_type,status,professional_name,created_at
+```
+
+Dates are emitted as RFC3339 UTC. `person_document` and `professional_name`
+are empty strings when not set.
 
 ---
 
