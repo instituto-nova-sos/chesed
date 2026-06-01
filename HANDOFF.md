@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-05-29 (Session 25)
+2026-06-01 (Session 26)
 
 ---
 
@@ -2006,6 +2006,99 @@ Sprint 4 hardening:
 - Update Keycloak realm export with prod redirect URIs
 - Postgres backup sidecar in `docker-compose.prod.yml`
 - Playwright E2E on the golden path including reports
+
+---
+
+## Session 26 — Fix: attendance list service_type column + repo test harness (2026-06-01)
+
+### Context
+
+Standalone Sprint 4 bug fix. The `attendance_repository.go:138` List query
+referenced `st.code`, but the `service_type` table only has `name`,
+`category`, `description`, `is_active` columns (per migration 000007).
+`GET /api/v1/attendances` returned 500 at runtime. Discovered while
+auditing for the reports work in Session 25. Branch
+`fix/attendance-list-service-type-column`.
+
+### Test Scenarios (TDD, written before any code change)
+
+1. List happy path → `service_type` field populated from `st.name`
+   (pin the column at the SQL pattern level).
+2. List empty result → valid pagination, no error.
+3. Status filter → SQL appends `AND a.status = $N` and runs.
+4. Pagination math → page 3 / perPage 10 produces OFFSET 20 and
+   `total_pages = ceil(25/10) = 3`.
+
+Test execution showed scenario #1 RED on `st.code`, scenarios #2–#4
+GREEN (looser regex patterns). After fixing to `st.name`, all four GREEN.
+
+### Changes
+
+**Backend test harness (new pattern):**
+- Added `github.com/pashagolub/pgxmock/v4 v4.9.0`
+- `internal/repository/querier.go` — new `Querier` interface (Query,
+  QueryRow, Exec, Begin) satisfied by both `*pgxpool.Pool` and
+  `pgxmock.PgxPoolIface`, enabling SQL-level unit tests without a live
+  Postgres
+- `AttendanceRepository` switched from concrete `*pgxpool.Pool` to
+  `Querier`; constructor signature backwards-compatible at call sites
+  (pool still implements the interface)
+
+**Bug fix:**
+- `internal/repository/attendance_repository.go:138` — `st.code` →
+  `st.name`. `AttendanceListItem.ServiceType` is now populated with the
+  user-facing label (e.g. "Consulta Medica") matching what
+  `AttendanceListPage` already renders
+
+**Regression test:**
+- `internal/repository/attendance_repository_test.go` — 4 cases using
+  pgxmock, pinning the SQL contract for List() and serving as the
+  template for future repository tests
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -short ./...` | PASS (all packages, +4 new cases) |
+
+### Decisions
+
+- **Interface only for AttendanceRepository** rather than all repos.
+  Other repos can adopt `Querier` opportunistically as they grow
+  test coverage. Avoids a sweeping refactor for a focused bug fix.
+- **Pin the column name in the regex** (not just the join) — that's
+  the regression we are guarding against; future column renames will
+  trigger the test deliberately.
+- **No data migration needed** — the bug was a wrong column reference,
+  the schema itself is correct. Existing data is untouched.
+
+### Risks and Follow-ups Cleared
+
+- ~~Pre-existing bug in `attendance_repository.go:138`~~ — fixed in
+  this session.
+
+### Plan for Next Session (Sprint 4 — offline sync)
+
+Resume with the offline sync vertical:
+
+Backend:
+- `domain/sync.go` — `SyncPushRequest`, `SyncPushResponse`,
+  `SyncPullResponse`, conflict enum
+- `service/sync_service.go` — push/pull orchestration with idempotency
+  by `sync_id`, last-write-wins per `docs/12-offline-sync-strategy.md`
+- `handler/sync.go` — `POST /api/v1/sync/push`,
+  `GET /api/v1/sync/pull`
+- Repository SQL: idempotent upserts on person/triage/attendance keyed
+  by client-supplied UUID; pull queries with `?since=<timestamp>`
+- Tests: pgxmock-backed repo tests, mocked service tests, handler
+  tests for malformed batches, partial conflicts, oversize batches
+
+Frontend:
+- Dexie schema v2: `triages` and `attendances` tables + `syncQueue`
+- `useOnlineSync()` hook with drainer + exponential backoff
+- Conflict surface in UI (banner + per-record detail)
 
 ---
 
