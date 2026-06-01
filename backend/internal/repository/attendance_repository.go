@@ -9,16 +9,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // AttendanceRepository handles attendance persistence.
 type AttendanceRepository struct {
-	pool *pgxpool.Pool
+	pool Querier
 }
 
 // NewAttendanceRepository creates a new AttendanceRepository.
-func NewAttendanceRepository(pool *pgxpool.Pool) *AttendanceRepository {
+func NewAttendanceRepository(pool Querier) *AttendanceRepository {
 	return &AttendanceRepository{pool: pool}
 }
 
@@ -135,7 +134,7 @@ func (r *AttendanceRepository) List(ctx context.Context, filter domain.Attendanc
 	offset := (filter.Page - 1) * filter.PerPage
 
 	listQuery := fmt.Sprintf(`
-		SELECT a.id, a.person_id, p.full_name, st.code, a.status, a.attendance_date
+		SELECT a.id, a.person_id, p.full_name, st.name, a.status, a.attendance_date
 		FROM attendance a
 		JOIN person p ON p.id = a.person_id
 		JOIN service_type st ON st.id = a.service_type_id
