@@ -1,3 +1,14 @@
+# DEPENDABOT PAUSED (2026-06-03) — Phase 1 cost-control measure.
+#
+# CI workflows are disabled (see .github/workflows/*.yml). New dependency PRs
+# would queue without being verified, so Dependabot is paused by setting
+# `open-pull-requests-limit: 0` on every ecosystem. The schedule + grouping
+# config is preserved so re-enabling later is just a number change.
+#
+# To re-enable: restore the original limits (5 / 5 / 3) on each ecosystem
+# below AND re-enable the corresponding workflow triggers.
+# See CLAUDE.md "CI/CD Status — PAUSED" for the policy and re-enable steps.
+
 version: 2
 updates:
   - package-ecosystem: "gomod"
@@ -8,7 +19,7 @@ updates:
     labels:
       - "dependencies"
       - "backend"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0  # paused — original: 5
     groups:
       go-dependencies:
         patterns:
@@ -22,7 +33,7 @@ updates:
     labels:
       - "dependencies"
       - "frontend"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0  # paused — original: 5
     groups:
       npm-production:
         dependency-type: "production"
@@ -41,4 +52,4 @@ updates:
     labels:
       - "dependencies"
       - "ci"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0  # paused — original: 3
