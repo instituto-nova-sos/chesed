@@ -111,8 +111,8 @@ STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALI
      ```
      domain struct -> repository -> service -> handler -> route
      ```
-   - Write unit tests alongside service layer
-   - Write integration tests for repository
+   - Write unit tests alongside service layer (pgxmock for repo SQL contracts, testify mocks for service orchestration)
+   - **Write integration tests** for the new endpoint in `backend/internal/integration/` (build tag `integration`). These exercise the real chi router → service → repository → real Postgres via testcontainers-go. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with DB assertions, campus scoping, every documented error code, every SQL constraint.
 
 3. **Frontend implementation**:
    - Follow `implement-frontend-page` playbook:
@@ -121,6 +121,7 @@ STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALI
      ```
    - Write Vitest tests for hooks
    - Write React Testing Library tests for forms
+   - **Write integration tests** for the new API surface in `frontend/src/__integration__/` (suffix `.integration.test.ts(x)`). These exercise the real `apiClient` + hook against MSW. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with wire-contract assertions, error mapping, Bearer token presence.
 
 4. **Offline support** (if applicable):
    - Follow `add-offline-support` playbook
@@ -196,21 +197,24 @@ Post-Implement Hook (tests, lint, quality assessment, docs check, HANDOFF.md upd
    - Follow `security-sensitive-change.md` workflow if needed
 
 5. **Run pre-review hook** for final automated gate:
-   - `make test` (Go)
-   - `npm test` (React)
+   - `make test` (Go unit, fast)
+   - `make test-integration` (Go integration, real Postgres via testcontainers — **mandatory**)
+   - `npm test` (React unit)
+   - `npm run test:integration` (React integration via MSW — **mandatory**)
    - `make lint` (golangci-lint)
    - ESLint (TypeScript)
    - Quality gate validation
+   - **`integration-tests.md` checklist** completed — every new endpoint and every new API client function has a passing integration test
 
 ### Verification Matrix
 
 | Change Type | Required Checks |
 |-------------|----------------|
-| Backend only | backend-feature-complete + api-review + make test + make lint |
-| Frontend only | frontend-feature-complete + npm test + eslint |
-| Full stack | All checklists + all tests + all lints |
+| Backend only | backend-feature-complete + api-review + integration-tests + make test + make test-integration + make lint |
+| Frontend only | frontend-feature-complete + integration-tests + npm test + npm run test:integration + eslint |
+| Full stack | All checklists (including integration-tests) + all unit and integration tests + all lints |
 | Security-sensitive | Above + security-review checklist |
-| Database change | Above + migration up/down test |
+| Database change | Above + migration up/down test + integration test exercising new constraint or column |
 
 ---
 

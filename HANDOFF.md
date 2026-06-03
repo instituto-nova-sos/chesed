@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-06-01 (Session 27)
+2026-06-03 (Session 28)
 
 ---
 
@@ -2213,6 +2213,108 @@ Total new code clears the ≥80% diff-coverage gate for new code per quality-gat
 4. Pull-side merge: replace local cached records when server `updated_at > local serverUpdatedAt`.
 5. UI: pending count badge on `OfflineBanner`, conflict surface (banner + per-record detail).
 6. TanStack Query introduction (parallel) — eliminates the `react-hooks/set-state-in-effect` warnings flagged in Session 23.
+
+---
+
+## Session 28 — Sprint 4: Integration Test Module (Backend + Frontend) + Workflow Mandate (2026-06-03)
+
+### Context
+
+Session 27's "Test plan" in the PR description was a reviewer checklist — the manual end-to-end validations had never been executed. Rather than running them manually once, this session builds a permanent integration test module on both stacks, executes the tests, and updates the AI delivery operating model so future phases inherit the mandate.
+
+### Decisions Taken Before Implementation
+
+1. **Backend integration tooling**: `testcontainers-go` (per-test ephemeral Postgres container). Real schema via `golang-migrate` against migration files on disk. Build tag `//go:build integration` so `go test ./...` stays Docker-free.
+2. **Frontend integration tooling**: `msw/node` + Vitest. Intercept at the `fetch` boundary — the layer where API-client contract drift actually breaks things. No live backend or Playwright stack-up cost.
+3. **CI placement**: Both stacks run integration tests as a separate, mandatory step after unit tests on every PR. The backend step boots its own container — the existing service container is now redundant for the integration tests but stays for any future fixed-DSN tools.
+4. **Scope extends to past + future**: Documentation updates make integration tests mandatory for every new endpoint and every new API client function going forward. Today's integration tests cover the Sprint 4 sync surface (the slice in this branch); historical surfaces will gain integration tests as they're touched.
+
+### Backend Integration Suite
+
+**Harness (`backend/internal/integration/harness_test.go`):**
+- `freshHarness(t)` boots `postgres:16-alpine` via testcontainers, applies all 19 migrations from `backend/migrations/`, looks up the seeded campus from migration 000011, and wires the real chi router → service → repository stack with sync routes mounted.
+- Auth middleware is bypassed by design — tests inject `AuthClaims` directly via `auth.NewContext` so the assertion surface stays on the application, not the Keycloak handshake (which is covered by Session 9 manual verification).
+- `t.Cleanup` tears down the pool + container; tests are fully isolated and parallelisable.
+
+**Sync test scenarios (8 tests, ~12s wall time, real Postgres):**
+| Test | Asserts |
+|------|---------|
+| `TestSyncPush_PersonHappyPath` | HTTP 200 + per-record `created` status + DB row exists with the sync_id, the right campus, and the submitted name |
+| `TestSyncPush_IdempotentRePush` | Two pushes with the same sync_id return the same `server_id` and the DB has exactly one row |
+| `TestSyncPush_BatchTooLargeRejected` | 51-record batch returns 413 `batch_too_large` and the DB has zero rows (atomic reject) |
+| `TestSyncPush_DuplicateSyncIDUniqueConstraint` | Manual duplicate INSERT trips the migration-000019 unique partial index with SQLSTATE 23505 |
+| `TestSyncPull_CampusScopedDelta` | Records belonging to campus B never appear in a pull scoped to campus A |
+| `TestSyncPull_DeltaCursor` | Pre-cursor row excluded, post-cursor row included |
+| `TestSyncPull_MissingSinceReturns400` | Missing `since` query param → 400 with `since`-mentioning body |
+| `TestSyncPush_NoCampusReturns403` | Token with `CampusID == uuid.Nil` → 403 forbidden, regardless of role |
+
+**Wiring:**
+- `Makefile`: new `test` (unit, `-short`), `test-integration` (real Postgres), `test-all` (both) targets. The `test-integration` target sets `DOCKER_HOST` to the Docker Desktop socket on macOS so testcontainers auto-discovers it.
+- `.github/workflows/backend.yml`: new `Integration tests` step runs after unit tests and is mandatory for merge.
+
+### Frontend Integration Suite
+
+**Server (`frontend/src/__integration__/server.ts` + `setup.ts`):**
+- `setupServer(...handlers)` from `msw/node` intercepts `fetch` calls. Default handler covers `GET /persons` so cross-cutting tests reuse it.
+- `setup.ts` installs `beforeAll` / `afterEach` / `afterAll` hooks: server listen, reset handlers between tests, close at the end. Also stubs `useAuthStore.getState().getToken` so apiClient gets a fake token without touching Keycloak.
+
+**Test scenarios (8 tests, ~1.5s wall time):**
+
+`persons.integration.test.tsx` (4 tests):
+- Default page load via `usePersons` hook + apiClient + MSW
+- Debounced search forwarding `q` query param
+- Server error (500) surfacing through hook `error` state
+- Bearer token presence on every request
+
+`sync.integration.test.ts` (4 tests, future-facing — pins the wire contract for the upcoming sync drainer hook):
+- POST `/sync/push` happy path with per-record `created` results
+- POST `/sync/push` 413 `batch_too_large` → `ApiError`
+- GET `/sync/pull` happy path with query string assertion
+- GET `/sync/pull` 400 `missing_since` → `ApiError`
+
+**Wiring:**
+- `package.json` scripts: `test` (excludes integration), `test:integration` (only integration), `test:all` (both). `test:coverage` also excludes integration so unit coverage thresholds aren't muddied.
+- `.github/workflows/frontend.yml`: new `Integration tests` step runs after unit tests + coverage.
+
+### Operating Model Updates (Permanent Mandate)
+
+| File | Change |
+|------|--------|
+| `CLAUDE.md` | Quality Bar item #3 raised: "Integration tests cover every new API endpoint and every new client-server contract". New "Integration Test Mandate" subsection describes backend (testcontainers) and frontend (MSW) policy. |
+| `.project-ai/checklists/integration-tests.md` | NEW — dedicated blocking checklist with per-stack requirements (harness use, happy path, campus scoping, every error code, every SQL constraint, idempotency, auth boundary; MSW boundary, wire-contract assertions, Bearer token, error mapping, state transitions, cleanup). |
+| `.project-ai/hooks/pre-merge.md` | Added "Integration tests on new boundaries" as a blocking condition in the New Code Quality Gate. References the integration-tests checklist. |
+| `.project-ai/workflows/feature-delivery.md` | Phase 3 Implementation steps now explicitly require integration tests for both backend (mandatory testcontainers test for every endpoint) and frontend (mandatory MSW test for every API client function). Phase 4 Verification matrix updated to include integration tests across all change types. |
+| `.project-ai/checklists/backend-feature-complete.md` | Repository Layer item now requires pgxmock unit tests AND a testcontainers integration test. Code Quality section adds `make test-integration` as a required green check. |
+| `.project-ai/checklists/frontend-feature-complete.md` | API Client section adds a required MSW integration test. Hooks section adds a required hook-level integration test. Code Quality section adds `npm run test:integration` as a required green check. |
+| `docs/quality/quality-gates.md` | New "Integration tests" condition added to the New Code Quality Gate evaluation (Step 2 item 5). New row in the quality gate report table. Numbering re-aligned. |
+
+### Validation Results (Executed, Not Listed)
+
+| Stack | Suite | Result |
+|-------|-------|--------|
+| Backend | `go build ./...` | PASS |
+| Backend | `go vet ./...` | PASS |
+| Backend | `go test -short ./...` (unit) | PASS (9 packages) |
+| Backend | `make test-integration` (real Postgres via testcontainers) | PASS — 8 tests in ~12s |
+| Frontend | `npm run typecheck` | PASS |
+| Frontend | `npm run lint` | PASS (0 errors, 39 pre-existing warnings) |
+| Frontend | `npm test` (unit) | PASS — 5 tests |
+| Frontend | `npm run test:integration` (MSW) | PASS — 8 tests in ~1.5s |
+| Frontend | `npm run build` | PASS (PWA bundle generated) |
+
+### Risks and Follow-ups
+
+1. **macOS-specific `DOCKER_HOST` default** in `Makefile` — works for the local dev's Docker Desktop layout. CI runners auto-discover the socket so the env var is harmless there, but Linux developers may need to override. Documented inline in the Makefile.
+2. **Coverage thresholds not yet ratcheted** — integration tests don't currently contribute to the coverage report (they live under a build tag). Future iteration: add a separate coverage profile for integration runs and combine with unit coverage.
+3. **Historical surfaces lack integration tests** — the mandate is forward-looking. Existing endpoints (person CRUD, triage, attendance, reports) gain integration tests as they're touched, not in a backfill pass.
+4. **Frontend integration tests are limited to API/hook layer** — no full E2E (Playwright against the real stack) yet. That's a separate Sprint 4 hardening item.
+5. **Service container in `backend.yml`** is now redundant for integration tests (testcontainers boots its own). Removing it is a separate cleanup; left in place to avoid scope creep.
+
+### Plan Going Forward
+
+The integration test mandate applies to every PR from this point. The reviewer agent must verify the appropriate checklist items before approval; the `pre-merge` hook treats absence of integration tests as a blocking condition.
+
+The next functional slice (frontend Dexie v2 + sync drainer + conflict UI) inherits the mandate automatically — the harness is in place, and `sync.integration.test.ts` already pins the wire contract the drainer must satisfy.
 
 ---
 

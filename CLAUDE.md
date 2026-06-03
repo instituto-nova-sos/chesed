@@ -138,13 +138,33 @@ Before considering any task complete:
 
 1. All existing tests pass
 2. New business logic has unit tests
-3. No lint warnings (Go + TypeScript)
-4. API responses match the documented format in `docs/11-api-design.md`
-5. Mobile-responsive (test at 320px width)
-6. Offline behavior considered (will this feature degrade gracefully?)
-7. Audit logging present for data mutations
-8. Campus scoping applied
-9. **HANDOFF.md updated** with task progress (files created/modified, decisions, current state, next steps)
+3. **Integration tests cover every new API endpoint and every new client-server contract** (see "Integration Test Mandate" below)
+4. No lint warnings (Go + TypeScript)
+5. API responses match the documented format in `docs/11-api-design.md`
+6. Mobile-responsive (test at 320px width)
+7. Offline behavior considered (will this feature degrade gracefully?)
+8. Audit logging present for data mutations
+9. Campus scoping applied
+10. **HANDOFF.md updated** with task progress (files created/modified, decisions, current state, next steps)
+
+### Integration Test Mandate
+
+Every new feature MUST include integration tests at the layer where production data crosses a process or network boundary. Unit tests prove the code is internally consistent; integration tests prove the contract with the rest of the system holds. Both are required — neither substitutes for the other.
+
+**Backend integration tests** (`backend/internal/integration/`, `//go:build integration`):
+- Run the real `chi` router → service → repository stack against a real PostgreSQL container booted by `testcontainers-go`.
+- All migrations are applied from disk before each test so schema drift is caught immediately.
+- One file per feature surface (`sync_test.go`, `triage_test.go`, etc.); add tests when you add an endpoint, table, or SQL constraint.
+- Required scenarios for any new endpoint: happy path with DB-level assertions, the campus scoping boundary, every documented error code, and any uniqueness or transition constraint the SQL layer enforces.
+- Run locally: `make test-integration`. Run in CI: the `Integration tests` step in `.github/workflows/backend.yml` (mandatory, blocking).
+
+**Frontend integration tests** (`frontend/src/__integration__/`, suffix `.integration.test.ts(x)`):
+- Use MSW (`msw/node`) to intercept `fetch` at the network boundary. This exercises the real `apiClient` → hook → component chain against a realistic HTTP surface without standing up the full stack.
+- Required scenarios for any new API surface: happy path, server error mapping (status → `ApiError`), and any query-string or header contract the API client builds.
+- One file per surface, co-located with related fixtures. Use the shared `server.ts` for cross-cutting handlers; `.use(...)` per test for case-specific overrides.
+- Run locally: `npm run test:integration`. Run in CI: the `Integration tests` step in `.github/workflows/frontend.yml` (mandatory, blocking).
+
+A PR that adds a new endpoint without backend integration tests, or a new API client function without frontend integration tests, fails the pre-merge gate. The reviewer agent must verify the integration test exists and exercises the documented contract — not just that any test exists.
 
 ---
 

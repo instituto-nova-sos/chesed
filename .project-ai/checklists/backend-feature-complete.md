@@ -21,7 +21,8 @@ Use this checklist before marking any backend feature as done. Every item must p
 - [ ] SQL uses parameterized queries only (`$1`, `$2` — never string interpolation)
 - [ ] `context.Context` is the first parameter on all repository methods
 - [ ] Proper error wrapping with `fmt.Errorf("repo.Method: %w", err)`
-- [ ] Integration test for repository with real PostgreSQL (not mocks)
+- [ ] Repository unit tests use `pgxmock` to pin the SQL contract (column names, WHERE clauses, ORDER BY, parameter positions)
+- [ ] **Integration test** in `backend/internal/integration/` exercises the repository against a real PostgreSQL via `testcontainers-go`. Mandatory per `.project-ai/checklists/integration-tests.md`
 
 ## Service Layer
 
@@ -66,7 +67,8 @@ Use this checklist before marking any backend feature as done. Every item must p
 
 - [ ] No `_` for errors — all errors are handled or explicitly documented
 - [ ] `context.Context` propagated as first parameter in all function chains
-- [ ] `make test` passes with zero failures
+- [ ] `make test` (unit tests) passes with zero failures
+- [ ] `make test-integration` (real Postgres via testcontainers-go) passes with zero failures
 - [ ] `make lint` passes with zero warnings (golangci-lint)
 - [ ] No `TODO`, `FIXME`, or `HACK` comments left unresolved
 
