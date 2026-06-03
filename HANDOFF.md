@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-06-01 (Session 26)
+2026-06-01 (Session 27)
 
 ---
 
@@ -2099,6 +2099,120 @@ Frontend:
 - Dexie schema v2: `triages` and `attendances` tables + `syncQueue`
 - `useOnlineSync()` hook with drainer + exponential backoff
 - Conflict surface in UI (banner + per-record detail)
+
+---
+
+## Session 27 — Sprint 4: Offline Sync Backend (Push + Pull) (2026-06-01)
+
+### Context
+
+First half of the offline sync vertical. Branch `phase1-sprint4-offline-sync`.
+Scope explicitly limited to the **backend** so a working contract is in place
+before the frontend Dexie v2 + drainer + UI work in a follow-up PR. Built
+strictly TDD: tests first at every layer, no production code until the
+matching RED diagnostics were observed.
+
+### Decisions Taken Before Implementation
+
+User-approved scope choices:
+1. **Backend-only first**. Frontend Dexie v2 + drainer + conflict UI deferred to a follow-up PR. Keeps review surface small and unlocks parallel frontend work against a stable contract.
+2. **Add `sync_id` + `synced_at` to `person`**. Parallels existing triage/attendance schema. Enables offline-create idempotency for persons — the highest-value offline write case for the volunteer field workflow.
+3. **Skip `/sync/status`**. Per-device pending count lives client-side; server-side status would need a device session model that doesn't exist yet. Doc updated to mark it Phase 2.
+
+### Test Scenarios (TDD) — 38 New Cases
+
+**Domain layer (`domain/sync_test.go`, 8 tests)** — `SyncPushRequest.Validate` (empty, at-limit, over-limit, unknown entity, nil sync_id, empty data, valid entity types) + constants + `ParseSyncEntityTypes` (single, multi, whitespace, empty, unknown, duplicate).
+
+**Repository layer (pgxmock, ~13 tests)** — `person_repository_sync_test.go`: FindBySyncID happy + ErrNotFound, ListUpdatedSince happy + empty, CreateWithSync round-trip. Same shape for triage + attendance. Triage CreateWithSync pins the SQL contract for `sync_id` column + requested_service junction insert.
+
+**Service layer (`sync_service_test.go`, ~12 tests)** — empty batch, missing campus forbidden, oversize batch rejected, person new created, person idempotent re-push, person duplicate→conflict, triage new + idempotent + invalid person_id, attendance new + invalid FOLLOW_UP status, unknown entity per-record error, pull empty + entity_types filter + has_more + sorted-by-updated_at.
+
+**Handler layer (`handler/sync_test.go`, 9 tests)** — POST /sync/push: happy + malformed JSON (400) + batch too large (413) + forbidden (403). GET /sync/pull: happy + missing since (400) + invalid since (400) + invalid entity_types (400) + forbidden (403).
+
+### Backend Deliverables
+
+**Migration 000019** — `add_person_sync_and_unique_sync_indexes`:
+- Adds `sync_id UUID` + `synced_at TIMESTAMPTZ` to `person`.
+- Creates `uq_person_sync_id` (UNIQUE partial index where `sync_id IS NOT NULL`).
+- Upgrades `idx_triage_sync` → `uq_triage_sync_id` (now UNIQUE) and `idx_attendance_sync` → `uq_attendance_sync_id` (now UNIQUE) — required for true idempotency.
+
+**Domain (`internal/domain/sync.go`):**
+- `SyncPushRequest`, `SyncPushRecord`, `SyncPushResponse`, `SyncPushResult`.
+- `SyncPullResponse`, `SyncPullRecord`.
+- Sentinels: `ErrBatchTooLarge`, `ErrInvalidEntityType`, `ErrMissingSyncID`, `ErrMissingData`.
+- Constants: `MaxSyncBatchSize=50`, entity types (`person|triage|attendance`), result statuses (`created|conflict|error`).
+- `ParseSyncEntityTypes` for the pull query-param parser.
+
+**Repository extensions:**
+- Converted `PersonRepository` and `TriageRepository` from `*pgxpool.Pool` to the `Querier` interface (set in Session 26 for attendance). Enables pgxmock SQL-level tests without a live Postgres.
+- `PersonRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync` (includes `sync_id` column, classifies unique violations to domain errors).
+- `TriageRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync` (transactional with requested_service junction).
+- `AttendanceRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync`.
+
+**Service (`internal/service/sync_service.go`):**
+- `SyncService` with `Push(req)` + `PushSkippingValidation(records)` + `Pull(since, entityTypes, limit)`.
+- Defines minimal `SyncPersonRepository` / `SyncTriageRepository` / `SyncAttendanceRepository` interfaces — same Go convention used elsewhere (interface in the consumer package).
+- Push semantics: validates the batch up front; per-record `FindBySyncID` short-circuits idempotent re-push (returns existing `server_id`); per-record errors do not abort the batch; campus context is required (else `ErrForbidden` aborts the whole request).
+- Per-entity handlers (`handlePerson`, `handleTriage`, `handleAttendance`) decode the raw `data map[string]any` via JSON round-trip into typed input structs and run `go-playground/validator` rules consistent with the existing CRUD services — keeps sync validation aligned without coupling to the full PersonService/TriageService stack.
+- Audit log entries (`module="sync"`, `action="CREATE"`) emitted for every successful write; failures are logged via slog and do not propagate.
+- Pull semantics: campus-scoped delta query per requested entity, results sorted ASC by `updated_at`, `has_more` set if any entity returned exactly `limit` rows; `next_since` is the latest `updated_at` in the response, enabling cursor-based pagination.
+
+**Handler (`internal/handler/sync.go`):**
+- `SyncHandler` with `Push(w, r)` + `Pull(w, r)`.
+- `defaultPullLimit = 100` constant — kept in the handler so the API contract is explicit at the HTTP boundary.
+- `writeSyncError` maps domain sentinels to HTTP: `ErrBatchTooLarge → 413`, `ErrForbidden → 403`, validation errors → `400`, everything else → `500`.
+- Defaults `entity_types` to all three when omitted (consistent with API doc).
+
+**Routes (`cmd/server/main.go`):**
+- `/api/v1/sync/push` (POST) and `/api/v1/sync/pull` (GET) under the protected route group with the standard middleware chain (auth → provision → agreement guard).
+- `allRoles` RBAC: any authenticated role may push/pull their campus's records.
+
+**Documentation (`docs/11-api-design.md`):**
+- Sync section rewritten with Phase 1 markers, explicit per-record statuses, error code tables, pagination contract for `has_more` + `next_since`, batch size cap.
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Service-layer interfaces (not repo-layer) | Standard Go convention; lets test mocks target only the methods the service uses, no need to satisfy unrelated CRUD methods |
+| Unique partial index on `sync_id` (vs application-layer dedup) | DB-level guarantee under concurrent push retries; cheaper than a global lock and survives multi-process deploys |
+| `PushSkippingValidation` exported alongside `Push` | Lets tests exercise per-record error paths (otherwise rejected by request-level Validate); production callers use `Push` |
+| JSON round-trip for `data → typed struct` | Per-entity payloads are heterogeneous and arrive as `map[string]any`; round-trip is simple, type-safe, and aligns with the existing JSON wire format |
+| 50-record batch cap + 100-row pull page | Matches the strategy doc and keeps response sizes predictable on mobile networks |
+| Audit logged at sync layer (not relayed to PersonService etc.) | Sync writes bypass PersonService entirely to keep the engine simple; audit at the boundary keeps the entry consistent and prevents drift |
+| `next_since` = max `updated_at` of returned records | Cursor pagination without DB cursors; client re-issues pull with this value, server returns the next page |
+
+### Validation Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -short ./...` | PASS — all packages, +38 new test cases |
+| `golangci-lint run` (sync files) | PASS (no real findings; only the pre-existing `mock.Mock` typecheck false positives noted in Session 25) |
+| Coverage — `domain/sync.go` | 100% |
+| Coverage — `handler/sync.go` | ~92% (Push 100%, Pull 95%, writeSyncError 50%) |
+| Coverage — `service/sync_service.go` | handlePerson 80.8%, handleTriage 92.1%, handleAttendance 87.8%, Push 100%, Pull 90% |
+| Coverage — new repo methods | 75-87% per method |
+
+Total new code clears the ≥80% diff-coverage gate for new code per quality-gates.md (overall package coverage drags lower because existing repository code is uncovered — that's pre-existing tech debt, tracked separately).
+
+### Risks and Follow-ups
+
+1. **No update support in push** — Phase 1 push is create-only. The strategy doc lists Person/Attendance updates as offline-capable but the MVP volunteer workflow only requires creates. Update support deferred to Phase 2 with the conflict resolution UI.
+2. **`writeSyncError` 50% coverage** — uncovered branches handle batch validation errors that can't reach the handler in production (request-level Validate runs first). Tracked for completeness but not blocking.
+3. **Migration 000019 not yet applied** — must run `make migrate-up` before deploying. CI applies migrations before tests, so CI will catch any breakage on PR.
+4. **No integration test with live Postgres** — pgxmock pins the SQL contract; the strategy doc's idempotency claims are verified at unit level. A docker-compose integration harness is on the Sprint 4 backlog.
+5. **Frontend stub** — `frontend/src/offline/db.ts` only has `persons`. Sprint 4 (continued) adds Dexie v2 with `triages` and `attendances`, then the drainer hook.
+
+### Plan for Next Session (Sprint 4 — frontend sync)
+
+1. Dexie v2 migration: add `triages` and `attendances` tables; `syncQueue` already covers all entities.
+2. Offline helpers `triageOffline.ts` + `attendanceOffline.ts` mirroring `personOffline.ts`.
+3. `useOnlineSync()` hook: drainer with exponential backoff (5s → 30s → 2m → 10m → stop), pulls after push success.
+4. Pull-side merge: replace local cached records when server `updated_at > local serverUpdatedAt`.
+5. UI: pending count badge on `OfflineBanner`, conflict surface (banner + per-record detail).
+6. TanStack Query introduction (parallel) — eliminates the `react-hooks/set-state-in-effect` warnings flagged in Session 23.
 
 ---
 

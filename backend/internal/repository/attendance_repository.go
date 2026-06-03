@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
@@ -38,6 +39,85 @@ func (r *AttendanceRepository) Create(ctx context.Context, a domain.Attendance) 
 		return nil, fmt.Errorf("attendanceRepository.Create: %w", err)
 	}
 	return &a, nil
+}
+
+// CreateWithSync inserts an attendance carrying the client-supplied sync_id.
+// Idempotency is enforced at the DB layer by uq_attendance_sync_id.
+func (r *AttendanceRepository) CreateWithSync(ctx context.Context, a domain.Attendance, syncID uuid.UUID) (*domain.Attendance, error) {
+	const q = `
+		INSERT INTO attendance (id, person_id, triage_id, campus_id, service_type_id,
+		                        professional_id, status, attendance_date, observations,
+		                        recommendations, created_by, sync_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING created_at, updated_at`
+
+	if err := r.pool.QueryRow(ctx, q,
+		a.ID, a.PersonID, a.TriageID, a.CampusID, a.ServiceTypeID,
+		a.ProfessionalID, a.Status, a.AttendanceDate, a.Observations,
+		a.Recommendations, a.CreatedBy, syncID,
+	).Scan(&a.CreatedAt, &a.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("attendanceRepository.CreateWithSync: %w", err)
+	}
+	return &a, nil
+}
+
+// FindBySyncID returns an attendance by sync_id, scoped to campus.
+func (r *AttendanceRepository) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Attendance, error) {
+	const q = `
+		SELECT id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		       status, attendance_date, observations, recommendations,
+		       created_at, updated_at, created_by
+		FROM attendance
+		WHERE sync_id = $1 AND campus_id = $2`
+
+	var a domain.Attendance
+	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+		&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
+		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("attendanceRepository.FindBySyncID: %w", err)
+	}
+	return &a, nil
+}
+
+// ListUpdatedSince returns attendances modified after the cursor, ordered ASC
+// by updated_at, bounded by limit.
+func (r *AttendanceRepository) ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Attendance, error) {
+	const q = `
+		SELECT id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		       status, attendance_date, observations, recommendations,
+		       created_at, updated_at, created_by
+		FROM attendance
+		WHERE campus_id = $1 AND updated_at > $2
+		ORDER BY updated_at ASC
+		LIMIT $3`
+
+	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("attendanceRepository.ListUpdatedSince: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Attendance{}
+	for rows.Next() {
+		var a domain.Attendance
+		if err := rows.Scan(
+			&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+			&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
+			&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("attendanceRepository.ListUpdatedSince: scan: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("attendanceRepository.ListUpdatedSince: rows: %w", err)
+	}
+	return out, nil
 }
 
 // FindByID returns an attendance by ID scoped to campus.

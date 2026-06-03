@@ -541,13 +541,32 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ## Sync Endpoints
 
-| Method | Path | Auth | Roles | Description |
-|--------|------|------|-------|-------------|
-| POST | `/sync/push` | Yes | All | Upload offline-created records |
-| GET | `/sync/pull` | Yes | All | Fetch records updated since timestamp |
-| GET | `/sync/status` | Yes | All | Get sync health and pending count |
+| Method | Path | Auth | Roles | Description | Status |
+|--------|------|------|-------|-------------|--------|
+| POST | `/sync/push` | Yes | All | Upload offline-created records | **Phase 1 (Sprint 4)** |
+| GET | `/sync/pull` | Yes | All | Fetch records updated since timestamp | **Phase 1 (Sprint 4)** |
+| GET | `/sync/status` | Yes | All | Get sync health and pending count | Phase 2 |
+
+Push is idempotent by `sync_id` — re-pushing the same `sync_id` returns the
+existing server record without re-creating it. Per-record errors do not abort
+the batch; the response contains a per-record `results` array. Batch-level
+errors (oversize > 50 records, missing campus context) reject the entire request.
+
+Pull is a delta query bounded by an internal page size (default 100 records
+per entity). `has_more = true` signals there are more records past
+`next_since`; the client should re-issue the pull using `next_since` as the
+new cursor.
 
 #### POST /sync/push
+
+Request body fields:
+- `device_id` (uuid, optional) — informational; not used for server logic in MVP.
+- `records[]` — up to 50 entries. Larger batches return `413 batch_too_large`.
+  - `entity_type` (string, required) — one of `person`, `triage`, `attendance`.
+  - `sync_id` (uuid, required) — client-generated UUIDv4; idempotency key.
+  - `data` (object, required) — entity payload matching that entity's create input.
+  - `created_at` (RFC3339, optional) — local creation timestamp; informational.
+
 ```json
 // Request
 {
@@ -556,14 +575,13 @@ COMPLETED → FOLLOW_UP (reopen)
     {
       "entity_type": "person",
       "sync_id": "uuid",
-      "data": { /* person fields */ },
+      "data": { "full_name": "Maria", "document_type": "CPF", "nationality": "BRA" },
       "created_at": "2026-04-02T10:30:00Z"
     },
     {
       "entity_type": "triage",
       "sync_id": "uuid",
-      "data": { /* triage fields */ },
-      "created_at": "2026-04-02T10:35:00Z"
+      "data": { "person_id": "uuid", "main_complaint": "Dor de cabeça" }
     }
   ]
 }
@@ -572,13 +590,33 @@ COMPLETED → FOLLOW_UP (reopen)
 {
   "results": [
     { "sync_id": "uuid", "status": "created", "server_id": "uuid" },
-    { "sync_id": "uuid", "status": "conflict", "server_id": "uuid", "message": "Record already exists" }
+    { "sync_id": "uuid", "status": "conflict", "message": "duplicate" },
+    { "sync_id": "uuid", "status": "error",   "message": "invalid person_id: ..." }
   ],
   "server_timestamp": "2026-04-02T10:40:00Z"
 }
 ```
 
-#### GET /sync/pull?since=2026-04-01T00:00:00Z&entity_types=person,triage,attendance
+Per-record `status`:
+- `created` — new server record (or idempotent return of the existing one).
+- `conflict` — DB constraint blocked the write (e.g., duplicate document).
+- `error` — payload validation or DB error specific to the record.
+
+Error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `invalid_request` | Malformed JSON body |
+| 400 | `invalid_entity_types` | A record references an unknown `entity_type` |
+| 400 | `invalid_request` | Missing `sync_id` or empty `data` |
+| 403 | `forbidden` | Auth token lacks resolvable `campus_id` |
+| 413 | `batch_too_large` | `records.length > 50` |
+
+#### GET /sync/pull?since=&entity_types=
+
+Query parameters:
+- `since` (RFC3339, required) — return records with `updated_at > since`.
+- `entity_types` (CSV, optional) — subset of `person,triage,attendance`. Defaults to all three. Duplicate or unknown values return `400 invalid_entity_types`.
+
 ```json
 // Response 200
 {
@@ -586,7 +624,7 @@ COMPLETED → FOLLOW_UP (reopen)
     {
       "entity_type": "person",
       "id": "uuid",
-      "data": { /* person fields */ },
+      "data": { /* full person fields */ },
       "updated_at": "2026-04-02T10:30:00Z"
     }
   ],
@@ -594,6 +632,25 @@ COMPLETED → FOLLOW_UP (reopen)
   "has_more": false
 }
 ```
+
+When `has_more = true`, the response includes a `next_since` timestamp:
+
+```json
+{
+  "records": [ /* exactly 100 records */ ],
+  "server_timestamp": "2026-04-02T10:40:00Z",
+  "has_more": true,
+  "next_since": "2026-04-02T10:39:50Z"
+}
+```
+
+Error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `missing_since` | `since` query param not provided |
+| 400 | `invalid_since` | `since` is not a valid RFC3339 timestamp |
+| 400 | `invalid_entity_types` | Unknown or duplicate entity type |
+| 403 | `forbidden` | Auth token lacks resolvable `campus_id` |
 
 ---
 
