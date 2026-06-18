@@ -1,16 +1,24 @@
 name: Frontend
 
+# AUTOMATIC EXECUTION DISABLED (2026-06-03) — Phase 1 cost-control measure.
+# Workflow stays in the repo so that re-enabling later is a one-line revert.
+# To re-enable, replace the `on:` block below with the original push/pull_request
+# triggers (see git history before commit that disabled triggers).
+#
+# Manual invocation remains possible via the Actions tab while paused.
+# See CLAUDE.md "CI/CD Status — PAUSED" for the policy and re-enable steps.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend.yml"
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "frontend/**"
+  #     - ".github/workflows/frontend.yml"
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - "frontend/**"
+  #     - ".github/workflows/frontend.yml"
 
 permissions:
   contents: read
