@@ -168,6 +168,22 @@ A PR that adds a new endpoint without backend integration tests, or a new API cl
 
 ---
 
+## CI/CD Status — PAUSED (as of 2026-06-03)
+
+GitHub Actions workflows are intentionally disabled while the project is in Phase 1 cost-control mode. Files under `.github/workflows/` and `.github/dependabot.yml` are preserved so re-enabling is a one-revert operation when budget allows.
+
+**What this means for AI agents working in this repo:**
+- Do NOT silently re-enable `on: push` / `on: pull_request` triggers, restore Dependabot limits, or change CI policy without explicit user approval.
+- Quality gates (lint, tests) still apply — they just have to be run **locally** before pushing. Backend: `make test` (and `make test-integration` if integration suite present), `make lint`. Frontend: `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`.
+- The `pre-merge` quality gate hook in `.project-ai/hooks/pre-merge.md` is now operator-enforced (run locally), not CI-enforced.
+
+To re-enable in the future:
+1. Restore each workflow's `on:` block — every workflow file under `.github/workflows/` has a banner comment showing the original triggers commented out.
+2. Restore Dependabot `open-pull-requests-limit` values — the banner in `.github/dependabot.yml` lists the original limits (5 / 5 / 3).
+3. Optionally restore branch-protection rules requiring the workflows.
+
+---
+
 ## Quality Governance
 
 All code must follow the quality profiles, quality gates, and clean code guidelines defined in `docs/quality/`. These are non-negotiable engineering constraints.

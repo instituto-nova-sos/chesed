@@ -1,16 +1,24 @@
 name: Backend
 
+# AUTOMATIC EXECUTION DISABLED (2026-06-03) — Phase 1 cost-control measure.
+# Workflow stays in the repo so that re-enabling later is a one-line revert.
+# To re-enable, replace the `on:` block below with the original push/pull_request
+# triggers (see git history before commit that disabled triggers).
+#
+# Manual invocation remains possible via the Actions tab while paused.
+# See CLAUDE.md "CI/CD Status — PAUSED" for the policy and re-enable steps.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "backend/**"
+  #     - ".github/workflows/backend.yml"
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - "backend/**"
+  #     - ".github/workflows/backend.yml"
 
 permissions:
   contents: read
@@ -44,7 +52,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
 
@@ -96,7 +104,7 @@ jobs:
           echo "Coverage check passed"
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage
