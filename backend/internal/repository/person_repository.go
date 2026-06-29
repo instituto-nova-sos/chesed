@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 )
 
 // PersonRepository handles person persistence.
 type PersonRepository struct {
-	pool *pgxpool.Pool
+	pool Querier
 }
 
 // NewPersonRepository creates a new PersonRepository.
-func NewPersonRepository(pool *pgxpool.Pool) *PersonRepository {
+func NewPersonRepository(pool Querier) *PersonRepository {
 	return &PersonRepository{pool: pool}
 }
 
@@ -74,6 +74,119 @@ func (r *PersonRepository) Create(ctx context.Context, person domain.Person, add
 	}
 
 	return &person, nil
+}
+
+// CreateWithSync inserts a person carrying the client-supplied sync_id.
+// Idempotency is enforced at the DB layer by the uq_person_sync_id partial
+// unique index — a concurrent push with the same sync_id raises a unique
+// violation, which the caller maps to ErrDuplicate.
+func (r *PersonRepository) CreateWithSync(ctx context.Context, person domain.Person, address *domain.Address, syncID uuid.UUID) (*domain.Person, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("personRepository.CreateWithSync: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const q = `
+		INSERT INTO person (id, full_name, birth_date, document_type, document_number,
+		                    gender, email, phone, photo_url, referral_source,
+		                    nationality, campus_id, is_active, created_by, sync_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		RETURNING created_at, updated_at`
+
+	if err := tx.QueryRow(ctx, q,
+		person.ID, person.FullName, person.BirthDate, person.DocumentType,
+		person.DocumentNumber, person.Gender, person.Email, person.Phone,
+		person.PhotoURL, person.ReferralSource, person.Nationality, person.CampusID,
+		person.IsActive, person.CreatedBy, syncID,
+	).Scan(&person.CreatedAt, &person.UpdatedAt); err != nil {
+		if dupErr := classifyUniqueViolation(err); dupErr != nil {
+			return nil, dupErr
+		}
+		return nil, fmt.Errorf("personRepository.CreateWithSync: insert: %w", err)
+	}
+
+	if address != nil {
+		const aq = `
+			INSERT INTO address (id, person_id, street, number, complement,
+			                     neighborhood, city, state, zip_code, country, is_primary)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			RETURNING created_at, updated_at`
+		if err := tx.QueryRow(ctx, aq,
+			address.ID, person.ID, address.Street, address.Number,
+			address.Complement, address.Neighborhood, address.City,
+			address.State, address.ZipCode, address.Country, address.IsPrimary,
+		).Scan(&address.CreatedAt, &address.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("personRepository.CreateWithSync: insert address: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("personRepository.CreateWithSync: commit: %w", err)
+	}
+	return &person, nil
+}
+
+// FindBySyncID returns a person by its client-supplied sync_id, scoped to campus.
+// Used by the sync engine to detect already-applied push records (idempotency).
+func (r *PersonRepository) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Person, error) {
+	const q = `
+		SELECT id, full_name, birth_date, document_type, document_number,
+		       gender, email, phone, photo_url, referral_source,
+		       nationality, campus_id, is_active, created_at, updated_at, created_by
+		FROM person
+		WHERE sync_id = $1 AND campus_id = $2`
+
+	var p domain.Person
+	err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+		&p.ID, &p.FullName, &p.BirthDate, &p.DocumentType, &p.DocumentNumber,
+		&p.Gender, &p.Email, &p.Phone, &p.PhotoURL, &p.ReferralSource,
+		&p.Nationality, &p.CampusID, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("personRepository.FindBySyncID: %w", err)
+	}
+	return &p, nil
+}
+
+// ListUpdatedSince returns persons modified after the cursor, ordered ASC by
+// updated_at. The limit bounds the page so callers can detect has_more by
+// comparing len(result) to limit.
+func (r *PersonRepository) ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Person, error) {
+	const q = `
+		SELECT id, full_name, birth_date, document_type, document_number,
+		       gender, email, phone, photo_url, referral_source,
+		       nationality, campus_id, is_active, created_at, updated_at, created_by
+		FROM person
+		WHERE campus_id = $1 AND updated_at > $2
+		ORDER BY updated_at ASC
+		LIMIT $3`
+
+	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("personRepository.ListUpdatedSince: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Person{}
+	for rows.Next() {
+		var p domain.Person
+		if err := rows.Scan(
+			&p.ID, &p.FullName, &p.BirthDate, &p.DocumentType, &p.DocumentNumber,
+			&p.Gender, &p.Email, &p.Phone, &p.PhotoURL, &p.ReferralSource,
+			&p.Nationality, &p.CampusID, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("personRepository.ListUpdatedSince: scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("personRepository.ListUpdatedSince: rows: %w", err)
+	}
+	return out, nil
 }
 
 // FindByID returns a person by ID, scoped to campus.

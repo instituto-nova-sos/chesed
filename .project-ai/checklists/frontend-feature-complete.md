@@ -18,6 +18,7 @@ Use this checklist before marking any frontend feature as done. Every item must 
 - [ ] Proper error handling (network errors, 4xx, 5xx)
 - [ ] Authentication token attached via keycloak-js interceptor
 - [ ] `Content-Type: application/json` header set
+- [ ] **Integration test** in `frontend/src/__integration__/` covers the API client function with MSW. Asserts request URL, query string, body, headers (including Bearer token) and error code mapping. Mandatory per `.project-ai/checklists/integration-tests.md`
 
 ## Hooks
 
@@ -25,6 +26,7 @@ Use this checklist before marking any frontend feature as done. Every item must 
 - [ ] Hooks handle loading, error, and success states
 - [ ] No direct API calls in components — always go through hooks
 - [ ] Vitest tests for hooks and utility functions
+- [ ] **Integration test** exercises the hook against MSW: loading→data and loading→error transitions, asserting the rendered/exposed state
 
 ## Components
 
@@ -74,7 +76,8 @@ Use this checklist before marking any frontend feature as done. Every item must 
 
 ## Code Quality
 
-- [ ] `npm test` passes with zero failures
+- [ ] `npm test` (unit tests) passes with zero failures
+- [ ] `npm run test:integration` (MSW-backed integration tests) passes with zero failures
 - [ ] ESLint passes with zero warnings
 - [ ] No `TODO`, `FIXME`, or `HACK` comments left unresolved
 - [ ] No `console.log` statements left in production code

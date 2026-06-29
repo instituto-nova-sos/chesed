@@ -55,6 +55,12 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
+      # Integration tests run against MSW-mocked HTTP endpoints. They cover
+      # the API client ↔ hook surface and pin the wire contract with the
+      # backend. Mandatory per the quality gate (see CLAUDE.md).
+      - name: Integration tests
+        run: npm run test:integration
+
       - name: Build
         run: npm run build
 

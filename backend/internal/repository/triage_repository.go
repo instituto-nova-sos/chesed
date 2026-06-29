@@ -5,20 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TriageRepository handles triage persistence.
 type TriageRepository struct {
-	pool *pgxpool.Pool
+	pool Querier
 }
 
 // NewTriageRepository creates a new TriageRepository.
-func NewTriageRepository(pool *pgxpool.Pool) *TriageRepository {
+func NewTriageRepository(pool Querier) *TriageRepository {
 	return &TriageRepository{pool: pool}
 }
 
@@ -66,6 +66,101 @@ func insertRequestedServices(ctx context.Context, tx pgx.Tx, triageID uuid.UUID,
 		}
 	}
 	return nil
+}
+
+// CreateWithSync inserts a triage carrying the client-supplied sync_id along
+// with the requested service junction rows in a single transaction.
+// Idempotency at the DB layer is enforced by uq_triage_sync_id.
+func (r *TriageRepository) CreateWithSync(ctx context.Context, triage domain.Triage, syncID uuid.UUID) (*domain.Triage, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("triageRepository.CreateWithSync: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const q = `
+		INSERT INTO triage (id, person_id, campus_id, main_complaint, assigned_team,
+		                    triage_date, location, triaged_by, notes, is_active, sync_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING created_at, updated_at`
+
+	if err := tx.QueryRow(ctx, q,
+		triage.ID, triage.PersonID, triage.CampusID, triage.MainComplaint,
+		triage.AssignedTeam, triage.TriageDate, triage.Location, triage.TriagedBy,
+		triage.Notes, triage.IsActive, syncID,
+	).Scan(&triage.CreatedAt, &triage.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("triageRepository.CreateWithSync: insert: %w", err)
+	}
+
+	if err := insertRequestedServices(ctx, tx, triage.ID, triage.RequestedTypes); err != nil {
+		return nil, fmt.Errorf("triageRepository.CreateWithSync: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("triageRepository.CreateWithSync: commit: %w", err)
+	}
+	return &triage, nil
+}
+
+// FindBySyncID returns a triage by its client-supplied sync_id, scoped to
+// campus. Requested services are not loaded here — callers only need the row
+// existence for idempotency lookups.
+func (r *TriageRepository) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Triage, error) {
+	const q = `
+		SELECT id, person_id, campus_id, main_complaint, assigned_team,
+		       triage_date, location, triaged_by, notes, is_active,
+		       created_at, updated_at
+		FROM triage
+		WHERE sync_id = $1 AND campus_id = $2`
+
+	var t domain.Triage
+	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+		&t.ID, &t.PersonID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
+		&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
+		&t.CreatedAt, &t.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("triageRepository.FindBySyncID: %w", err)
+	}
+	return &t, nil
+}
+
+// ListUpdatedSince returns triages modified after the cursor, ordered ASC by
+// updated_at, bounded by limit.
+func (r *TriageRepository) ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Triage, error) {
+	const q = `
+		SELECT id, person_id, campus_id, main_complaint, assigned_team,
+		       triage_date, location, triaged_by, notes, is_active,
+		       created_at, updated_at
+		FROM triage
+		WHERE campus_id = $1 AND updated_at > $2
+		ORDER BY updated_at ASC
+		LIMIT $3`
+
+	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("triageRepository.ListUpdatedSince: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Triage{}
+	for rows.Next() {
+		var t domain.Triage
+		if err := rows.Scan(
+			&t.ID, &t.PersonID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
+			&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
+			&t.CreatedAt, &t.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("triageRepository.ListUpdatedSince: scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("triageRepository.ListUpdatedSince: rows: %w", err)
+	}
+	return out, nil
 }
 
 // FindByID returns a triage by ID, scoped to campus, with its requested services.

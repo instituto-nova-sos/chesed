@@ -117,9 +117,10 @@ For each condition in the New Code Quality Gate:
 2. **Vulnerabilities**: Check for security issues — injection risks, missing auth, exposed PII, insecure patterns.
 3. **Security hotspots**: Identify security-sensitive code (auth, PII, crypto, external input) and verify each has been reviewed.
 4. **Coverage**: Verify new business logic has unit tests. Service layer coverage ≥ 80%. Handler coverage ≥ 60%.
-5. **Duplication**: Check for copy-pasted logic. If similar code exists elsewhere, it should be extracted.
-6. **Maintainability**: Check cognitive complexity, function length, nesting depth against thresholds. See [`complexity-guidelines.md`](complexity-guidelines.md).
-7. **Severity classification**: Classify each finding as Blocker, Critical, Major, Minor, or Info.
+5. **Integration tests**: Verify every new HTTP endpoint has a backend integration test (`backend/internal/integration/`, real Postgres via testcontainers-go) and every new API client function has a frontend integration test (`frontend/src/__integration__/`, MSW-backed). Per `.project-ai/checklists/integration-tests.md`. Unit-only coverage does NOT satisfy this condition.
+6. **Duplication**: Check for copy-pasted logic. If similar code exists elsewhere, it should be extracted.
+7. **Maintainability**: Check cognitive complexity, function length, nesting depth against thresholds. See [`complexity-guidelines.md`](complexity-guidelines.md).
+8. **Severity classification**: Classify each finding as Blocker, Critical, Major, Minor, or Info.
 
 ### Step 3: Render Verdict
 
@@ -145,6 +146,7 @@ Quality gate report format:
 | Vulnerabilities | PASS/FAIL | [count and locations] |
 | Security Hotspots | PASS/FAIL | [reviewed/total] |
 | Coverage | PASS/FAIL | [percentage] |
+| Integration tests | PASS/FAIL | [new endpoints / new client functions covered] |
 | Duplication | PASS/FAIL | [percentage] |
 | Maintainability | PASS/FAIL | [rating] |
 | Reliability | PASS/FAIL | [rating] |

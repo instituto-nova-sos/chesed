@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean migrate-up migrate-down migrate-create migrate-force migrate-up-prod
+.PHONY: build run test test-integration test-all lint clean migrate-up migrate-down migrate-create migrate-force migrate-up-prod
 
 MIGRATE_URL ?= postgres://chesed:chesed@localhost:5432/chesed?sslmode=disable
 
@@ -8,8 +8,21 @@ build:
 run:
 	go run ./cmd/server
 
+# Unit tests only (fast, no Docker required).
 test:
-	go test ./...
+	go test -short ./...
+
+# Integration tests — boot a real Postgres container via testcontainers-go,
+# apply all migrations, exercise the HTTP stack end-to-end. Requires Docker
+# Desktop running. On macOS we explicitly point at the Docker Desktop socket
+# because testcontainers does not auto-discover it.
+test-integration:
+	DOCKER_HOST=$${DOCKER_HOST:-unix://$$HOME/.docker/run/docker.sock} \
+	TESTCONTAINERS_RYUK_DISABLED=true \
+	go test -tags integration -timeout 600s ./internal/integration/...
+
+# Full suite: unit + integration. Use before pushing.
+test-all: test test-integration
 
 lint:
 	golangci-lint run

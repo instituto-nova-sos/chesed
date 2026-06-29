@@ -22,6 +22,7 @@ Before merging any PR into the main branch. Before approving code for integratio
    - [ ] **Vulnerabilities**: 0 new security issues (injection risks, missing auth, exposed PII, insecure patterns).
    - [ ] **Security hotspots reviewed**: 100% of security-sensitive code reviewed (auth, PII, crypto, external input).
    - [ ] **Coverage on new code**: ≥ 80% test coverage on new/changed business logic.
+   - [ ] **Integration tests on new boundaries**: every new endpoint, every new API client function, and every new SQL constraint covered per `.project-ai/checklists/integration-tests.md`. Unit tests alone do not satisfy this condition.
    - [ ] **Duplication on new code**: ≤ 3% duplicated lines.
    - [ ] **Maintainability rating**: A — no code smells above threshold.
    - [ ] **Reliability rating**: A — 0 bugs.
@@ -83,6 +84,8 @@ Before merging any PR into the main branch. Before approving code for integratio
 - `docs/quality/complexity-guidelines.md` — Complexity thresholds
 - `docs/quality/clean-code-guidelines.md` — Clean code categories
 - `.project-ai/rules/quality-gates.md` — Quality gates enforcement rule
+- `.project-ai/checklists/integration-tests.md` — Integration test mandate (backend + frontend) — blocking
+- `CLAUDE.md` — Quality Bar + Integration Test Mandate
 
 ## Consequences of Skipping
 

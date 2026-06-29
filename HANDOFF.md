@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-06-01 (Session 26)
+2026-06-03 (Session 28)
 
 ---
 
@@ -2099,6 +2099,222 @@ Frontend:
 - Dexie schema v2: `triages` and `attendances` tables + `syncQueue`
 - `useOnlineSync()` hook with drainer + exponential backoff
 - Conflict surface in UI (banner + per-record detail)
+
+---
+
+## Session 27 — Sprint 4: Offline Sync Backend (Push + Pull) (2026-06-01)
+
+### Context
+
+First half of the offline sync vertical. Branch `phase1-sprint4-offline-sync`.
+Scope explicitly limited to the **backend** so a working contract is in place
+before the frontend Dexie v2 + drainer + UI work in a follow-up PR. Built
+strictly TDD: tests first at every layer, no production code until the
+matching RED diagnostics were observed.
+
+### Decisions Taken Before Implementation
+
+User-approved scope choices:
+1. **Backend-only first**. Frontend Dexie v2 + drainer + conflict UI deferred to a follow-up PR. Keeps review surface small and unlocks parallel frontend work against a stable contract.
+2. **Add `sync_id` + `synced_at` to `person`**. Parallels existing triage/attendance schema. Enables offline-create idempotency for persons — the highest-value offline write case for the volunteer field workflow.
+3. **Skip `/sync/status`**. Per-device pending count lives client-side; server-side status would need a device session model that doesn't exist yet. Doc updated to mark it Phase 2.
+
+### Test Scenarios (TDD) — 38 New Cases
+
+**Domain layer (`domain/sync_test.go`, 8 tests)** — `SyncPushRequest.Validate` (empty, at-limit, over-limit, unknown entity, nil sync_id, empty data, valid entity types) + constants + `ParseSyncEntityTypes` (single, multi, whitespace, empty, unknown, duplicate).
+
+**Repository layer (pgxmock, ~13 tests)** — `person_repository_sync_test.go`: FindBySyncID happy + ErrNotFound, ListUpdatedSince happy + empty, CreateWithSync round-trip. Same shape for triage + attendance. Triage CreateWithSync pins the SQL contract for `sync_id` column + requested_service junction insert.
+
+**Service layer (`sync_service_test.go`, ~12 tests)** — empty batch, missing campus forbidden, oversize batch rejected, person new created, person idempotent re-push, person duplicate→conflict, triage new + idempotent + invalid person_id, attendance new + invalid FOLLOW_UP status, unknown entity per-record error, pull empty + entity_types filter + has_more + sorted-by-updated_at.
+
+**Handler layer (`handler/sync_test.go`, 9 tests)** — POST /sync/push: happy + malformed JSON (400) + batch too large (413) + forbidden (403). GET /sync/pull: happy + missing since (400) + invalid since (400) + invalid entity_types (400) + forbidden (403).
+
+### Backend Deliverables
+
+**Migration 000019** — `add_person_sync_and_unique_sync_indexes`:
+- Adds `sync_id UUID` + `synced_at TIMESTAMPTZ` to `person`.
+- Creates `uq_person_sync_id` (UNIQUE partial index where `sync_id IS NOT NULL`).
+- Upgrades `idx_triage_sync` → `uq_triage_sync_id` (now UNIQUE) and `idx_attendance_sync` → `uq_attendance_sync_id` (now UNIQUE) — required for true idempotency.
+
+**Domain (`internal/domain/sync.go`):**
+- `SyncPushRequest`, `SyncPushRecord`, `SyncPushResponse`, `SyncPushResult`.
+- `SyncPullResponse`, `SyncPullRecord`.
+- Sentinels: `ErrBatchTooLarge`, `ErrInvalidEntityType`, `ErrMissingSyncID`, `ErrMissingData`.
+- Constants: `MaxSyncBatchSize=50`, entity types (`person|triage|attendance`), result statuses (`created|conflict|error`).
+- `ParseSyncEntityTypes` for the pull query-param parser.
+
+**Repository extensions:**
+- Converted `PersonRepository` and `TriageRepository` from `*pgxpool.Pool` to the `Querier` interface (set in Session 26 for attendance). Enables pgxmock SQL-level tests without a live Postgres.
+- `PersonRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync` (includes `sync_id` column, classifies unique violations to domain errors).
+- `TriageRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync` (transactional with requested_service junction).
+- `AttendanceRepository`: `FindBySyncID`, `ListUpdatedSince`, `CreateWithSync`.
+
+**Service (`internal/service/sync_service.go`):**
+- `SyncService` with `Push(req)` + `PushSkippingValidation(records)` + `Pull(since, entityTypes, limit)`.
+- Defines minimal `SyncPersonRepository` / `SyncTriageRepository` / `SyncAttendanceRepository` interfaces — same Go convention used elsewhere (interface in the consumer package).
+- Push semantics: validates the batch up front; per-record `FindBySyncID` short-circuits idempotent re-push (returns existing `server_id`); per-record errors do not abort the batch; campus context is required (else `ErrForbidden` aborts the whole request).
+- Per-entity handlers (`handlePerson`, `handleTriage`, `handleAttendance`) decode the raw `data map[string]any` via JSON round-trip into typed input structs and run `go-playground/validator` rules consistent with the existing CRUD services — keeps sync validation aligned without coupling to the full PersonService/TriageService stack.
+- Audit log entries (`module="sync"`, `action="CREATE"`) emitted for every successful write; failures are logged via slog and do not propagate.
+- Pull semantics: campus-scoped delta query per requested entity, results sorted ASC by `updated_at`, `has_more` set if any entity returned exactly `limit` rows; `next_since` is the latest `updated_at` in the response, enabling cursor-based pagination.
+
+**Handler (`internal/handler/sync.go`):**
+- `SyncHandler` with `Push(w, r)` + `Pull(w, r)`.
+- `defaultPullLimit = 100` constant — kept in the handler so the API contract is explicit at the HTTP boundary.
+- `writeSyncError` maps domain sentinels to HTTP: `ErrBatchTooLarge → 413`, `ErrForbidden → 403`, validation errors → `400`, everything else → `500`.
+- Defaults `entity_types` to all three when omitted (consistent with API doc).
+
+**Routes (`cmd/server/main.go`):**
+- `/api/v1/sync/push` (POST) and `/api/v1/sync/pull` (GET) under the protected route group with the standard middleware chain (auth → provision → agreement guard).
+- `allRoles` RBAC: any authenticated role may push/pull their campus's records.
+
+**Documentation (`docs/11-api-design.md`):**
+- Sync section rewritten with Phase 1 markers, explicit per-record statuses, error code tables, pagination contract for `has_more` + `next_since`, batch size cap.
+
+### Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Service-layer interfaces (not repo-layer) | Standard Go convention; lets test mocks target only the methods the service uses, no need to satisfy unrelated CRUD methods |
+| Unique partial index on `sync_id` (vs application-layer dedup) | DB-level guarantee under concurrent push retries; cheaper than a global lock and survives multi-process deploys |
+| `PushSkippingValidation` exported alongside `Push` | Lets tests exercise per-record error paths (otherwise rejected by request-level Validate); production callers use `Push` |
+| JSON round-trip for `data → typed struct` | Per-entity payloads are heterogeneous and arrive as `map[string]any`; round-trip is simple, type-safe, and aligns with the existing JSON wire format |
+| 50-record batch cap + 100-row pull page | Matches the strategy doc and keeps response sizes predictable on mobile networks |
+| Audit logged at sync layer (not relayed to PersonService etc.) | Sync writes bypass PersonService entirely to keep the engine simple; audit at the boundary keeps the entry consistent and prevents drift |
+| `next_since` = max `updated_at` of returned records | Cursor pagination without DB cursors; client re-issues pull with this value, server returns the next page |
+
+### Validation Results
+
+| Check | Result |
+|-------|--------|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test -short ./...` | PASS — all packages, +38 new test cases |
+| `golangci-lint run` (sync files) | PASS (no real findings; only the pre-existing `mock.Mock` typecheck false positives noted in Session 25) |
+| Coverage — `domain/sync.go` | 100% |
+| Coverage — `handler/sync.go` | ~92% (Push 100%, Pull 95%, writeSyncError 50%) |
+| Coverage — `service/sync_service.go` | handlePerson 80.8%, handleTriage 92.1%, handleAttendance 87.8%, Push 100%, Pull 90% |
+| Coverage — new repo methods | 75-87% per method |
+
+Total new code clears the ≥80% diff-coverage gate for new code per quality-gates.md (overall package coverage drags lower because existing repository code is uncovered — that's pre-existing tech debt, tracked separately).
+
+### Risks and Follow-ups
+
+1. **No update support in push** — Phase 1 push is create-only. The strategy doc lists Person/Attendance updates as offline-capable but the MVP volunteer workflow only requires creates. Update support deferred to Phase 2 with the conflict resolution UI.
+2. **`writeSyncError` 50% coverage** — uncovered branches handle batch validation errors that can't reach the handler in production (request-level Validate runs first). Tracked for completeness but not blocking.
+3. **Migration 000019 not yet applied** — must run `make migrate-up` before deploying. CI applies migrations before tests, so CI will catch any breakage on PR.
+4. **No integration test with live Postgres** — pgxmock pins the SQL contract; the strategy doc's idempotency claims are verified at unit level. A docker-compose integration harness is on the Sprint 4 backlog.
+5. **Frontend stub** — `frontend/src/offline/db.ts` only has `persons`. Sprint 4 (continued) adds Dexie v2 with `triages` and `attendances`, then the drainer hook.
+
+### Plan for Next Session (Sprint 4 — frontend sync)
+
+1. Dexie v2 migration: add `triages` and `attendances` tables; `syncQueue` already covers all entities.
+2. Offline helpers `triageOffline.ts` + `attendanceOffline.ts` mirroring `personOffline.ts`.
+3. `useOnlineSync()` hook: drainer with exponential backoff (5s → 30s → 2m → 10m → stop), pulls after push success.
+4. Pull-side merge: replace local cached records when server `updated_at > local serverUpdatedAt`.
+5. UI: pending count badge on `OfflineBanner`, conflict surface (banner + per-record detail).
+6. TanStack Query introduction (parallel) — eliminates the `react-hooks/set-state-in-effect` warnings flagged in Session 23.
+
+---
+
+## Session 28 — Sprint 4: Integration Test Module (Backend + Frontend) + Workflow Mandate (2026-06-03)
+
+### Context
+
+Session 27's "Test plan" in the PR description was a reviewer checklist — the manual end-to-end validations had never been executed. Rather than running them manually once, this session builds a permanent integration test module on both stacks, executes the tests, and updates the AI delivery operating model so future phases inherit the mandate.
+
+### Decisions Taken Before Implementation
+
+1. **Backend integration tooling**: `testcontainers-go` (per-test ephemeral Postgres container). Real schema via `golang-migrate` against migration files on disk. Build tag `//go:build integration` so `go test ./...` stays Docker-free.
+2. **Frontend integration tooling**: `msw/node` + Vitest. Intercept at the `fetch` boundary — the layer where API-client contract drift actually breaks things. No live backend or Playwright stack-up cost.
+3. **CI placement**: Both stacks run integration tests as a separate, mandatory step after unit tests on every PR. The backend step boots its own container — the existing service container is now redundant for the integration tests but stays for any future fixed-DSN tools.
+4. **Scope extends to past + future**: Documentation updates make integration tests mandatory for every new endpoint and every new API client function going forward. Today's integration tests cover the Sprint 4 sync surface (the slice in this branch); historical surfaces will gain integration tests as they're touched.
+
+### Backend Integration Suite
+
+**Harness (`backend/internal/integration/harness_test.go`):**
+- `freshHarness(t)` boots `postgres:16-alpine` via testcontainers, applies all 19 migrations from `backend/migrations/`, looks up the seeded campus from migration 000011, and wires the real chi router → service → repository stack with sync routes mounted.
+- Auth middleware is bypassed by design — tests inject `AuthClaims` directly via `auth.NewContext` so the assertion surface stays on the application, not the Keycloak handshake (which is covered by Session 9 manual verification).
+- `t.Cleanup` tears down the pool + container; tests are fully isolated and parallelisable.
+
+**Sync test scenarios (8 tests, ~12s wall time, real Postgres):**
+| Test | Asserts |
+|------|---------|
+| `TestSyncPush_PersonHappyPath` | HTTP 200 + per-record `created` status + DB row exists with the sync_id, the right campus, and the submitted name |
+| `TestSyncPush_IdempotentRePush` | Two pushes with the same sync_id return the same `server_id` and the DB has exactly one row |
+| `TestSyncPush_BatchTooLargeRejected` | 51-record batch returns 413 `batch_too_large` and the DB has zero rows (atomic reject) |
+| `TestSyncPush_DuplicateSyncIDUniqueConstraint` | Manual duplicate INSERT trips the migration-000019 unique partial index with SQLSTATE 23505 |
+| `TestSyncPull_CampusScopedDelta` | Records belonging to campus B never appear in a pull scoped to campus A |
+| `TestSyncPull_DeltaCursor` | Pre-cursor row excluded, post-cursor row included |
+| `TestSyncPull_MissingSinceReturns400` | Missing `since` query param → 400 with `since`-mentioning body |
+| `TestSyncPush_NoCampusReturns403` | Token with `CampusID == uuid.Nil` → 403 forbidden, regardless of role |
+
+**Wiring:**
+- `Makefile`: new `test` (unit, `-short`), `test-integration` (real Postgres), `test-all` (both) targets. The `test-integration` target sets `DOCKER_HOST` to the Docker Desktop socket on macOS so testcontainers auto-discovers it.
+- `.github/workflows/backend.yml`: new `Integration tests` step runs after unit tests and is mandatory for merge.
+
+### Frontend Integration Suite
+
+**Server (`frontend/src/__integration__/server.ts` + `setup.ts`):**
+- `setupServer(...handlers)` from `msw/node` intercepts `fetch` calls. Default handler covers `GET /persons` so cross-cutting tests reuse it.
+- `setup.ts` installs `beforeAll` / `afterEach` / `afterAll` hooks: server listen, reset handlers between tests, close at the end. Also stubs `useAuthStore.getState().getToken` so apiClient gets a fake token without touching Keycloak.
+
+**Test scenarios (8 tests, ~1.5s wall time):**
+
+`persons.integration.test.tsx` (4 tests):
+- Default page load via `usePersons` hook + apiClient + MSW
+- Debounced search forwarding `q` query param
+- Server error (500) surfacing through hook `error` state
+- Bearer token presence on every request
+
+`sync.integration.test.ts` (4 tests, future-facing — pins the wire contract for the upcoming sync drainer hook):
+- POST `/sync/push` happy path with per-record `created` results
+- POST `/sync/push` 413 `batch_too_large` → `ApiError`
+- GET `/sync/pull` happy path with query string assertion
+- GET `/sync/pull` 400 `missing_since` → `ApiError`
+
+**Wiring:**
+- `package.json` scripts: `test` (excludes integration), `test:integration` (only integration), `test:all` (both). `test:coverage` also excludes integration so unit coverage thresholds aren't muddied.
+- `.github/workflows/frontend.yml`: new `Integration tests` step runs after unit tests + coverage.
+
+### Operating Model Updates (Permanent Mandate)
+
+| File | Change |
+|------|--------|
+| `CLAUDE.md` | Quality Bar item #3 raised: "Integration tests cover every new API endpoint and every new client-server contract". New "Integration Test Mandate" subsection describes backend (testcontainers) and frontend (MSW) policy. |
+| `.project-ai/checklists/integration-tests.md` | NEW — dedicated blocking checklist with per-stack requirements (harness use, happy path, campus scoping, every error code, every SQL constraint, idempotency, auth boundary; MSW boundary, wire-contract assertions, Bearer token, error mapping, state transitions, cleanup). |
+| `.project-ai/hooks/pre-merge.md` | Added "Integration tests on new boundaries" as a blocking condition in the New Code Quality Gate. References the integration-tests checklist. |
+| `.project-ai/workflows/feature-delivery.md` | Phase 3 Implementation steps now explicitly require integration tests for both backend (mandatory testcontainers test for every endpoint) and frontend (mandatory MSW test for every API client function). Phase 4 Verification matrix updated to include integration tests across all change types. |
+| `.project-ai/checklists/backend-feature-complete.md` | Repository Layer item now requires pgxmock unit tests AND a testcontainers integration test. Code Quality section adds `make test-integration` as a required green check. |
+| `.project-ai/checklists/frontend-feature-complete.md` | API Client section adds a required MSW integration test. Hooks section adds a required hook-level integration test. Code Quality section adds `npm run test:integration` as a required green check. |
+| `docs/quality/quality-gates.md` | New "Integration tests" condition added to the New Code Quality Gate evaluation (Step 2 item 5). New row in the quality gate report table. Numbering re-aligned. |
+
+### Validation Results (Executed, Not Listed)
+
+| Stack | Suite | Result |
+|-------|-------|--------|
+| Backend | `go build ./...` | PASS |
+| Backend | `go vet ./...` | PASS |
+| Backend | `go test -short ./...` (unit) | PASS (9 packages) |
+| Backend | `make test-integration` (real Postgres via testcontainers) | PASS — 8 tests in ~12s |
+| Frontend | `npm run typecheck` | PASS |
+| Frontend | `npm run lint` | PASS (0 errors, 39 pre-existing warnings) |
+| Frontend | `npm test` (unit) | PASS — 5 tests |
+| Frontend | `npm run test:integration` (MSW) | PASS — 8 tests in ~1.5s |
+| Frontend | `npm run build` | PASS (PWA bundle generated) |
+
+### Risks and Follow-ups
+
+1. **macOS-specific `DOCKER_HOST` default** in `Makefile` — works for the local dev's Docker Desktop layout. CI runners auto-discover the socket so the env var is harmless there, but Linux developers may need to override. Documented inline in the Makefile.
+2. **Coverage thresholds not yet ratcheted** — integration tests don't currently contribute to the coverage report (they live under a build tag). Future iteration: add a separate coverage profile for integration runs and combine with unit coverage.
+3. **Historical surfaces lack integration tests** — the mandate is forward-looking. Existing endpoints (person CRUD, triage, attendance, reports) gain integration tests as they're touched, not in a backfill pass.
+4. **Frontend integration tests are limited to API/hook layer** — no full E2E (Playwright against the real stack) yet. That's a separate Sprint 4 hardening item.
+5. **Service container in `backend.yml`** is now redundant for integration tests (testcontainers boots its own). Removing it is a separate cleanup; left in place to avoid scope creep.
+
+### Plan Going Forward
+
+The integration test mandate applies to every PR from this point. The reviewer agent must verify the appropriate checklist items before approval; the `pre-merge` hook treats absence of integration tests as a blocking condition.
+
+The next functional slice (frontend Dexie v2 + sync drainer + conflict UI) inherits the mandate automatically — the harness is in place, and `sync.integration.test.ts` already pins the wire contract the drainer must satisfy.
 
 ---
 

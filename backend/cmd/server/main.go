@@ -90,6 +90,7 @@ func setupRouter(
 	triageSvc := service.NewTriageService(triageRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, auditSvc)
 	reportSvc := service.NewReportService(reportRepo)
+	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
 
 	// Handlers
 	uploadDir := "uploads/agreements"
@@ -103,6 +104,7 @@ func setupRouter(
 	triageH := handler.NewTriageHandler(triageSvc)
 	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
 	reportH := handler.NewReportHandler(reportSvc)
+	syncH := handler.NewSyncHandler(syncSvc)
 
 	// Router
 	r := chi.NewRouter()
@@ -193,6 +195,11 @@ func setupRouter(
 			r.Route("/reports", func(r chi.Router) {
 				r.With(reportRoles).Get("/attendances", reportH.AttendanceSummary)
 				r.With(reportRoles).Get("/attendances/export", reportH.AttendanceExport)
+			})
+
+			r.Route("/sync", func(r chi.Router) {
+				r.With(allRoles).Post("/push", syncH.Push)
+				r.With(allRoles).Get("/pull", syncH.Pull)
 			})
 		})
 	})
