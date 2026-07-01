@@ -408,7 +408,7 @@
   - **Given** a record written to a store **when** the page is reloaded **then** the record is still present (durability across sessions).
 
 **S05.2 - Offline record creation**
-- status: in_progress
+- status: done
 - depends_on: [S05.1, S03.8]
 - covers_requirements: [RF-46, RF-47]
 - parallel_with: [S05.5]
