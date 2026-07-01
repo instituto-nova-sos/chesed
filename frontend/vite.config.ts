@@ -11,15 +11,43 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Chesed - Instituto Nova SOS',
         short_name: 'Chesed',
         description: 'Social services management platform',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#863bff',
+        background_color: '#863bff',
         display: 'standalone',
         start_url: '/',
-        icons: [],
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: 'pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        // App shell is precached (generateSW). For live data, use network-first
+        // so online users always get fresh reads but a cached response still
+        // renders when offline — complementing the IndexedDB offline layer.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              url.pathname.startsWith('/api/v1/') && request.method === 'GET',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'chesed-api-get',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],
