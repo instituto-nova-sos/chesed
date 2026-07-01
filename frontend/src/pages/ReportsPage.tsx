@@ -88,7 +88,7 @@ function ReportFilters(props: ReportFiltersProps) {
 }
 
 export function ReportsPage() {
-  const initial = useMemo(defaultRange, []);
+  const initial = useMemo(() => defaultRange(), []);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const { report, isLoading, error, generate } = useAttendanceReport(initial);

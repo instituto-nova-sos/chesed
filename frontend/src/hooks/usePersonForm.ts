@@ -6,11 +6,8 @@ import {
   createPersonSchema,
   type CreatePersonFormData,
 } from '../utils/personValidation';
-import {
-  createPerson,
-  updatePerson,
-  checkDuplicate,
-} from '../api/persons';
+import { updatePerson, checkDuplicate } from '../api/persons';
+import { createPersonWithOfflineFallback } from '../offline/personOffline';
 import type { DuplicateCheckResult } from '../types';
 
 export function usePersonForm(editId?: string) {
@@ -102,8 +99,12 @@ export function usePersonForm(editId?: string) {
         await updatePerson(editId, cleaned as CreatePersonFormData);
         navigate(`/persons/${editId}`);
       } else {
-        const created = await createPerson(cleaned as CreatePersonFormData);
-        navigate(`/persons/${created.id}`);
+        const created = await createPersonWithOfflineFallback(
+          cleaned as CreatePersonFormData,
+        );
+        // Offline-created records live in the local list until they sync, so we
+        // return to the list rather than a detail page the server can't serve yet.
+        navigate(created.offline ? '/persons' : `/persons/${created.id}`);
       }
     } catch (err) {
       setSubmitError(
