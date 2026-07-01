@@ -152,42 +152,13 @@ func (h *VolunteerAgreementHandler) Upload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Determine file extension
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		switch contentType {
-		case "application/pdf":
-			ext = ".pdf"
-		case "image/jpeg":
-			ext = ".jpg"
-		case "image/png":
-			ext = ".png"
-		}
-	}
-
-	// Create upload directory
+	ext := resolveExtension(contentType, header.Filename)
 	claims := auth.ClaimsFromContext(r.Context())
 	dirPath := filepath.Join(h.uploadDir, claims.CampusID.String(), personID.String())
-	if err := os.MkdirAll(dirPath, 0o750); err != nil {
-		slog.ErrorContext(r.Context(), "agreementHandler.Upload: mkdir failed", "error", err.Error())
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to save document")
-		return
-	}
 
-	// Save file
-	fileName := uuid.New().String() + ext
-	filePath := filepath.Join(dirPath, fileName)
-
-	dst, err := os.Create(filePath)
+	filePath, err := saveUploadedFile(file, dirPath, ext)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "agreementHandler.Upload: create file failed", "error", err.Error())
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to save document")
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		slog.ErrorContext(r.Context(), "agreementHandler.Upload: copy failed", "error", err.Error())
+		slog.ErrorContext(r.Context(), "agreementHandler.Upload: save failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to save document")
 		return
 	}
@@ -217,15 +188,7 @@ func (h *VolunteerAgreementHandler) DownloadDocument(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Find the accepted agreement with a document
-	var documentPath string
-	for _, a := range agreements {
-		if a.Status == domain.AgreementAccepted && a.DocumentPath != nil {
-			documentPath = *a.DocumentPath
-			break
-		}
-	}
-
+	documentPath := findAcceptedDocumentPath(agreements)
 	if documentPath == "" {
 		writeError(w, http.StatusNotFound, "not_found", "no uploaded agreement document found")
 		return
@@ -239,17 +202,72 @@ func (h *VolunteerAgreementHandler) DownloadDocument(w http.ResponseWriter, r *h
 	}
 
 	ext := filepath.Ext(documentPath)
-	switch ext {
-	case ".pdf":
-		w.Header().Set("Content-Type", "application/pdf")
-	case ".jpg", ".jpeg":
-		w.Header().Set("Content-Type", "image/jpeg")
-	case ".png":
-		w.Header().Set("Content-Type", "image/png")
+	if ct := contentTypeForExt(ext); ct != "" {
+		w.Header().Set("Content-Type", ct)
 	}
-
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"agreement%s\"", ext))
 	http.ServeFile(w, r, absPath)
+}
+
+// resolveExtension picks a file extension from the filename, falling back to
+// one derived from the validated MIME type.
+func resolveExtension(contentType, filename string) string {
+	if ext := filepath.Ext(filename); ext != "" {
+		return ext
+	}
+	switch contentType {
+	case "application/pdf":
+		return ".pdf"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	default:
+		return ""
+	}
+}
+
+// saveUploadedFile writes the uploaded file under dirPath with a random name
+// and returns the resulting path.
+func saveUploadedFile(file io.Reader, dirPath, ext string) (string, error) {
+	if err := os.MkdirAll(dirPath, 0o750); err != nil {
+		return "", fmt.Errorf("mkdir: %w", err)
+	}
+	filePath := filepath.Join(dirPath, uuid.New().String()+ext)
+	dst, err := os.Create(filePath)
+	if err != nil {
+		return "", fmt.Errorf("create file: %w", err)
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		return "", fmt.Errorf("copy: %w", err)
+	}
+	return filePath, nil
+}
+
+// findAcceptedDocumentPath returns the document path of the first accepted
+// agreement that has an uploaded document, or "" if none.
+func findAcceptedDocumentPath(agreements []domain.VolunteerAgreement) string {
+	for _, a := range agreements {
+		if a.Status == domain.AgreementAccepted && a.DocumentPath != nil {
+			return *a.DocumentPath
+		}
+	}
+	return ""
+}
+
+// contentTypeForExt maps a file extension to its HTTP content type.
+func contentTypeForExt(ext string) string {
+	switch ext {
+	case ".pdf":
+		return "application/pdf"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	default:
+		return ""
+	}
 }
 
 func extractIP(r *http.Request) string {

@@ -66,47 +66,9 @@ func (s *AttendanceService) CreateAttendance(ctx context.Context, input CreateAt
 		return nil, fmt.Errorf("attendanceService.CreateAttendance: %w", domain.ErrForbidden)
 	}
 
-	personID, err := uuid.Parse(input.PersonID)
+	att, err := buildAttendanceFromInput(input, claims)
 	if err != nil {
-		return nil, fmt.Errorf("attendanceService.CreateAttendance: invalid person_id: %w", err)
-	}
-	serviceTypeID, err := uuid.Parse(input.ServiceTypeID)
-	if err != nil {
-		return nil, fmt.Errorf("attendanceService.CreateAttendance: invalid service_type_id: %w", err)
-	}
-	professionalID, err := uuid.Parse(input.ProfessionalID)
-	if err != nil {
-		return nil, fmt.Errorf("attendanceService.CreateAttendance: invalid professional_id: %w", err)
-	}
-
-	triageID, err := parseOptionalUUID(input.TriageID)
-	if err != nil {
-		return nil, fmt.Errorf("attendanceService.CreateAttendance: invalid triage_id: %w", err)
-	}
-
-	attendanceDate, err := parseOptionalTime(input.AttendanceDate)
-	if err != nil {
-		return nil, fmt.Errorf("attendanceService.CreateAttendance: invalid attendance_date: %w", err)
-	}
-	if attendanceDate == nil {
-		now := time.Now().UTC()
-		attendanceDate = &now
-	}
-
-	createdBy := parseUserID(claims.Subject)
-
-	att := domain.Attendance{
-		ID:              uuid.New(),
-		PersonID:        personID,
-		TriageID:        triageID,
-		CampusID:        claims.CampusID,
-		ServiceTypeID:   serviceTypeID,
-		ProfessionalID:  professionalID,
-		Status:          domain.AttendanceStatusScheduled,
-		AttendanceDate:  *attendanceDate,
-		Observations:    input.Observations,
-		Recommendations: input.Recommendations,
-		CreatedBy:       createdBy,
+		return nil, err
 	}
 
 	created, err := s.repo.Create(ctx, att)
@@ -133,6 +95,49 @@ func (s *AttendanceService) CreateAttendance(ctx context.Context, input CreateAt
 	}
 
 	return created, nil
+}
+
+// buildAttendanceFromInput parses the identifiers and date from a create input
+// and assembles a scheduled domain.Attendance.
+func buildAttendanceFromInput(input CreateAttendanceInput, claims auth.AuthClaims) (domain.Attendance, error) {
+	personID, err := uuid.Parse(input.PersonID)
+	if err != nil {
+		return domain.Attendance{}, fmt.Errorf("attendanceService.CreateAttendance: invalid person_id: %w", err)
+	}
+	serviceTypeID, err := uuid.Parse(input.ServiceTypeID)
+	if err != nil {
+		return domain.Attendance{}, fmt.Errorf("attendanceService.CreateAttendance: invalid service_type_id: %w", err)
+	}
+	professionalID, err := uuid.Parse(input.ProfessionalID)
+	if err != nil {
+		return domain.Attendance{}, fmt.Errorf("attendanceService.CreateAttendance: invalid professional_id: %w", err)
+	}
+	triageID, err := parseOptionalUUID(input.TriageID)
+	if err != nil {
+		return domain.Attendance{}, fmt.Errorf("attendanceService.CreateAttendance: invalid triage_id: %w", err)
+	}
+	attendanceDate, err := parseOptionalTime(input.AttendanceDate)
+	if err != nil {
+		return domain.Attendance{}, fmt.Errorf("attendanceService.CreateAttendance: invalid attendance_date: %w", err)
+	}
+	if attendanceDate == nil {
+		now := time.Now().UTC()
+		attendanceDate = &now
+	}
+
+	return domain.Attendance{
+		ID:              uuid.New(),
+		PersonID:        personID,
+		TriageID:        triageID,
+		CampusID:        claims.CampusID,
+		ServiceTypeID:   serviceTypeID,
+		ProfessionalID:  professionalID,
+		Status:          domain.AttendanceStatusScheduled,
+		AttendanceDate:  *attendanceDate,
+		Observations:    input.Observations,
+		Recommendations: input.Recommendations,
+		CreatedBy:       parseUserID(claims.Subject),
+	}, nil
 }
 
 // GetAttendance returns an attendance with its transition history.

@@ -2318,14 +2318,145 @@ The next functional slice (frontend Dexie v2 + sync drainer + conflict UI) inher
 
 ---
 
+## Session 29 — Autonomous Delivery Pipeline + TDD/E2E Enforcement + PM Artifact Overhaul (2026-06-28)
+
+### Context
+
+Before resuming feature work, this session hardened the delivery process so future features ship autonomously, under TDD, with real end-to-end tests and a blocking critical-review gate. The plan was adversarially reviewed by three independent critics (PM/process, TDD/E2E engineering, sequencing/critical-path) before execution, then implemented by parallel subagents in 3 waves.
+
+### Decisions Taken Before Implementation
+
+1. **E2E posture**: MSW + testcontainers stay mandatory per feature (every PR); Playwright full-stack E2E covers critical flows only (sprint gate). Real stack: Playwright → built frontend → real Go API → real Postgres, Keycloak **mocked** via a test OIDC issuer that exercises the *real* `OIDCAuth` middleware.
+2. **Autonomous delivery**: every deliverable runs through one command, `make deliver`, which fails fast and stops exactly before push. Auto-remediation on REQUEST_CHANGES is autonomous up to 3 cycles.
+3. **Hard push boundary**: the agent/pipeline MUST NEVER run `git push`, `gh pr create`, or `gh pr merge` (PAT lacks permission). Delivery ends at local commits + `READY-FOR-PR` + an APPROVE review file; the push command is only *suggested* for a human.
+4. **Backlog refactor scoped to Sprint 3-4 + Phase 1 remainder** (phase-boundary rule; Phase 2/3 stay high-level to avoid rework).
+
+### What Was Built
+
+**Management & parallelism (Fase A)**
+- `docs/09-backlog.md`: S04.*/S05.*/S06.* annotated with `status`/`depends_on`/`covers_requirements`/`parallel_with`/`size`/`offline` + Given/When/Then acceptance criteria. Phase 2/3 epics carry a deferral note.
+- `docs/08-roadmap.md`: Status column on sprint tables + "Parallelization Model" section (real Phase 1 critical path).
+- `Makefile` (root): `status`, `validate-backlog`, `deliver`. `scripts/generate-status.sh` generates `tasks/STATUS.md` (gitignored, never hand-edited — backlog is the single source of truth).
+- New rules/checklists: `backlog-traceability.md` (updated — SoT + requirement-coverage audit), `ready-definition.md`, `definition-of-done.md`.
+
+**TDD enforcement (Fase B)**
+- `.project-ai/rules/tdd-enforcement.md`: Red-Green-Refactor with **proof-of-RED via commit order** (first test-touching commit must precede first production-touching commit).
+- `feature-delivery.md` Phase 3 rewritten test-first; `pre-review.md` gains the authoritative git-log TDD gate; backend/frontend feature-complete checklists get a blocking TDD item; `test-distribution.md` (60/30/10 pyramid).
+
+**Real E2E (Fase C)**
+- `backend/internal/integration/auth_middleware_test.go`: 5-case table test exercising the **real** OIDC middleware (valid / expired / `email_verified=false`→403 / bad signature → 401 / missing header), local JWKS via httptest, passes with `-race`. Compensates for the Keycloak mock in E2E.
+- `frontend/e2e/` (Playwright): `playwright.config.ts`, `fixtures.ts` (mock-OIDC token injection through the real PKCE flow + per-test campus isolation/cleanup via Postgres), `sync-smoke.spec.ts` (online slice runs; offline slice `test.fixme` until the drainer ships — honest, no false assertion), `mock-oidc/` test issuer. `docker-compose.e2e.yml`, `docs/e2e-testing.md`, `e2e-test-tiers.md` (smoke vs full), `e2e-critical-flows.md` (sprint gate).
+
+**Frontend coverage baseline (Fase D)**
+- `vite.config.ts`: 80% thresholds on `src/offline/**`, `useOfflineStatus.ts`, `authStore.ts` (global 50% documented as the ratchet target). 32 new seed unit tests (`src/offline/__tests__/`, `src/hooks/__tests__/`).
+
+**Autonomous pipeline (Fase F)**
+- `Makefile` `deliver` (7 fail-fast gates): validate-backlog → TDD commit-order (best-effort; authoritative gate is pre-review) → backend build/lint/test/(+integration if Docker) → frontend typecheck/lint/test/integration/coverage/build → e2e:smoke (Docker-gated) → **critical-review gate** (fails unless `tasks/review-<branch>.md` == APPROVE) → DoD gate → `READY-FOR-PR` banner with the *suggested* (not executed) push command.
+- `.project-ai/skills/autonomous-critical-review.md` (drives `reviewer.md`, writes the verdict file), `.project-ai/workflows/autonomous-delivery.md` (the 3-cycle auto-remediation loop + push boundary), `pre-merge.md` (APPROVE sourced from the verdict file), `CLAUDE.md` "Autonomous Delivery & Push Boundary" section.
+
+### Validation Results (executed this session)
+
+| Check | Result |
+|-------|--------|
+| `make validate-backlog` | OK |
+| `make status` → `tasks/STATUS.md` | Generated (S04.*/S05.*/S06. only) |
+| `make -n deliver` (parse) | Clean, exit 0, 7 steps in order |
+| `make deliver-review-gate` with no file | Correctly FAILS (fail-closed) |
+| Backend `go build ./...` + `go test -short ./...` | PASS (9 packages) |
+| Backend `go mod tidy` | go-jose promoted to direct dep (resolved diagnostic) |
+| Backend `go vet -tags integration` (auth test) | PASS; auth test passes with `-race` |
+| Frontend `tsc --noEmit` | PASS |
+| Frontend `vitest run` | 44 pass (8 files); e2e specs correctly excluded |
+| Frontend `test:integration` (MSW) | 8 pass |
+| Frontend `eslint` | **0 errors** (47 pre-existing warnings remain) |
+| Frontend `build` | PASS (PWA generated) |
+
+### Pre-existing blockers fixed (exposed by the new pipeline)
+
+The `make deliver` gate surfaced two **pre-existing** breakages (from recent Dependabot bumps, not introduced this session):
+1. `frontend/src/pages/ReportsPage.tsx:91` — `useMemo(defaultRange, [])` → inline `() => defaultRange()` (eslint-plugin-react-hooks `react-hooks/use-memo` error).
+2. `frontend/tsconfig.app.json` — added `"ignoreDeprecations": "6.0"` for the deprecated `baseUrl` under TypeScript 6.0.3 (build was failing).
+Also added `test.include`/`exclude` to `vite.config.ts` so the unit runner never collects Playwright `e2e/**` specs.
+
+### Risks and Follow-ups
+
+1. **Docker-gated steps** (backend integration, e2e:smoke) print SKIPPED-NEEDS-DOCKER when Docker is absent; the sprint gate requires them green — run with Docker before release.
+2. **E2E offline slice is `test.fixme`** until the sync drainer is wired into the app (next feature).
+3. **Operator steps for E2E**: `cd frontend && npm install` (new devDeps), `npx playwright install chromium`, then `docker compose -f docker-compose.e2e.yml up -d --build`.
+4. **Global frontend coverage floor (50%) not yet enforced** — ratchets up as the suite grows; per-dir 80% floors are enforced now.
+5. **Nothing committed/pushed** — all changes left in the working tree for human review (per the push boundary).
+
+### Plan Going Forward (next session = pilot)
+
+The **frontend offline sync drainer** (Dexie v2 + `useOnlineSync` + pull-merge + conflict UI + TanStack Query) is the first feature delivered under the new model: TDD (RED→GREEN commits), MSW+testcontainers per surface, the Playwright offline slice flipped from `fixme` to active, and `make deliver` as the autonomous gate. Run process×feature concurrently per the roadmap's Parallelization Model.
+
+---
+
+## Session 30 — Backend Lint Zero + Sync Drainer Feature (TDD + real E2E) (2026-06-29/30)
+
+### Context
+
+Running `make deliver` for the first time with Docker exposed that golangci-lint was silently broken (the `~/go/bin` binary was built with go1.25 but the system runs go1.26, so its embedded typechecker emitted spurious `undefined: chi/pgx` errors), masking **83 real pre-existing lint findings**. This session fixed the toolchain, resolved all 83 findings, then implemented the **frontend offline sync drainer** end-to-end under TDD — the first feature through the autonomous pipeline.
+
+### Part 1 — Backend lint: 83 → 0 (toolchain root-cause + real refactors)
+
+- **Toolchain fix (root cause)**: pinned `export GOTOOLCHAIN ?= go1.25.5` in `backend/Makefile` (matches `go.mod` and the production Dockerfile); bumped `backend/Dockerfile` + `Dockerfile.dev` `golang:1.24-alpine` → `1.25` (the Docker build was also broken: `go.mod requires go >= 1.25.0`).
+- **Mechanical fixes**: gofmt (`gofmt -w`), 5× errcheck (`defer func(){ _ = tx.Rollback(ctx) }()`, audit `LogAction` error handling), 3× revive stutter (`//nolint:revive` on widely-used `AuthClaims`/`ServiceType*` — cross-package rename too risky), 4× nestif (guard clauses / switch).
+- **cyclop (16 → 0)**: extracted helpers — `buildSyncPerson/Triage/Attendance` + `mapSyncCreateError` (sync_service), `buildPersonFromInput/applyPersonUpdate/buildPersonAddress` (person_service), `resolveWithoutCampus/resolveWithCampus` (onboarding), `validateRegistration/buildRegistrationPerson` (self_register), `buildAttendanceWhere/buildTriageWhere/buildPersonListQuery` (repository List), `resolveExtension/saveUploadedFile` (volunteer_agreement handler), per-domain `register*Routes` (cmd/server setupRouter 133→short).
+- **funlen**: real extractions where logic warranted (OIDCAuth, RequireAgreement, Register, parse*Filter handlers, insertAddress); table-driven conversions of the long tests (audit/agreement/provision/user/onboarding); and a **config alignment** in `.golangci.yml`: funlen `lines: 40 → 60` (golangci-lint's documented default; real complexity still bounded by cyclop=10) with `ignore-comments` and a per-`_test.go` 120-line ceiling. Cohesive struct-mappers and SQL-scan methods are no longer fragmented.
+- **migrations/run.sh**: the Postgres-readiness loop used `migrate version` exit code, which is non-zero on a fresh DB ("no migration") — it now treats only *connection* errors as "not ready". (Found while booting the E2E stack.)
+- **Result**: `make lint` 0 findings, `go build`/`go test -short` (9 pkgs)/`make test-integration` (incl. real-OIDC `auth_middleware_test`, `-race`) all green.
+
+### Part 2 — Sync drainer feature (frontend, TDD RED→GREEN, real E2E)
+
+New deps: `fake-indexeddb` (dev — real in-memory IndexedDB for drainer unit tests), `@tanstack/react-query` (prod).
+
+| Slice | Files | Tests (all RED→GREEN) |
+|-------|-------|------------------------|
+| Dexie v2 | `offline/db.ts` (+`triages`/`attendances` stores, non-destructive v2 upgrade; `LocalEntity` generic) | `db.v2.test.ts` |
+| Sync engine | `offline/syncEngine.ts` — `backoffDelay` (5s→30s→2m→10m cap), `drainQueue` (created/conflict/error/throw), `mergePullRecords` (insert / replace-if-newer / skip / conflict-on-pending) | `syncEngine.test.ts`, `pullMerge.test.ts` |
+| API client | `api/sync.ts` — `syncPush`/`syncPull` | `syncClient.integration.test.ts` (MSW) |
+| Hook | `hooks/useOnlineSync.ts` — pending/conflict counts, `syncNow`, auto-drain on `online`, `lastSync` cursor | `useOnlineSync.test.tsx` |
+| Conflict UI | `components/ui/SyncStatusBanner.tsx` (replaces+deletes `OfflineBanner`; pending badge + Sync-now + conflict badge); wired in `AppLayout` | `SyncStatusBanner.test.tsx` |
+| Offline create | `offline/personOffline.ts` `createPersonWithOfflineFallback` + valid-`PersonListItem` shape; `usePersonForm`/`usePersons` offline fallback (cache + pending) | `createWithFallback.test.ts`, `usePersonsOffline.test.tsx` |
+| TanStack Query | `QueryClientProvider` in `main.tsx` | — |
+| E2E | `e2e/sync-smoke.spec.ts` offline slice flipped `fixme` → **active** | Playwright |
+
+- **Real E2E proven** (`npm run test:e2e:smoke`, 2 passed against the live stack): online create→list→Postgres **and** offline create→IndexedDB-cached-list→reconnect→drainer pushes to `/sync/push`→row in Postgres.
+- Bug found+fixed via E2E: offline-created person crashed `PersonCard` (`roles.length` on undefined) — `savePersonOffline` now stores a valid `PersonListItem` (`roles: []`, `is_active: true`).
+- Global `fake-indexeddb/auto` added to `src/test-setup.ts` so any component reaching the offline layer has IndexedDB under Vitest.
+
+### Validation — `make deliver` PASSED end-to-end (Docker up, exit 0)
+
+validate-backlog ✅ · TDD gate ✅ · backend build/lint(0)/test/integration ✅ · frontend typecheck/lint(0 err)/test(69)/integration(12)/coverage(≥thresholds)/build ✅ · **E2E smoke 2/2** ✅ · critical-review APPROVE ✅ · DoD ✅ · **READY-FOR-PR**. Nothing pushed (push boundary honored).
+
+### Critical-review remediation (autonomous gate cycle)
+
+The fresh `make deliver` critical review returned **REQUEST_CHANGES** with 2 MAJOR findings (the gate doing its job on the new code). Both were remediated under TDD:
+- **MAJOR-1 — conflict data loss**: on a `conflict` push result the drainer previously **deleted** the queued record (silent loss of field-captured PII). Now it flags `conflicted: true` and **preserves** the item (excluded from auto-drains), exposes `getConflicts()`/`discardConflict()` for an operator resolution surface, and the test asserts preservation (not deletion). `SyncQueueItem` gained `conflicted?`/`deadLettered?`.
+- **MAJOR-2 — backoff never ran**: `backoffDelay` was exported/tested but unused; failed/error pushes only re-drained on the `online` event. `useOnlineSync` now schedules a `setTimeout` retry using `backoffDelay(minRetryCount)` (with a `retryDelayMs` test seam + unmount cleanup), and the engine adds a `MAX_RETRIES` **dead-letter** terminal state so a poison item cannot loop forever.
+- **MINOR-1/3**: `isNetworkError` extracted to shared `api/errors.ts`; `toPullRecord` (sync_service.go) now handles the json marshal/unmarshal errors via slog instead of `_`.
+
+After remediation: backend lint 0, **76** frontend unit tests, 12 integration, **E2E 2/2**, coverage ≥ thresholds — re-reviewed for the final APPROVE.
+
+### Follow-ups
+- 51 pre-existing frontend eslint *warnings* (set-state-in-effect, `authStore.initialize` complexity 13) remain — not blocking; clean up when those files are next touched.
+- Offline-create fallback is wired for **person** only; triage/attendance forms still POST online-only (extend with the same `*WithOfflineFallback` pattern when those slices are prioritized).
+- Conflict resolution surface: `getConflicts()`/`discardConflict()` exist and the banner shows a conflict badge, but a full review/merge/resubmit UI is not yet built — next slice.
+- Bundle >500 kB warning — code-splitting deferred.
+
+---
+
 ## Context for Future AI Sessions
 
 When starting a new session on this repository:
 
-1. Read `CLAUDE.md` (root) for architecture rules
+1. Read `CLAUDE.md` (root) for architecture rules **and the Autonomous Delivery & Push Boundary section**
 2. Read `docs/07-mvp-scope.md` to understand current priorities
-3. Read `docs/09-backlog.md` to find the next story to implement
-4. Check `HANDOFF.md` (this file) for the latest status
-5. Check `git log` for what has been implemented since this handoff
+3. Check `tasks/STATUS.md` (run `make status` to regenerate) for the story status board — the fast path to "what's next"
+4. Read `docs/09-backlog.md` for the annotated story (status/deps/criteria) you intend to implement
+5. Check `HANDOFF.md` (this file) for the latest narrative and `git log` for code since this handoff
+
+**Delivery is autonomous**: implement under TDD, then run `make deliver` (it chains every local gate, produces the critical-review verdict, and stops at `READY-FOR-PR`). The agent NEVER runs `git push` / `gh pr create` / `gh pr merge` — it prints the suggested push command for a human.
 
 The documentation suite is designed to be self-sufficient — an AI agent should be able to pick up any story from the backlog and implement it correctly by following the architecture, data model, and API design docs.

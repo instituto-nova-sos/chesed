@@ -58,154 +58,107 @@ func newTestClaims() auth.AuthClaims {
 	}
 }
 
-func TestUserService_EnsureUser(t *testing.T) {
-	t.Run("existing user updates last_login and logs LOGIN audit", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
+// newUserServiceTest wires UserService over fresh mocks with a base context.
+func newUserServiceTest() (*MockUserRepository, *MockAuditRepository, *UserService, auth.AuthClaims, context.Context) {
+	userRepo := new(MockUserRepository)
+	auditRepo := new(MockAuditRepository)
+	svc := NewUserService(userRepo, NewAuditService(auditRepo))
+	claims := newTestClaims()
+	return userRepo, auditRepo, svc, claims, auth.NewContext(context.Background(), claims)
+}
 
-		claims := newTestClaims()
-		ctx := auth.NewContext(context.Background(), claims)
+func TestUserService_EnsureUser_ExistingLogsLogin(t *testing.T) {
+	userRepo, auditRepo, svc, claims, ctx := newUserServiceTest()
+	existing := &domain.AppUser{
+		ID: uuid.New(), Email: claims.Email, KeycloakSubjectID: claims.Subject,
+		AccessProfile: "VOLUNTEER", CampusID: &claims.CampusID, IsActive: true,
+	}
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(existing, nil)
+	userRepo.On("UpdateLastLogin", ctx, existing.ID).Return(nil)
+	auditRepo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
+		return entry.ActionType == "LOGIN" && entry.EntityType == "app_user"
+	})).Return(nil)
 
-		existing := &domain.AppUser{
-			ID:                uuid.New(),
-			Email:             claims.Email,
-			KeycloakSubjectID: claims.Subject,
-			AccessProfile:     "VOLUNTEER",
-			CampusID:          &claims.CampusID,
-			IsActive:          true,
-		}
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.NoError(t, err)
+	assert.Equal(t, existing.ID, got.ID)
+	assert.Equal(t, existing.Email, got.Email)
+	userRepo.AssertExpectations(t)
+	auditRepo.AssertExpectations(t)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
 
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(existing, nil)
-		userRepo.On("UpdateLastLogin", ctx, existing.ID).Return(nil)
-		auditRepo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.ActionType == "LOGIN" && entry.EntityType == "app_user"
-		})).Return(nil)
+func TestUserService_EnsureUser_NewProvisioned(t *testing.T) {
+	userRepo, auditRepo, svc, claims, _ := newUserServiceTest()
+	claims.Roles = []string{"COORDINATOR"}
+	ctx := auth.NewContext(context.Background(), claims)
 
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.NoError(t, err)
-		assert.Equal(t, existing.ID, got.ID)
-		assert.Equal(t, existing.Email, got.Email)
-		userRepo.AssertExpectations(t)
-		auditRepo.AssertExpectations(t)
-		userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
-	})
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
+	userRepo.On("Create", ctx, mock.MatchedBy(func(user domain.AppUser) bool {
+		return user.Email == claims.Email &&
+			user.KeycloakSubjectID == claims.Subject &&
+			user.AccessProfile == "COORDINATOR" &&
+			user.CampusID != nil && *user.CampusID == claims.CampusID &&
+			user.IsActive && user.ID != uuid.Nil
+	})).Return(&domain.AppUser{
+		ID: uuid.New(), Email: claims.Email, KeycloakSubjectID: claims.Subject,
+		AccessProfile: "COORDINATOR", CampusID: &claims.CampusID, IsActive: true,
+	}, nil)
+	auditRepo.On("Create", ctx, mock.Anything).Return(nil)
 
-	t.Run("new user provisioned", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.NoError(t, err)
+	assert.Equal(t, claims.Email, got.Email)
+	assert.Equal(t, "COORDINATOR", got.AccessProfile)
+	userRepo.AssertExpectations(t)
+	auditRepo.AssertExpectations(t)
+}
 
-		claims := newTestClaims()
-		claims.Roles = []string{"COORDINATOR"}
-		ctx := auth.NewContext(context.Background(), claims)
+func TestUserService_EnsureUser_AuditErrorStillReturnsUser(t *testing.T) {
+	userRepo, auditRepo, svc, claims, ctx := newUserServiceTest()
+	createdUser := &domain.AppUser{ID: uuid.New(), Email: claims.Email}
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
+	userRepo.On("Create", ctx, mock.Anything).Return(createdUser, nil)
+	auditRepo.On("Create", ctx, mock.Anything).Return(errors.New("audit db down"))
 
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
-		userRepo.On("Create", ctx, mock.MatchedBy(func(user domain.AppUser) bool {
-			return user.Email == claims.Email &&
-				user.KeycloakSubjectID == claims.Subject &&
-				user.AccessProfile == "COORDINATOR" &&
-				user.CampusID != nil && *user.CampusID == claims.CampusID &&
-				user.IsActive &&
-				user.ID != uuid.Nil
-		})).Return(&domain.AppUser{
-			ID:                uuid.New(),
-			Email:             claims.Email,
-			KeycloakSubjectID: claims.Subject,
-			AccessProfile:     "COORDINATOR",
-			CampusID:          &claims.CampusID,
-			IsActive:          true,
-		}, nil)
-		auditRepo.On("Create", ctx, mock.Anything).Return(nil)
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "audit")
+	assert.NotNil(t, got, "user should still be returned even if audit fails")
+	assert.Equal(t, createdUser.ID, got.ID)
+}
 
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.NoError(t, err)
-		assert.Equal(t, claims.Email, got.Email)
-		assert.Equal(t, "COORDINATOR", got.AccessProfile)
-		userRepo.AssertExpectations(t)
-		auditRepo.AssertExpectations(t)
-	})
+func TestUserService_EnsureUser_FindErrorPropagated(t *testing.T) {
+	userRepo, _, svc, claims, ctx := newUserServiceTest()
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, errors.New("db timeout"))
 
-	t.Run("new user audit error still returns user", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "db timeout")
+}
 
-		claims := newTestClaims()
-		ctx := auth.NewContext(context.Background(), claims)
+func TestUserService_EnsureUser_UpdateLastLoginErrorPropagated(t *testing.T) {
+	userRepo, _, svc, claims, ctx := newUserServiceTest()
+	existing := &domain.AppUser{ID: uuid.New()}
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(existing, nil)
+	userRepo.On("UpdateLastLogin", ctx, existing.ID).Return(errors.New("update failed"))
 
-		createdUser := &domain.AppUser{
-			ID:    uuid.New(),
-			Email: claims.Email,
-		}
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "update failed")
+}
 
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
-		userRepo.On("Create", ctx, mock.Anything).Return(createdUser, nil)
-		auditRepo.On("Create", ctx, mock.Anything).Return(errors.New("audit db down"))
+func TestUserService_EnsureUser_CreateErrorPropagated(t *testing.T) {
+	userRepo, _, svc, claims, ctx := newUserServiceTest()
+	userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
+	userRepo.On("Create", ctx, mock.Anything).Return(nil, errors.New("unique constraint"))
 
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "audit")
-		assert.NotNil(t, got, "user should still be returned even if audit fails")
-		assert.Equal(t, createdUser.ID, got.ID)
-	})
-
-	t.Run("find error propagated", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
-
-		claims := newTestClaims()
-		ctx := auth.NewContext(context.Background(), claims)
-
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, errors.New("db timeout"))
-
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.Error(t, err)
-		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "db timeout")
-	})
-
-	t.Run("update last_login error propagated", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
-
-		claims := newTestClaims()
-		ctx := auth.NewContext(context.Background(), claims)
-
-		existing := &domain.AppUser{ID: uuid.New()}
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(existing, nil)
-		userRepo.On("UpdateLastLogin", ctx, existing.ID).Return(errors.New("update failed"))
-
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.Error(t, err)
-		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "update failed")
-	})
-
-	t.Run("create error propagated", func(t *testing.T) {
-		userRepo := new(MockUserRepository)
-		auditRepo := new(MockAuditRepository)
-		auditSvc := NewAuditService(auditRepo)
-		svc := NewUserService(userRepo, auditSvc)
-
-		claims := newTestClaims()
-		ctx := auth.NewContext(context.Background(), claims)
-
-		userRepo.On("FindByKeycloakSubject", ctx, claims.Subject).Return(nil, domain.ErrNotFound)
-		userRepo.On("Create", ctx, mock.Anything).Return(nil, errors.New("unique constraint"))
-
-		got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
-		require.Error(t, err)
-		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "unique constraint")
-	})
+	got, err := svc.EnsureUser(ctx, claims, "1.2.3.4", "test-agent")
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "unique constraint")
 }
 
 func TestResolveAccessProfile(t *testing.T) {

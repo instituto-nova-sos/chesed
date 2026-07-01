@@ -95,7 +95,7 @@ STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALI
 
 ## Phase 3: IMPLEMENT
 
-**Goal**: Write the code following the design.
+**Goal**: Drive the code into existence test-first. Every layer follows the Red-Green-Refactor cycle from `.project-ai/rules/tdd-enforcement.md`: write the failing test, run it and **see it fail (RED)**, write the minimum code to pass (**GREEN**), confirm the full suite is green, then refactor while staying green. No production code is written before a test that requires it. The RED→GREEN order must be visible in the commit history (test commit `test: <story-id> - <desc> (RED)` before the production commit `feat: <story-id> - <desc> (GREEN)`).
 
 ### Steps
 
@@ -104,47 +104,61 @@ STORY ──> PLAN ──> DESIGN ──> IMPLEMENT ──> VERIFY ──> QUALI
    - Follow `add-database-table` playbook
    - Create `.up.sql` and `.down.sql` migration files
    - Run `post-migration` hook to verify
+   - Migrations are schema, not behavior — the behavior that reads/writes the new schema is driven by the layer tests below, and any new SQL constraint is proven RED-first by an integration test before the constraint exists (see step 2).
 
-2. **Backend implementation**:
+2. **Backend implementation — test-first per layer**:
    - Run `pre-api-change` hook (if modifying endpoints)
-   - Follow `implement-backend-endpoint` playbook:
+   - Follow `implement-backend-endpoint` playbook, but for **each layer** run a full RED→GREEN→REFACTOR cycle before moving to the next:
      ```
-     domain struct -> repository -> service -> handler -> route
+     for each layer in [repository, service, handler]:
+       write test → run → RED → implement minimum → run → GREEN → refactor (stay green)
+     then: route registration (thin wiring; covered by the integration test, not a unit test)
      ```
-   - Write unit tests alongside service layer (pgxmock for repo SQL contracts, testify mocks for service orchestration)
-   - **Write integration tests** for the new endpoint in `backend/internal/integration/` (build tag `integration`). These exercise the real chi router → service → repository → real Postgres via testcontainers-go. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with DB assertions, campus scoping, every documented error code, every SQL constraint.
+     - **Repository**: write the `pgxmock` test pinning the SQL contract (columns, WHERE/campus filter, parameter positions) → RED → implement the query → GREEN.
+     - **Service**: write the table-driven `testify` test for business rules and validation (mocked repository) → RED → implement the logic → GREEN.
+     - **Handler**: write the test for request parsing, validation, status codes, and error mapping (mocked service) → RED → implement the handler → GREEN.
+   - **Integration test written before (or together with) the endpoint going live**: add the test in `backend/internal/integration/` (build tag `integration`) that drives the real chi router → service → repository → real Postgres via testcontainers-go. Write it so it is RED until the route is wired, then GREEN. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with DB assertions, campus scoping, every documented error code, every SQL constraint.
 
-3. **Frontend implementation**:
-   - Follow `implement-frontend-page` playbook:
+3. **Frontend implementation — test-first per unit**:
+   - Follow `implement-frontend-page` playbook, running a RED→GREEN→REFACTOR cycle for **each hook and component**:
      ```
-     types -> api client -> hooks -> components -> page -> route
+     for each unit in [api client, hooks, components, forms]:
+       write Vitest/RTL test → run → RED → implement minimum → run → GREEN → refactor (stay green)
+     then: page composition + route registration (thin wiring)
      ```
-   - Write Vitest tests for hooks
-   - Write React Testing Library tests for forms
-   - **Write integration tests** for the new API surface in `frontend/src/__integration__/` (suffix `.integration.test.ts(x)`). These exercise the real `apiClient` + hook against MSW. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with wire-contract assertions, error mapping, Bearer token presence.
+     - **Hooks**: write the Vitest test for loading/error/success state transitions (mocked api-client) → RED → implement the hook → GREEN.
+     - **Components / forms**: write the React Testing Library test for interactions and validation behavior → RED → implement → GREEN.
+   - **MSW integration test written before the api-client function**: add the test in `frontend/src/__integration__/` (suffix `.integration.test.ts(x)`) that exercises the real `apiClient` + hook against MSW. Write it RED (the api-client function does not exist yet), then make it GREEN by implementing the function. Mandatory per `.project-ai/checklists/integration-tests.md` — happy path with wire-contract assertions, error mapping, Bearer token presence.
 
 4. **Offline support** (if applicable):
    - Follow `add-offline-support` playbook
-   - Implement Dexie.js storage in `src/offline/`
-   - Implement sync queue for offline mutations
+   - Drive the sync queue and Dexie schema test-first: write the unit tests for enqueue/dequeue/batch/retry and the schema/migration transform → RED → implement in `src/offline/` → GREEN. Keep most of this logic pure so it sits in the unit tier (see `.project-ai/checklists/test-distribution.md`).
 
-### Implementation Order
+### Implementation Order (test-first)
+
+Each box is a RED→GREEN→REFACTOR cycle: the test is written and seen to fail before the code in that box exists.
 
 ```
-Database Migration
+Database Migration (schema only)
        │
        v
-Backend: Domain -> Repository -> Service -> Handler -> Route
+Backend, per layer (test → RED → code → GREEN → refactor):
+   Repository → Service → Handler → Route
+   └─ Integration test (testcontainers) written before the endpoint goes live
        │
        v
-Frontend: Types -> API Client -> Hooks -> Components -> Page
+Frontend, per unit (test → RED → code → GREEN → refactor):
+   API Client → Hooks → Components → Page
+   └─ MSW integration test written before the api-client function
        │
        v
-Offline Support (if applicable)
+Offline Support — sync queue & Dexie schema driven test-first (if applicable)
        │
        v
 Post-Implement Hook (tests, lint, quality assessment, docs check, HANDOFF.md update)
 ```
+
+> Test distribution: aim for ~60% unit / ~30% integration / ~10% E2E across the tests this feature adds (`.project-ai/checklists/test-distribution.md`). Most behavior is proven at the unit tier; integration tests prove the boundaries; the single E2E slice proves the critical journey.
 
 ---
 
@@ -254,6 +268,19 @@ If quality gate fails:
 - Re-evaluate quality gate
 - Repeat until all conditions pass
 
+### Single Autonomous Gate: `make deliver`
+
+Steps 1–5 above are not run ad hoc at delivery time — they are chained, fail-fast,
+into the **single autonomous gate** `make deliver` (root `Makefile`). That command
+runs backlog validation, the TDD commit-order gate, the backend and frontend
+gates, the E2E smoke flow, the **blocking critical-review gate** (which **produces**
+`tasks/review-<branch>.md` via the `autonomous-critical-review` skill — the reviewer
+verdict is now a file, not just a consulted opinion), and the DoD gate. On a
+`REQUEST_CHANGES` verdict, the auto-remediation loop in
+`.project-ai/workflows/autonomous-delivery.md` runs `refactor-for-quality` under TDD
+and re-runs `make deliver` autonomously, up to 3 cycles. Do not re-implement these
+gates here — invoke `make deliver` and follow `autonomous-delivery.md`.
+
 ---
 
 ## Phase 5: DOCUMENT
@@ -278,34 +305,38 @@ If quality gate fails:
 
 ---
 
-## Phase 6: DELIVER (Sprint End)
+## Phase 6: DELIVER
 
-**Goal**: Prepare the sprint for release.
+**Goal**: Take the feature from "committed" to "ready-for-PR" through the single
+autonomous gate, and stop at the permitted boundary — **before `git push`**.
 
 ### Steps
 
-1. **Run prepare-sprint-delivery playbook**:
-   - Verify all sprint stories complete
-   - Run full test suite
-   - Run full lint suite
-   - Check documentation sync
+1. **Run the single autonomous gate: `make deliver`.**
+   This is the one command that delivers. It chains every local gate
+   (backlog → TDD order → backend → frontend → E2E smoke → critical review → DoD),
+   **produces** the reviewer verdict file `tasks/review-<branch>.md` via the
+   `autonomous-critical-review` skill, and — on all green — prints the
+   `READY-FOR-PR` banner with the **suggested** push command. Follow
+   `.project-ai/workflows/autonomous-delivery.md` for the end-to-end loop.
 
-2. **Run assess-release-readiness skill**:
-   - Evaluate overall sprint quality
-   - Identify any gaps or risks
-   - Confirm all checklist items pass
+2. **On `REQUEST_CHANGES`, auto-remediate (no human approval per cycle).**
+   The orchestrator applies `refactor-for-quality` under TDD and re-runs
+   `make deliver`, autonomously, **up to 3 cycles**. If it does not converge to
+   `APPROVE` after 3 cycles, the impasse is recorded in `tasks/review-<branch>.md`
+   and the run **stops for human decision** — nothing is pushed.
 
-3. **Run prepare-handoff skill**:
-   - Generate HANDOFF.md content
-   - Summarize what was built, decisions made, known issues
-   - Recommend next steps
+3. **Push boundary (hard).** This workflow, `make deliver`, and every artifact it
+   invokes **NEVER** run `git push`, `gh pr create`, or `gh pr merge` — the PAT has
+   no such permission. Delivery is complete at: local commits + `APPROVE` in
+   `tasks/review-<branch>.md` + the `READY-FOR-PR` banner. A human runs the
+   suggested `! git push -u origin <branch>`. See `CLAUDE.md` —
+   "Autonomous Delivery & Push Boundary".
 
-4. **Complete sprint-release checklist** (`sprint-release.md`)
-
-5. **Tag the release**:
-   ```
-   git tag sprint-N-complete
-   ```
+4. **Sprint end (when the increment is releasable).** Run `assess-release-readiness`,
+   `prepare-handoff` (update `HANDOFF.md`), and complete the `sprint-release.md`
+   checklist. Tag the release locally (`git tag sprint-N-complete`); the tag, like
+   the branch, is pushed by a human.
 
 ---
 

@@ -41,5 +41,17 @@ export default defineConfig([
       ],
     },
   },
+  // Playwright E2E suite runs in Node, not the browser, and the Playwright
+  // fixture API relies on empty destructuring patterns (`async ({}, use) =>`).
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      'no-empty-pattern': 'off',
+      'react-hooks/rules-of-hooks': 'off',
+    },
+  },
   eslintConfigPrettier,
 ]);

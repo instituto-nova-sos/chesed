@@ -1,0 +1,13 @@
+{
+  "name": "chesed-e2e-mock-oidc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test-only mock OIDC issuer (stands in for Keycloak) for Chesed E2E. Never ship to production.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  }
+}

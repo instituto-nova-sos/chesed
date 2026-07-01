@@ -51,9 +51,15 @@ Before merging any PR into the main branch. Before approving code for integratio
 
 4. **Verify reviewer agent verdict**
 
-   - [ ] Reviewer agent has evaluated the PR.
-   - [ ] Reviewer verdict is APPROVE (not REQUEST_CHANGES or NEEDS_DISCUSSION).
-   - [ ] All BLOCKER and MAJOR issues resolved.
+   - [ ] Reviewer agent has evaluated the branch — its verdict is recorded in the
+         file `tasks/review-<branch>.md`, produced by the
+         `autonomous-critical-review` skill over `git diff main...HEAD` and
+         consumed by `make deliver` (step 6). This file is the **source of the
+         verdict**, not an in-chat opinion.
+   - [ ] The verdict line in `tasks/review-<branch>.md` is **APPROVE**
+         (`### Verdict: APPROVE`), not `REQUEST_CHANGES`, `NEEDS_DISCUSSION`, or an
+         `## IMPASSE` recorded after 3 non-converged auto-remediation cycles.
+   - [ ] All BLOCKER and MAJOR issues in that file are resolved.
 
 5. **Verify security review (if applicable)**
 

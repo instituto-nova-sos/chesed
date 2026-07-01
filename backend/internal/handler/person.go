@@ -38,30 +38,28 @@ func (h *PersonHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	person, err := h.svc.CreatePerson(r.Context(), input)
 	if err != nil {
-		if errors.Is(err, domain.ErrDuplicateEmail) {
-			writeError(w, http.StatusConflict, "duplicate_email", "a person with this email already exists")
-			return
-		}
-		if errors.Is(err, domain.ErrDuplicatePhone) {
-			writeError(w, http.StatusConflict, "duplicate_phone", "a person with this phone already exists")
-			return
-		}
-		if errors.Is(err, domain.ErrDuplicate) {
-			writeError(w, http.StatusConflict, "duplicate", "person with this document already exists")
-			return
-		}
-		if errors.Is(err, domain.ErrInvalidCPF) {
-			writeError(w, http.StatusBadRequest, "invalid_cpf", "CPF inválido")
-			return
-		}
-		slog.ErrorContext(r.Context(), "personHandler.Create: failed",
-			"error", err.Error(),
-		)
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create person")
+		h.writeCreateError(w, r, err)
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, person)
+}
+
+// writeCreateError maps a CreatePerson service error to its HTTP response.
+func (h *PersonHandler) writeCreateError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, domain.ErrDuplicateEmail):
+		writeError(w, http.StatusConflict, "duplicate_email", "a person with this email already exists")
+	case errors.Is(err, domain.ErrDuplicatePhone):
+		writeError(w, http.StatusConflict, "duplicate_phone", "a person with this phone already exists")
+	case errors.Is(err, domain.ErrDuplicate):
+		writeError(w, http.StatusConflict, "duplicate", "person with this document already exists")
+	case errors.Is(err, domain.ErrInvalidCPF):
+		writeError(w, http.StatusBadRequest, "invalid_cpf", "CPF inválido")
+	default:
+		slog.ErrorContext(r.Context(), "personHandler.Create: failed", "error", err.Error())
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create person")
+	}
 }
 
 // List handles GET /persons.
@@ -168,7 +166,7 @@ func (h *PersonHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"person": map[string]string{"id": id.String()},
+		"person":  map[string]string{"id": id.String()},
 		"history": history,
 	})
 }

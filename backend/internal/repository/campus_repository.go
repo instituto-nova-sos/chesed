@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/instituto-nova-sos/chesed/internal/domain"
 )
 
 // CampusRepository handles campus persistence.

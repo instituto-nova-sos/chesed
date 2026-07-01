@@ -28,7 +28,7 @@ func (r *TriageRepository) Create(ctx context.Context, triage domain.Triage) (*d
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.Create: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const triageQuery = `
 		INSERT INTO triage (id, person_id, campus_id, main_complaint, assigned_team,
@@ -76,7 +76,7 @@ func (r *TriageRepository) CreateWithSync(ctx context.Context, triage domain.Tri
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.CreateWithSync: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const q = `
 		INSERT INTO triage (id, person_id, campus_id, main_complaint, assigned_team,
@@ -213,21 +213,27 @@ func (r *TriageRepository) findRequestedServices(ctx context.Context, triageID u
 }
 
 // List returns a paginated list of triages scoped to campus, with optional filters.
-func (r *TriageRepository) List(ctx context.Context, filter domain.TriageFilter) (*domain.TriageListResult, error) {
+func buildTriageWhere(filter domain.TriageFilter) (string, []any) {
 	args := []any{filter.CampusID}
 	where := "t.campus_id = $1 AND t.is_active = TRUE"
+	addClause := func(value any, clause string) {
+		args = append(args, value)
+		where += fmt.Sprintf(clause, len(args))
+	}
 	if filter.PersonID != nil {
-		args = append(args, *filter.PersonID)
-		where += fmt.Sprintf(" AND t.person_id = $%d", len(args))
+		addClause(*filter.PersonID, " AND t.person_id = $%d")
 	}
 	if filter.From != nil {
-		args = append(args, *filter.From)
-		where += fmt.Sprintf(" AND t.triage_date >= $%d", len(args))
+		addClause(*filter.From, " AND t.triage_date >= $%d")
 	}
 	if filter.To != nil {
-		args = append(args, *filter.To)
-		where += fmt.Sprintf(" AND t.triage_date <= $%d", len(args))
+		addClause(*filter.To, " AND t.triage_date <= $%d")
 	}
+	return where, args
+}
+
+func (r *TriageRepository) List(ctx context.Context, filter domain.TriageFilter) (*domain.TriageListResult, error) {
+	where, args := buildTriageWhere(filter)
 
 	countQuery := "SELECT COUNT(*) FROM triage t WHERE " + where
 	var total int
@@ -289,7 +295,7 @@ func (r *TriageRepository) Update(ctx context.Context, triage domain.Triage) (*d
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.Update: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const q = `
 		UPDATE triage

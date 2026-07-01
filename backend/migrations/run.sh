@@ -5,8 +5,13 @@ MAX_RETRIES=30
 RETRY_INTERVAL=2
 
 echo "==> Waiting for PostgreSQL to be ready..."
+# `migrate version` returns a non-zero exit with "no migration" on a fresh,
+# reachable database — that still means Postgres is UP, just not migrated yet.
+# So we treat connectivity errors (not "no migration") as "not ready" instead of
+# relying on the version exit code alone.
 i=0
-until migrate -path ./migrations -database "$DATABASE_URL" version >/dev/null 2>&1; do
+until ! migrate -path ./migrations -database "$DATABASE_URL" version 2>&1 \
+  | grep -qiE "connection refused|could not connect|no such host|dial tcp|connect: |timeout"; do
   i=$((i + 1))
   if [ "$i" -ge "$MAX_RETRIES" ]; then
     echo "FATAL: PostgreSQL not reachable after ${MAX_RETRIES} attempts"

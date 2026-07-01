@@ -47,73 +47,136 @@ Documentation  MVP Core    Extended     Scale &
 - Consent capture tables or endpoints
 - `FOLLOW_UP` attendance state
 
-### Sprint 1: Auth and Infrastructure (Weeks 2-3)
+### Sprint 1: Auth and Infrastructure (Weeks 2-3) — DONE
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 1.1 | Design and run database migrations (campus, person, address, person_role, assisted_profile, app_user, service_type, audit_log) | 0.4 |
-| 1.2 | Implement OIDC token validation middleware (`coreos/go-oidc` + Keycloak JWKS) | 1.1 |
-| 1.3 | Implement local user auto-provisioning (first login creates `app_user` from Keycloak `sub` claim) | 1.2 |
-| 1.4 | Implement RBAC middleware (roles from Keycloak token claims) | 1.2 |
-| 1.5 | Implement audit logging middleware | 1.2 |
-| 1.6 | Implement campus-scoped data access | 1.1, 1.4 |
-| 1.7 | Create seed data (service types, default campus) | 1.1 |
-| 1.8 | React OIDC integration (redirect to Keycloak via keycloak-js adapter) | 0.3 |
-| 1.9 | React: layout shell (navbar, sidebar, responsive) | 0.3 |
-| 1.10 | React: auth context wrapping keycloak-js | 1.8 |
-| 1.11 | MFA configuration for ADMIN role in Keycloak | 0.7 |
-| 1.12 | Keycloak realm configuration as code (S02.9) | 0.7 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 1.1 | Design and run database migrations (campus, person, address, person_role, assisted_profile, app_user, service_type, audit_log) | 0.4 | Done |
+| 1.2 | Implement OIDC token validation middleware (`coreos/go-oidc` + Keycloak JWKS) | 1.1 | Done |
+| 1.3 | Implement local user auto-provisioning (first login creates `app_user` from Keycloak `sub` claim) | 1.2 | Done |
+| 1.4 | Implement RBAC middleware (roles from Keycloak token claims) | 1.2 | Done |
+| 1.5 | Implement audit logging middleware | 1.2 | Done |
+| 1.6 | Implement campus-scoped data access | 1.1, 1.4 | Done |
+| 1.7 | Create seed data (service types, default campus) | 1.1 | Done |
+| 1.8 | React OIDC integration (redirect to Keycloak via keycloak-js adapter) | 0.3 | Done |
+| 1.9 | React: layout shell (navbar, sidebar, responsive) | 0.3 | Done |
+| 1.10 | React: auth context wrapping keycloak-js | 1.8 | Done |
+| 1.11 | MFA configuration for ADMIN role in Keycloak | 0.7 | Done |
+| 1.12 | Keycloak realm configuration as code (S02.9) | 0.7 | Done |
 
 **Milestone**: Users authenticate via Keycloak; API validates OIDC tokens and enforces RBAC; audit log captures events.
 
-### Sprint 2: Person Management (Weeks 4-5)
+### Sprint 2: Person Management (Weeks 4-5) — DONE
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 2.1 | Person API: CRUD endpoints | 1.1 |
-| 2.2 | Person API: search (name, CPF, fuzzy matching) | 2.1 |
-| 2.3 | Person API: duplicate detection | 2.1 |
-| 2.4 | Person role management API | 2.1 |
-| 2.5 | React: Person list page (search, filter, paginate) | 1.9, 2.1 |
-| 2.6 | React: Person form (create/edit) | 2.5 |
-| 2.7 | React: Person detail page (profile + history timeline) | 2.5 |
-| 2.8 | Set up IndexedDB with Dexie.js (person store) | 1.9 |
-| 2.9 | Implement offline person creation | 2.6, 2.8 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 2.1 | Person API: CRUD endpoints | 1.1 | Done |
+| 2.2 | Person API: search (name, CPF, fuzzy matching) | 2.1 | Done |
+| 2.3 | Person API: duplicate detection | 2.1 | Done |
+| 2.4 | Person role management API | 2.1 | Done |
+| 2.5 | React: Person list page (search, filter, paginate) | 1.9, 2.1 | Done |
+| 2.6 | React: Person form (create/edit) | 2.5 | Done |
+| 2.7 | React: Person detail page (profile + history timeline) | 2.5 | Done |
+| 2.8 | Set up IndexedDB with Dexie.js (person store) | 1.9 | Done |
+| 2.9 | Implement offline person creation | 2.6, 2.8 | Done |
 
 **Milestone**: Persons can be registered, searched, and viewed. Offline creation works.
 
-### Sprint 3: Triage and Attendance (Weeks 6-7)
+### Sprint 3: Triage and Attendance (Weeks 6-7) — DONE
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 3.1 | Triage API: create, list, detail | 1.1, 2.1 |
-| 3.2 | Attendance API: CRUD with workflow transitions | 1.1, 2.1 |
-| 3.3 | Attendance transition API: status change with audit | 3.2 |
-| 3.4 | React: Triage form (complaint, services, person search) | 2.5, 3.1 |
-| 3.5 | React: Attendance form (service type, observations, status) | 3.4, 3.2 |
-| 3.6 | React: Attendance list (filter by status, professional, date) | 3.5 |
-| 3.7 | React: Dashboard (counts, recent activity) | 3.2 |
-| 3.8 | IndexedDB: triage and attendance offline stores | 2.8, 3.4, 3.5 |
-| 3.9 | Offline triage and attendance creation | 3.8 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 3.1 | Triage API: create, list, detail | 1.1, 2.1 | Done |
+| 3.2 | Attendance API: CRUD with workflow transitions | 1.1, 2.1 | Done |
+| 3.3 | Attendance transition API: status change with audit | 3.2 | Done |
+| 3.4 | React: Triage form (complaint, services, person search) | 2.5, 3.1 | Done |
+| 3.5 | React: Attendance form (service type, observations, status) | 3.4, 3.2 | Done |
+| 3.6 | React: Attendance list (filter by status, professional, date) | 3.5 | Done |
+| 3.7 | React: Dashboard (counts, recent activity) | 3.2 | Done |
+| 3.8 | IndexedDB: triage and attendance offline stores | 2.8, 3.4, 3.5 | Done |
+| 3.9 | Offline triage and attendance creation | 3.8 | Done |
 
 **Milestone**: Complete triage → attendance workflow. Offline creation of both.
 
-### Sprint 4: Sync, Reports, and Polish (Weeks 8-9)
+### Sprint 4: Sync, Reports, and Polish (Weeks 8-9) — IN PROGRESS
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 4.1 | Sync API: push endpoint (batch upload of offline records) | 2.1, 3.2 |
-| 4.2 | Sync API: pull endpoint (fetch updates since last sync) | 4.1 |
-| 4.3 | React: sync engine (queue, retry, conflict detection) | 2.8, 4.1 |
-| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.9 |
-| 4.5 | Report API: attendance count by period with CSV export | 3.2 |
-| 4.6 | React: Report page (date range, table, CSV download) | 4.5 |
-| 4.7 | End-to-end testing (critical flows) | All above |
-| 4.8 | Performance optimization (lazy loading, caching) | All above |
-| 4.9 | Security review (OWASP checklist, penetration basics) | All above |
-| 4.10 | Deploy to staging environment | All above |
+Backend sync (push/pull) and reports (with CSV export) are implemented and
+integration-tested (commit #28). The remaining Sprint 4 work is frontend-heavy:
+the offline sync drainer and conflict surfacing, PWA setup, and the end-to-end
+test infrastructure. See "Parallelization Model" below for the critical path.
+
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 4.1 | Sync API: push endpoint (batch upload of offline records) | 2.1, 3.2 | Done |
+| 4.2 | Sync API: pull endpoint (fetch updates since last sync) | 4.1 | Done |
+| 4.3 | React: sync engine (Dexie v2, `useOnlineSync` drainer, pull-merge, conflict surfacing) | 2.8, 4.1 | In progress |
+| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.9 | Todo |
+| 4.5 | Report API: attendance count by period with CSV export | 3.2 | Done |
+| 4.6 | React: Report page (date range, table, CSV download) | 4.5 | Done |
+| 4.7 | End-to-end testing (critical flows) | All above | In progress |
+| 4.8 | Performance optimization (lazy loading, caching) | All above | Todo |
+| 4.9 | Security review (OWASP checklist, penetration basics) | All above | Todo |
+| 4.10 | Deploy to staging environment | All above | Todo |
 
 **Milestone**: MVP is feature-complete, tested, and deployed to staging.
+
+---
+
+## Parallelization Model
+
+This section describes how the **remaining Phase 1 work** is sequenced and where
+real concurrency exists. It supersedes the generic dependency graph at the bottom
+of this document for day-to-day Sprint 4 planning.
+
+### Remaining critical path (serial chain)
+
+The offline sync drainer (task 4.3 / epic E05 frontend) is a strict serial chain
+because each stage consumes the previous stage's output:
+
+```
+Dexie v2 schema (S05.1)
+    └── useOnlineSync drainer (S05.3)        # flushes syncQueue on reconnect
+            └── pull-merge (S05.4)           # reconciles server changes into cache
+                    └── conflict surfacing UI # last-write-wins + show conflicted field
+```
+
+This chain cannot be meaningfully parallelized: the drainer needs the v2 stores,
+pull-merge needs the drainer's synced-marking, and the conflict UI needs pull-merge
+to detect conflicts. It is the binding constraint for Sprint 4 completion.
+
+### Parallel tracks (independent of the chain)
+
+These run concurrently with the serial chain because they touch disjoint files
+and depend only on already-completed work:
+
+| Track | Tasks / stories | Independent because |
+|-------|-----------------|---------------------|
+| E2E infrastructure | 4.7 (Playwright + real stack) | Exercises existing endpoints/UI; needs no new sync code to start scaffolding |
+| Reports | 4.5 / 4.6 (S06.1–S06.3) | Already complete; isolated read surface, no offline coupling |
+| PWA | 4.4 (Service Worker, manifest, install prompt) | Shell-level concern; orthogonal to the sync queue |
+| Status indicator | S05.5 | Depends only on Dexie v2 (S05.1) and `useOfflineStatus`, not on the drainer |
+
+### Where the parallelism lever actually is now
+
+In early Phase 1, the dominant parallelism axis was **backend × frontend**: while
+one stream built Go endpoints, another built React pages against the documented
+contract. That lever is now largely **spent** — the backend Phase 1 surface (auth,
+person, triage, attendance, sync, reports) is implemented and integration-tested,
+so the remaining work is frontend-heavy and converges on a single serial chain.
+
+The real lever for the remaining work is therefore:
+
+1. **Process × feature concurrency** — run the delivery process (tests, lint,
+   review gate, DoD) for one slice while authoring the next independent slice,
+   rather than waiting for a backend counterpart that no longer exists.
+2. **Independent frontend hooks** — the parallel tracks above are gated by file
+   disjointness, not by a backend dependency. Hooks like `useOnlineSync`,
+   `useOfflineStatus`, and the report hooks can be developed and tested in
+   isolation as long as they do not edit the same files concurrently.
+
+Coordinate concurrent work by the `depends_on` graph in `docs/09-backlog.md`
+(`make status` renders the current board); never start a story whose `depends_on`
+set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 
 ---
 

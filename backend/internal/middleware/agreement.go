@@ -27,58 +27,53 @@ func RequireAgreement(agreementChecker AgreementChecker, roleFinder RoleFinder) 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims := auth.ClaimsFromContext(r.Context())
-
-			// No person linked yet — ProfileCompletionGuard handles this
-			if claims.PersonID == uuid.Nil {
+			if agreementSatisfied(r, claims, agreementChecker, roleFinder) {
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			// Check if person has a VOLUNTEER role
-			roles, err := roleFinder.FindByPersonID(r.Context(), claims.PersonID)
-			if err != nil {
-				slog.ErrorContext(r.Context(), "middleware.RequireAgreement: find roles failed",
-					"error", err.Error(), "person_id", claims.PersonID,
-				)
-				// Fail open: let the request through rather than blocking on infra errors
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			hasVolunteerRole := false
-			for _, role := range roles {
-				if role.RoleType == domain.RoleVolunteer && role.IsActive {
-					hasVolunteerRole = true
-					break
-				}
-			}
-
-			// Not a volunteer — no agreement needed
-			if !hasVolunteerRole {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Check if volunteer has accepted agreement
-			accepted, err := agreementChecker.HasAcceptedAgreement(r.Context(), claims.PersonID)
-			if err != nil {
-				slog.ErrorContext(r.Context(), "middleware.RequireAgreement: check agreement failed",
-					"error", err.Error(), "person_id", claims.PersonID,
-				)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if !accepted {
-				slog.InfoContext(r.Context(), "middleware.RequireAgreement: agreement not accepted",
-					"person_id", claims.PersonID,
-					"path", r.URL.Path,
-				)
-				writeError(w, http.StatusForbidden, "agreement_required", "volunteer agreement must be accepted before accessing the platform")
-				return
-			}
-
-			next.ServeHTTP(w, r)
+			slog.InfoContext(r.Context(), "middleware.RequireAgreement: agreement not accepted",
+				"person_id", claims.PersonID, "path", r.URL.Path,
+			)
+			writeError(w, http.StatusForbidden, "agreement_required", "volunteer agreement must be accepted before accessing the platform")
 		})
 	}
+}
+
+// agreementSatisfied reports whether the request may proceed: true when the user
+// has no linked person, is not an active volunteer, has accepted the agreement,
+// or when an infrastructure error occurs (fail-open).
+func agreementSatisfied(r *http.Request, claims auth.AuthClaims, agreementChecker AgreementChecker, roleFinder RoleFinder) bool {
+	// No person linked yet — ProfileCompletionGuard handles this.
+	if claims.PersonID == uuid.Nil {
+		return true
+	}
+
+	roles, err := roleFinder.FindByPersonID(r.Context(), claims.PersonID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "middleware.RequireAgreement: find roles failed",
+			"error", err.Error(), "person_id", claims.PersonID,
+		)
+		return true // fail open on infra errors
+	}
+	if !hasActiveVolunteerRole(roles) {
+		return true
+	}
+
+	accepted, err := agreementChecker.HasAcceptedAgreement(r.Context(), claims.PersonID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "middleware.RequireAgreement: check agreement failed",
+			"error", err.Error(), "person_id", claims.PersonID,
+		)
+		return true // fail open on infra errors
+	}
+	return accepted
+}
+
+func hasActiveVolunteerRole(roles []domain.PersonRole) bool {
+	for _, role := range roles {
+		if role.RoleType == domain.RoleVolunteer && role.IsActive {
+			return true
+		}
+	}
+	return false
 }

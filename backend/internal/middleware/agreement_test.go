@@ -37,123 +37,56 @@ func TestRequireAgreement(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	t.Run("passes through when no person_id in claims", func(t *testing.T) {
-		checker := new(mockAgreementChecker)
-		finder := new(mockRoleFinder)
-		mw := RequireAgreement(checker, finder)
+	tests := []struct {
+		name string
+		// noPerson: claims carry no person_id (skips role lookup entirely).
+		noPerson bool
+		// roles returned by the finder; nil when noPerson is true.
+		roles []domain.PersonRole
+		// agreementAccepted: stubbed HasAcceptedAgreement result. nil = not stubbed.
+		agreementAccepted *bool
+		wantCode          int
+		wantBlockedBody   bool
+		assertNoChecker   bool
+	}{
+		{name: "passes through when no person_id", noPerson: true, wantCode: http.StatusOK},
+		{name: "passes through when no VOLUNTEER role", roles: []domain.PersonRole{{RoleType: "ADMIN", IsActive: true}}, wantCode: http.StatusOK},
+		{name: "blocks volunteer without accepted agreement", roles: []domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: true}}, agreementAccepted: boolPtr(false), wantCode: http.StatusForbidden, wantBlockedBody: true},
+		{name: "allows volunteer with accepted agreement", roles: []domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: true}}, agreementAccepted: boolPtr(true), wantCode: http.StatusOK},
+		{name: "ignores inactive volunteer role", roles: []domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: false}}, wantCode: http.StatusOK, assertNoChecker: true},
+	}
 
-		claims := auth.AuthClaims{Subject: uuid.New().String(), Roles: []string{"VOLUNTEER"}}
-		ctx := auth.NewContext(context.Background(), claims)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := new(mockAgreementChecker)
+			finder := new(mockRoleFinder)
+			personID := uuid.New()
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
-		rec := httptest.NewRecorder()
+			claims := auth.AuthClaims{Subject: uuid.New().String(), Roles: []string{"VOLUNTEER"}}
+			if !tt.noPerson {
+				claims.PersonID = personID
+				finder.On("FindByPersonID", mock.Anything, personID).Return(tt.roles, nil)
+			}
+			if tt.agreementAccepted != nil {
+				checker.On("HasAcceptedAgreement", mock.Anything, personID).Return(*tt.agreementAccepted, nil)
+			}
 
-		mw(okHandler).ServeHTTP(rec, req)
+			ctx := auth.NewContext(context.Background(), claims)
+			req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
+			rec := httptest.NewRecorder()
+			RequireAgreement(checker, finder)(okHandler).ServeHTTP(rec, req)
 
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("passes through when person has no VOLUNTEER role", func(t *testing.T) {
-		checker := new(mockAgreementChecker)
-		finder := new(mockRoleFinder)
-		mw := RequireAgreement(checker, finder)
-
-		personID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			PersonID: personID,
-			Roles:    []string{"ADMIN"},
-		}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		finder.On("FindByPersonID", mock.Anything, personID).
-			Return([]domain.PersonRole{{RoleType: "ADMIN", IsActive: true}}, nil)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
-		rec := httptest.NewRecorder()
-
-		mw(okHandler).ServeHTTP(rec, req)
-
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("blocks volunteer without accepted agreement", func(t *testing.T) {
-		checker := new(mockAgreementChecker)
-		finder := new(mockRoleFinder)
-		mw := RequireAgreement(checker, finder)
-
-		personID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			PersonID: personID,
-			Roles:    []string{"VOLUNTEER"},
-		}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		finder.On("FindByPersonID", mock.Anything, personID).
-			Return([]domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: true}}, nil)
-		checker.On("HasAcceptedAgreement", mock.Anything, personID).Return(false, nil)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
-		rec := httptest.NewRecorder()
-
-		mw(okHandler).ServeHTTP(rec, req)
-
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-
-		var body map[string]string
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
-		assert.Equal(t, "agreement_required", body["error"])
-	})
-
-	t.Run("allows volunteer with accepted agreement", func(t *testing.T) {
-		checker := new(mockAgreementChecker)
-		finder := new(mockRoleFinder)
-		mw := RequireAgreement(checker, finder)
-
-		personID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			PersonID: personID,
-			Roles:    []string{"VOLUNTEER"},
-		}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		finder.On("FindByPersonID", mock.Anything, personID).
-			Return([]domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: true}}, nil)
-		checker.On("HasAcceptedAgreement", mock.Anything, personID).Return(true, nil)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
-		rec := httptest.NewRecorder()
-
-		mw(okHandler).ServeHTTP(rec, req)
-
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ignores inactive volunteer role", func(t *testing.T) {
-		checker := new(mockAgreementChecker)
-		finder := new(mockRoleFinder)
-		mw := RequireAgreement(checker, finder)
-
-		personID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject:  uuid.New().String(),
-			PersonID: personID,
-			Roles:    []string{"VOLUNTEER"},
-		}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		finder.On("FindByPersonID", mock.Anything, personID).
-			Return([]domain.PersonRole{{RoleType: "VOLUNTEER", IsActive: false}}, nil)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(ctx)
-		rec := httptest.NewRecorder()
-
-		mw(okHandler).ServeHTTP(rec, req)
-
-		assert.Equal(t, http.StatusOK, rec.Code)
-		// HasAcceptedAgreement should NOT be called since role is inactive
-		checker.AssertNotCalled(t, "HasAcceptedAgreement")
-	})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantBlockedBody {
+				var body map[string]string
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+				assert.Equal(t, "agreement_required", body["error"])
+			}
+			if tt.assertNoChecker {
+				checker.AssertNotCalled(t, "HasAcceptedAgreement")
+			}
+		})
+	}
 }
+
+func boolPtr(b bool) *bool { return &b }

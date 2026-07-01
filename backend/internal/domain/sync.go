@@ -31,8 +31,8 @@ var (
 
 // SyncPushRequest is the payload sent by clients to upload offline records.
 type SyncPushRequest struct {
-	DeviceID *uuid.UUID        `json:"device_id,omitempty"`
-	Records  []SyncPushRecord  `json:"records"`
+	DeviceID *uuid.UUID       `json:"device_id,omitempty"`
+	Records  []SyncPushRecord `json:"records"`
 }
 
 // SyncPushRecord is a single offline-created record awaiting server persistence.

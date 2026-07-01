@@ -51,3 +51,13 @@ coverage/
 # Temporary
 tmp/
 temp/
+
+# Generated status board (regenerate with `make status`; never hand-edit)
+tasks/STATUS.md
+
+# Go build output
+backend/bin/
+
+# Playwright E2E artifacts (regenerated on each run)
+frontend/playwright-report/
+frontend/test-results/

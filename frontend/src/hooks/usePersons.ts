@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listPersons } from '../api/persons';
+import { cachePersonList, getCachedPersons } from '../offline/personOffline';
+import { isNetworkError } from '../api/errors';
 import type { Pagination, PersonListItem } from '../types';
 
 export function usePersons() {
@@ -28,9 +30,19 @@ export function usePersons() {
         });
         setPersons(result.data);
         setPagination(result.pagination);
+        void cachePersonList(result.data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar pessoas');
-        setPersons([]);
+        // Offline / network failure: serve the local cache (which includes
+        // pending offline-created records) instead of an empty error state.
+        if (!navigator.onLine || isNetworkError(err)) {
+          const cached = await getCachedPersons();
+          setPersons(cached);
+          setPagination((p) => ({ ...p, total: cached.length }));
+          setError(null);
+        } else {
+          setError(err instanceof Error ? err.message : 'Erro ao carregar pessoas');
+          setPersons([]);
+        }
       } finally {
         setIsLoading(false);
       }

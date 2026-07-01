@@ -62,47 +62,9 @@ func (s *TriageService) CreateTriage(ctx context.Context, input CreateTriageInpu
 		return nil, fmt.Errorf("triageService.CreateTriage: %w", domain.ErrForbidden)
 	}
 
-	personID, err := uuid.Parse(input.PersonID)
+	triage, err := buildTriageFromInput(input, claims)
 	if err != nil {
-		return nil, fmt.Errorf("triageService.CreateTriage: invalid person_id: %w", err)
-	}
-
-	triagedBy := parseUserID(claims.Subject)
-	if triagedBy == nil {
-		return nil, fmt.Errorf("triageService.CreateTriage: missing user identity")
-	}
-
-	triageDate, err := parseOptionalTime(input.TriageDate)
-	if err != nil {
-		return nil, fmt.Errorf("triageService.CreateTriage: invalid triage_date: %w", err)
-	}
-	if triageDate == nil {
-		now := time.Now().UTC()
-		triageDate = &now
-	}
-
-	requested, err := parseUUIDList(input.RequestedServiceTypes)
-	if err != nil {
-		return nil, fmt.Errorf("triageService.CreateTriage: %w", err)
-	}
-
-	assignedTeam, err := parseOptionalUUID(input.AssignedTeam)
-	if err != nil {
-		return nil, fmt.Errorf("triageService.CreateTriage: invalid assigned_team: %w", err)
-	}
-
-	triage := domain.Triage{
-		ID:             uuid.New(),
-		PersonID:       personID,
-		CampusID:       claims.CampusID,
-		MainComplaint:  input.MainComplaint,
-		AssignedTeam:   assignedTeam,
-		TriageDate:     *triageDate,
-		Location:       input.Location,
-		TriagedBy:      *triagedBy,
-		Notes:          input.Notes,
-		IsActive:       true,
-		RequestedTypes: requested,
+		return nil, err
 	}
 
 	created, err := s.repo.Create(ctx, triage)
@@ -125,6 +87,53 @@ func (s *TriageService) CreateTriage(ctx context.Context, input CreateTriageInpu
 	}
 
 	return created, nil
+}
+
+// buildTriageFromInput parses identifiers, date, and service-type lists from a
+// create input and assembles a domain.Triage.
+func buildTriageFromInput(input CreateTriageInput, claims auth.AuthClaims) (domain.Triage, error) {
+	personID, err := uuid.Parse(input.PersonID)
+	if err != nil {
+		return domain.Triage{}, fmt.Errorf("triageService.CreateTriage: invalid person_id: %w", err)
+	}
+
+	triagedBy := parseUserID(claims.Subject)
+	if triagedBy == nil {
+		return domain.Triage{}, fmt.Errorf("triageService.CreateTriage: missing user identity")
+	}
+
+	triageDate, err := parseOptionalTime(input.TriageDate)
+	if err != nil {
+		return domain.Triage{}, fmt.Errorf("triageService.CreateTriage: invalid triage_date: %w", err)
+	}
+	if triageDate == nil {
+		now := time.Now().UTC()
+		triageDate = &now
+	}
+
+	requested, err := parseUUIDList(input.RequestedServiceTypes)
+	if err != nil {
+		return domain.Triage{}, fmt.Errorf("triageService.CreateTriage: %w", err)
+	}
+
+	assignedTeam, err := parseOptionalUUID(input.AssignedTeam)
+	if err != nil {
+		return domain.Triage{}, fmt.Errorf("triageService.CreateTriage: invalid assigned_team: %w", err)
+	}
+
+	return domain.Triage{
+		ID:             uuid.New(),
+		PersonID:       personID,
+		CampusID:       claims.CampusID,
+		MainComplaint:  input.MainComplaint,
+		AssignedTeam:   assignedTeam,
+		TriageDate:     *triageDate,
+		Location:       input.Location,
+		TriagedBy:      *triagedBy,
+		Notes:          input.Notes,
+		IsActive:       true,
+		RequestedTypes: requested,
+	}, nil
 }
 
 // GetTriage returns a triage by ID, scoped to campus.

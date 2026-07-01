@@ -23,19 +23,27 @@ func (m *MockAuditRepository) Create(ctx context.Context, entry domain.AuditLog)
 	return args.Error(0)
 }
 
-func TestAuditService_LogAction(t *testing.T) {
-	campusID := uuid.New()
-	userSubject := uuid.New().String()
-	entityID := uuid.New()
+const (
+	auditUserSubject = "11111111-1111-1111-1111-111111111111"
+)
 
-	baseClaims := auth.AuthClaims{
-		Subject:  userSubject,
+func auditBaseClaims(campusID uuid.UUID) auth.AuthClaims {
+	return auth.AuthClaims{
+		Subject:  auditUserSubject,
 		Email:    "user@example.com",
 		Roles:    []string{"ADMIN"},
 		CampusID: campusID,
 	}
+}
 
-	baseParams := AuditParams{
+func TestAuditService_LogAction_AllFields(t *testing.T) {
+	campusID := uuid.New()
+	entityID := uuid.New()
+	repo := new(MockAuditRepository)
+	svc := NewAuditService(repo)
+	ctx := auth.NewContext(context.Background(), auditBaseClaims(campusID))
+
+	params := AuditParams{
 		ActionType:  "CREATE",
 		EntityType:  "app_user",
 		EntityID:    &entityID,
@@ -46,128 +54,115 @@ func TestAuditService_LogAction(t *testing.T) {
 		Success:     true,
 	}
 
-	t.Run("creates entry with all fields", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		ctx := auth.NewContext(context.Background(), baseClaims)
+	repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
+		return auditEntryMatchesAllFields(entry, campusID, entityID)
+	})).Return(nil)
 
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			parsedUserID, _ := uuid.Parse(userSubject)
-			return entry.ActionType == "CREATE" &&
-				entry.EntityType == "app_user" &&
-				entry.EntityID != nil && *entry.EntityID == entityID &&
-				entry.UserID != nil && *entry.UserID == parsedUserID &&
-				entry.CampusID != nil && *entry.CampusID == campusID &&
-				entry.Module != nil && *entry.Module == "auth" &&
-				entry.Description != nil && *entry.Description == "test action" &&
-				entry.IPAddress != nil && *entry.IPAddress == "192.168.1.1" &&
-				entry.UserAgent != nil && *entry.UserAgent == "test-agent/1.0" &&
-				entry.Success &&
-				entry.ID != uuid.Nil
-		})).Return(nil)
+	require.NoError(t, svc.LogAction(ctx, params))
+	repo.AssertExpectations(t)
+}
 
-		err := svc.LogAction(ctx, baseParams)
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+func ptrEq[T comparable](p *T, want T) bool { return p != nil && *p == want }
 
-	t.Run("marshals old and new values", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		ctx := auth.NewContext(context.Background(), baseClaims)
-
-		params := AuditParams{
-			ActionType: "UPDATE",
-			EntityType: "person",
-			OldValues:  map[string]string{"name": "old"},
-			NewValues:  map[string]string{"name": "new"},
-			Success:    true,
+// auditEntryMatchesAllFields verifies every field of a fully-populated audit entry.
+func auditEntryMatchesAllFields(entry domain.AuditLog, campusID, entityID uuid.UUID) bool {
+	parsedUserID, _ := uuid.Parse(auditUserSubject)
+	checks := []bool{
+		entry.ActionType == "CREATE",
+		entry.EntityType == "app_user",
+		ptrEq(entry.EntityID, entityID),
+		ptrEq(entry.UserID, parsedUserID),
+		ptrEq(entry.CampusID, campusID),
+		ptrEq(entry.Module, "auth"),
+		ptrEq(entry.Description, "test action"),
+		ptrEq(entry.IPAddress, "192.168.1.1"),
+		ptrEq(entry.UserAgent, "test-agent/1.0"),
+		entry.Success,
+		entry.ID != uuid.Nil,
+	}
+	for _, ok := range checks {
+		if !ok {
+			return false
 		}
+	}
+	return true
+}
 
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.OldValues != nil && entry.NewValues != nil
-		})).Return(nil)
+func TestAuditService_LogAction_Values(t *testing.T) {
+	campusID := uuid.New()
+	tests := []struct {
+		name      string
+		params    AuditParams
+		wantValue bool // true: OldValues/NewValues populated; false: both nil
+	}{
+		{
+			name:      "marshals old and new values",
+			params:    AuditParams{ActionType: "UPDATE", EntityType: "person", OldValues: map[string]string{"name": "old"}, NewValues: map[string]string{"name": "new"}, Success: true},
+			wantValue: true,
+		},
+		{
+			name:      "handles nil old and new values",
+			params:    AuditParams{ActionType: "DELETE", EntityType: "person", Success: true},
+			wantValue: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockAuditRepository)
+			svc := NewAuditService(repo)
+			ctx := auth.NewContext(context.Background(), auditBaseClaims(campusID))
+			repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
+				if tt.wantValue {
+					return entry.OldValues != nil && entry.NewValues != nil
+				}
+				return entry.OldValues == nil && entry.NewValues == nil
+			})).Return(nil)
 
-		err := svc.LogAction(ctx, params)
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+			require.NoError(t, svc.LogAction(ctx, tt.params))
+			repo.AssertExpectations(t)
+		})
+	}
+}
 
-	t.Run("handles nil old and new values", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		ctx := auth.NewContext(context.Background(), baseClaims)
+func TestAuditService_LogAction_Identity(t *testing.T) {
+	campusID := uuid.New()
+	tests := []struct {
+		name        string
+		claims      auth.AuthClaims
+		wantNilUser bool
+		wantNilCamp bool
+	}{
+		{"non-UUID subject", auth.AuthClaims{Subject: "not-a-uuid", CampusID: campusID}, true, false},
+		{"empty subject", auth.AuthClaims{CampusID: campusID}, true, false},
+		{"nil campus_id", auth.AuthClaims{Subject: auditUserSubject}, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(MockAuditRepository)
+			svc := NewAuditService(repo)
+			ctx := auth.NewContext(context.Background(), tt.claims)
+			repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
+				userOK := !tt.wantNilUser || entry.UserID == nil
+				campOK := !tt.wantNilCamp || entry.CampusID == nil
+				return userOK && campOK
+			})).Return(nil)
 
-		params := AuditParams{
-			ActionType: "DELETE",
-			EntityType: "person",
-			Success:    true,
-		}
+			require.NoError(t, svc.LogAction(ctx, AuditParams{ActionType: "CREATE", EntityType: "test", Success: true}))
+			repo.AssertExpectations(t)
+		})
+	}
+}
 
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.OldValues == nil && entry.NewValues == nil
-		})).Return(nil)
+func TestAuditService_LogAction_RepoError(t *testing.T) {
+	campusID := uuid.New()
+	repo := new(MockAuditRepository)
+	svc := NewAuditService(repo)
+	ctx := auth.NewContext(context.Background(), auditBaseClaims(campusID))
 
-		err := svc.LogAction(ctx, params)
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+	repo.On("Create", ctx, mock.Anything).Return(errors.New("db connection failed"))
 
-	t.Run("handles non-UUID subject", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		claims := auth.AuthClaims{Subject: "not-a-uuid", CampusID: campusID}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.UserID == nil
-		})).Return(nil)
-
-		err := svc.LogAction(ctx, AuditParams{ActionType: "CREATE", EntityType: "test", Success: true})
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
-
-	t.Run("handles empty subject", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		claims := auth.AuthClaims{CampusID: campusID}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.UserID == nil
-		})).Return(nil)
-
-		err := svc.LogAction(ctx, AuditParams{ActionType: "CREATE", EntityType: "test", Success: true})
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
-
-	t.Run("nil campus_id in context", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		claims := auth.AuthClaims{Subject: userSubject}
-		ctx := auth.NewContext(context.Background(), claims)
-
-		repo.On("Create", ctx, mock.MatchedBy(func(entry domain.AuditLog) bool {
-			return entry.CampusID == nil
-		})).Return(nil)
-
-		err := svc.LogAction(ctx, AuditParams{ActionType: "CREATE", EntityType: "test", Success: true})
-		require.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
-
-	t.Run("repo error propagated", func(t *testing.T) {
-		repo := new(MockAuditRepository)
-		svc := NewAuditService(repo)
-		ctx := auth.NewContext(context.Background(), baseClaims)
-
-		repo.On("Create", ctx, mock.Anything).Return(errors.New("db connection failed"))
-
-		err := svc.LogAction(ctx, baseParams)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "db connection failed")
-		repo.AssertExpectations(t)
-	})
+	err := svc.LogAction(ctx, AuditParams{ActionType: "CREATE", EntityType: "app_user", Success: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "db connection failed")
+	repo.AssertExpectations(t)
 }

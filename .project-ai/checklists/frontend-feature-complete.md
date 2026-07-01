@@ -76,6 +76,7 @@ Use this checklist before marking any frontend feature as done. Every item must 
 
 ## Code Quality
 
+- [ ] **TDD**: test was written first and seen to fail before implementation (verifiable via RED→GREEN commit order; see `rules/tdd-enforcement.md`)
 - [ ] `npm test` (unit tests) passes with zero failures
 - [ ] `npm run test:integration` (MSW-backed integration tests) passes with zero failures
 - [ ] ESLint passes with zero warnings

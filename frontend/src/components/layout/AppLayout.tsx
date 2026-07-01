@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
-import { OfflineBanner } from '../ui/OfflineBanner';
+import { SyncStatusBanner } from '../ui/SyncStatusBanner';
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -13,7 +13,7 @@ export function AppLayout() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header onMenuToggle={() => setSidebarOpen((prev) => !prev)} />
-        <OfflineBanner />
+        <SyncStatusBanner />
 
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet />

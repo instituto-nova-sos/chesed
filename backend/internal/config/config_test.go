@@ -49,11 +49,11 @@ func TestLoad(t *testing.T) {
 		{
 			name: "OIDC_SKIP_ISSUER_CHECK enabled",
 			envVars: map[string]string{
-				"DATABASE_URL":            "postgres://user:pass@localhost:5432/db",
-				"KEYCLOAK_URL":            "http://localhost:8180",
-				"KEYCLOAK_REALM":          "chesed",
-				"KEYCLOAK_CLIENT_ID":      "chesed-pwa",
-				"OIDC_SKIP_ISSUER_CHECK":  "true",
+				"DATABASE_URL":           "postgres://user:pass@localhost:5432/db",
+				"KEYCLOAK_URL":           "http://localhost:8180",
+				"KEYCLOAK_REALM":         "chesed",
+				"KEYCLOAK_CLIENT_ID":     "chesed-pwa",
+				"OIDC_SKIP_ISSUER_CHECK": "true",
 			},
 			check: func(t *testing.T, cfg Config) {
 				t.Helper()

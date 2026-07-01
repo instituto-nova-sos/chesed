@@ -109,53 +109,55 @@ func (s *OnboardingService) handleExistingUser(ctx context.Context, claims auth.
 		Roles:    claims.Roles,
 	}
 
-	// If no campus assigned yet, check if we can resolve from a person
+	// If no campus assigned yet, try to resolve it from a matching person.
 	if appUser.CampusID == nil {
-		status.NeedsCampusAssignment = true
-		status.NeedsProfileCompletion = appUser.PersonID == nil
+		return s.resolveWithoutCampus(ctx, claims, appUser, status)
+	}
 
-		// Try to find person by email and auto-link
-		if appUser.PersonID == nil && claims.Email != "" {
-			persons, err := s.personRepo.FindByEmailGlobal(ctx, claims.Email)
-			if err != nil {
-				return nil, fmt.Errorf("onboardingService.handleExistingUser: find person: %w", err)
-			}
-			if len(persons) == 1 {
-				person := persons[0]
-				if linkErr := s.userRepo.LinkPersonAndCampus(ctx, appUser.ID, person.ID, person.CampusID); linkErr != nil {
-					return nil, fmt.Errorf("onboardingService.handleExistingUser: link: %w", linkErr)
-				}
-				status.PersonID = &person.ID
-				status.CampusID = &person.CampusID
-				status.NeedsCampusAssignment = false
-				status.NeedsProfileCompletion = false
-				status.NeedsAgreement = s.checkAgreementNeeded(ctx, person.ID)
+	return s.resolveWithCampus(ctx, claims, appUser, status)
+}
 
-				slog.InfoContext(ctx, "onboardingService: auto-linked person and campus",
-					"app_user_id", appUser.ID, "person_id", person.ID, "campus_id", person.CampusID,
-				)
-				s.logAutoLinkAudit(ctx, appUser.ID, person.ID)
-			}
-		}
+// resolveWithoutCampus handles an app_user that has no campus assigned yet,
+// attempting to auto-link a globally-matching person by email.
+func (s *OnboardingService) resolveWithoutCampus(ctx context.Context, claims auth.AuthClaims, appUser *domain.AppUser, status *OnboardingStatus) (*OnboardingStatus, error) {
+	status.NeedsCampusAssignment = true
+	status.NeedsProfileCompletion = appUser.PersonID == nil
+
+	if appUser.PersonID != nil || claims.Email == "" {
 		return status, nil
 	}
 
-	// Campus is set. Check person linkage.
-	if appUser.PersonID == nil && claims.Email != "" {
-		person, findErr := s.personRepo.FindByEmail(ctx, claims.Email, *appUser.CampusID)
-		if findErr != nil && !errors.Is(findErr, domain.ErrNotFound) {
-			return nil, fmt.Errorf("onboardingService.handleExistingUser: find by email: %w", findErr)
-		}
-		if person != nil {
-			if linkErr := s.userRepo.LinkPersonID(ctx, appUser.ID, person.ID); linkErr != nil {
-				return nil, fmt.Errorf("onboardingService.handleExistingUser: link person: %w", linkErr)
-			}
-			status.PersonID = &person.ID
+	persons, err := s.personRepo.FindByEmailGlobal(ctx, claims.Email)
+	if err != nil {
+		return nil, fmt.Errorf("onboardingService.resolveWithoutCampus: find person: %w", err)
+	}
+	if len(persons) != 1 {
+		return status, nil
+	}
 
-			slog.InfoContext(ctx, "onboardingService: auto-linked person by email",
-				"app_user_id", appUser.ID, "person_id", person.ID,
-			)
-			s.logAutoLinkAudit(ctx, appUser.ID, person.ID)
+	person := persons[0]
+	if linkErr := s.userRepo.LinkPersonAndCampus(ctx, appUser.ID, person.ID, person.CampusID); linkErr != nil {
+		return nil, fmt.Errorf("onboardingService.resolveWithoutCampus: link: %w", linkErr)
+	}
+	status.PersonID = &person.ID
+	status.CampusID = &person.CampusID
+	status.NeedsCampusAssignment = false
+	status.NeedsProfileCompletion = false
+	status.NeedsAgreement = s.checkAgreementNeeded(ctx, person.ID)
+
+	slog.InfoContext(ctx, "onboardingService: auto-linked person and campus",
+		"app_user_id", appUser.ID, "person_id", person.ID, "campus_id", person.CampusID,
+	)
+	s.logAutoLinkAudit(ctx, appUser.ID, person.ID)
+	return status, nil
+}
+
+// resolveWithCampus handles an app_user that already has a campus, auto-linking
+// a person by email within that campus when possible.
+func (s *OnboardingService) resolveWithCampus(ctx context.Context, claims auth.AuthClaims, appUser *domain.AppUser, status *OnboardingStatus) (*OnboardingStatus, error) {
+	if appUser.PersonID == nil && claims.Email != "" {
+		if err := s.tryLinkPersonByEmail(ctx, claims.Email, appUser, status); err != nil {
+			return nil, err
 		}
 	}
 
@@ -166,6 +168,28 @@ func (s *OnboardingService) handleExistingUser(ctx context.Context, claims auth.
 	}
 
 	return status, nil
+}
+
+// tryLinkPersonByEmail links a campus-scoped person to the app_user if found.
+func (s *OnboardingService) tryLinkPersonByEmail(ctx context.Context, email string, appUser *domain.AppUser, status *OnboardingStatus) error {
+	person, findErr := s.personRepo.FindByEmail(ctx, email, *appUser.CampusID)
+	if findErr != nil && !errors.Is(findErr, domain.ErrNotFound) {
+		return fmt.Errorf("onboardingService.tryLinkPersonByEmail: find by email: %w", findErr)
+	}
+	if person == nil {
+		return nil
+	}
+
+	if linkErr := s.userRepo.LinkPersonID(ctx, appUser.ID, person.ID); linkErr != nil {
+		return fmt.Errorf("onboardingService.tryLinkPersonByEmail: link person: %w", linkErr)
+	}
+	status.PersonID = &person.ID
+
+	slog.InfoContext(ctx, "onboardingService: auto-linked person by email",
+		"app_user_id", appUser.ID, "person_id", person.ID,
+	)
+	s.logAutoLinkAudit(ctx, appUser.ID, person.ID)
+	return nil
 }
 
 // checkAgreementNeeded returns true if the person has an active VOLUNTEER role without accepted agreement.
