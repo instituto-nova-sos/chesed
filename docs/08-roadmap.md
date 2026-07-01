@@ -98,12 +98,15 @@ Documentation  MVP Core    Extended     Scale &
 
 **Milestone**: Complete triage → attendance workflow. Offline creation of both.
 
-### Sprint 4: Sync, Reports, and Polish (Weeks 8-9) — IN PROGRESS
+### Sprint 4: Sync, Reports, and Polish (Weeks 8-9) — DONE
 
 Backend sync (push/pull) and reports (with CSV export) are implemented and
-integration-tested (commit #28). The remaining Sprint 4 work is frontend-heavy:
-the offline sync drainer and conflict surfacing, PWA setup, and the end-to-end
-test infrastructure. See "Parallelization Model" below for the critical path.
+integration-tested (commit #28). The offline sync drainer, conflict surfacing,
+PWA setup, and end-to-end test infrastructure landed across commits #28–#31.
+Performance optimization (route-level code splitting) and the security review
+are complete; the two hardening follow-ups the review deferred are closed by the
+`feat/phase1-hardening-followups` work (see note below). See "Parallelization
+Model" below for the critical path that was followed.
 
 | # | Task | Dependencies | Status |
 |---|------|-------------|--------|
@@ -114,11 +117,21 @@ test infrastructure. See "Parallelization Model" below for the critical path.
 | 4.5 | Report API: attendance count by period with CSV export | 3.2 | Done |
 | 4.6 | React: Report page (date range, table, CSV download) | 4.5 | Done |
 | 4.7 | End-to-end testing (critical flows) | All above | Done |
-| 4.8 | Performance optimization (lazy loading, caching) | All above | Todo |
-| 4.9 | Security review (OWASP checklist, penetration basics) | All above | Todo |
-| 4.10 | Deploy to staging environment | All above | Todo |
+| 4.8 | Performance optimization (lazy loading, caching) | All above | Done |
+| 4.9 | Security review (OWASP checklist, penetration basics) | All above | Done |
+| 4.10 | Deploy to staging environment | All above | Todo (ops) |
 
-**Milestone**: MVP is feature-complete, tested, and deployed to staging.
+> **Security review follow-ups (4.9)**: the two deferred hardening items from
+> `docs/security-review-sprint4.md` are now closed — (1) sync push rejects
+> cross-campus `person_id`/`triage_id` references (Finding 3), and (2) RBAC 403
+> denials are written to `audit_log` as `ACCESS_DENIED` (Finding 4).
+
+> **4.10** is a deployment/operations step, not application code; its
+> prerequisites are tracked in the "Infra / configuration checklist" of
+> `docs/security-review-sprint4.md`.
+
+**Milestone**: MVP is feature-complete and tested; staging deployment (4.10) is
+the remaining operational step.
 
 ---
 

@@ -19,8 +19,8 @@ or data flows are added.
 |---|---------|-------|----------|--------|
 | 1 | `GET /persons/check-duplicate` leaked cross-campus person data | A01 | **HIGH** | **Fixed** (this sprint) |
 | 2 | Email (PII) written to logs on the email-not-verified path | A09 | LOW | **Fixed** (this sprint) |
-| 3 | Sync push does not verify the referenced `person_id`/`triage_id` belongs to the caller's campus | A01 | MEDIUM | Deferred (hardening; TODO below) |
-| 4 | RBAC 403 denials are logged but not written to `audit_log` | A09 | INFO | Deferred (hardening; TODO below) |
+| 3 | Sync push does not verify the referenced `person_id`/`triage_id` belongs to the caller's campus | A01 | MEDIUM | **Fixed** (`feat/phase1-hardening-followups`) |
+| 4 | RBAC 403 denials are logged but not written to `audit_log` | A09 | INFO | **Fixed** (`feat/phase1-hardening-followups`) |
 
 No CRITICAL findings. All A-rated controls below were verified present.
 
