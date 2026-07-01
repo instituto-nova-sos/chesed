@@ -83,7 +83,6 @@ Response 200:
       "id": "uuid",
       "full_name": "Maria Santos",
       "document_number": "123.456.789-00",
-      "campus": "Sao Paulo",
       "match_type": "exact_document"
     }
   ]
@@ -95,7 +94,7 @@ Response 200 (no duplicates):
   "matches": []
 }
 ```
-Matching algorithm: exact match on `document_number` + `document_type`. Fuzzy name matching deferred to Phase 2.
+Matching algorithm: exact match on `document_number` + `document_type`, **scoped to the caller's campus** (a duplicate in another campus is never returned; CLAUDE.md rule #4, threat model T3). Because matches are always same-campus, the campus is implicit and not included in the response. Fuzzy name matching deferred to Phase 2.
 
 #### POST /persons
 ```json
