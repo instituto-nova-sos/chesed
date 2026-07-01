@@ -98,7 +98,6 @@ export interface DuplicateMatch {
   id: string;
   full_name: string;
   document_number: string;
-  campus: string;
   match_type: string;
 }
 

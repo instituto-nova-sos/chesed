@@ -425,14 +425,16 @@ func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter)
 
 // CheckDuplicate checks for existing persons with the same document.
 func (r *PersonRepository) CheckDuplicate(ctx context.Context, documentType, documentNumber string, campusID uuid.UUID) (*domain.DuplicateCheckResult, error) {
+	// campus_id scoping is mandatory (CLAUDE.md rule #4, threat model T3): a
+	// caller must only ever learn about duplicates within their own campus.
 	query := `
-		SELECT p.id, p.full_name, p.document_number, c.name AS campus_name
+		SELECT p.id, p.full_name, p.document_number
 		FROM person p
-		JOIN campus c ON c.id = p.campus_id
 		WHERE p.document_type = $1 AND p.document_number = $2
+		  AND p.campus_id = $3
 		  AND p.is_active = TRUE`
 
-	rows, err := r.pool.Query(ctx, query, documentType, documentNumber)
+	rows, err := r.pool.Query(ctx, query, documentType, documentNumber, campusID)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.CheckDuplicate: %w", err)
 	}
@@ -441,7 +443,7 @@ func (r *PersonRepository) CheckDuplicate(ctx context.Context, documentType, doc
 	var matches []domain.DuplicateMatch
 	for rows.Next() {
 		var m domain.DuplicateMatch
-		if err := rows.Scan(&m.ID, &m.FullName, &m.DocumentNumber, &m.Campus); err != nil {
+		if err := rows.Scan(&m.ID, &m.FullName, &m.DocumentNumber); err != nil {
 			return nil, fmt.Errorf("personRepository.CheckDuplicate: scan: %w", err)
 		}
 		m.MatchType = "exact_document"

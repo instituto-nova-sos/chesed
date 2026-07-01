@@ -394,7 +394,7 @@
 ### Stories
 
 **S05.1 - IndexedDB schema and stores (Dexie v2)**
-- status: in_progress
+- status: done
 - depends_on: [S03.8]
 - covers_requirements: [RF-47, RNF-04, RNF-18]
 - parallel_with: [S05.5]

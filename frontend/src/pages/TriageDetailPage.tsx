@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useTriage } from '../hooks/useTriage';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
@@ -16,6 +16,24 @@ function formatDateTime(iso: string): string {
   });
 }
 
+function RequestedServices({ labels }: { labels: string[] }) {
+  if (labels.length === 0) {
+    return <span className="text-sm text-gray-500">Nenhum</span>;
+  }
+  return (
+    <>
+      {labels.map((label) => (
+        <span
+          key={label}
+          className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700"
+        >
+          {label}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function TriageDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -28,15 +46,15 @@ export function TriageDetailPage() {
       .catch(() => setServiceTypes([]));
   }, []);
 
+  const requested = useMemo(() => {
+    const stMap = new Map(serviceTypes.map((s) => [s.id, s.name]));
+    return (triage?.requested_service_types ?? []).map((sid) => stMap.get(sid) ?? sid);
+  }, [serviceTypes, triage]);
+
   if (isLoading) return <LoadingScreen />;
   if (error || !triage) {
     return <Alert variant="error">{error ?? 'Triagem não encontrada'}</Alert>;
   }
-
-  const stMap = new Map(serviceTypes.map((s) => [s.id, s.name]));
-  const requested = (triage.requested_service_types ?? []).map(
-    (id) => stMap.get(id) ?? id,
-  );
 
   return (
     <div className="space-y-4">
@@ -55,10 +73,7 @@ export function TriageDetailPage() {
         <div>
           <dt className="text-xs font-medium text-gray-500">Pessoa</dt>
           <dd className="mt-1 text-sm">
-            <Link
-              to={`/persons/${triage.person_id}`}
-              className="text-blue-600 hover:underline"
-            >
+            <Link to={`/persons/${triage.person_id}`} className="text-blue-600 hover:underline">
               Ver pessoa
             </Link>
           </dd>
@@ -82,18 +97,7 @@ export function TriageDetailPage() {
         <div className="sm:col-span-2">
           <dt className="text-xs font-medium text-gray-500">Serviços Solicitados</dt>
           <dd className="mt-1 flex flex-wrap gap-1.5">
-            {requested.length === 0 ? (
-              <span className="text-sm text-gray-500">Nenhum</span>
-            ) : (
-              requested.map((label) => (
-                <span
-                  key={label}
-                  className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700"
-                >
-                  {label}
-                </span>
-              ))
-            )}
+            <RequestedServices labels={requested} />
           </dd>
         </div>
         {triage.notes && (
