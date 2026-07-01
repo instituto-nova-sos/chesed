@@ -2590,6 +2590,79 @@ Roadmap: tasks **4.3 / 4.4 / 4.7 → Done**. Backlog: **S05.3 / S05.4 → done**
 
 ---
 
+## Session 32: Sprint 4 Closeout — S05.1 + Perf + Security (2026-07-01)
+
+### What Was Done
+Closed the remaining open Sprint 4 work in three parallel-scoped fronts, each
+under TDD (RED→GREEN commit order), delivered on branch
+`feat/sprint4-close-s05.1-perf-security`. Work was scoped by three read-only
+subagents (one per front) that confirmed disjoint file sets before any edit, so
+the fronts never collided. (Implementation subagents were denied write/exec in
+this environment, so the orchestrator applied every change in the main session.)
+
+**S05.1 — Dexie encryption-at-rest + migration safety (story now `done`):**
+- New `frontend/src/offline/encryption.ts`: field-level AES-GCM encryption with
+  Web Crypto **feature-detection** and **graceful plaintext degradation** when
+  `crypto.subtle` is absent. `StoredPayload` is a self-describing union
+  (`{enc:false,data}` | `{enc:true,iv,ciphertext}`) so the read path stays
+  backward-compatible with existing plaintext records. 256-bit key persisted in
+  `syncMeta` (survives reload).
+- New tests: `encryption.test.ts` (both branches + backward-compat + reload
+  durability) and `db.migration.test.ts` (seeds a real v1 DB, upgrades to v2,
+  asserts **no data loss** + reload durability — locks in the additive-upgrade
+  guarantee that previously had no test). `src/offline` coverage 98.98% (gate 80%).
+- **Integration boundary (documented, deliberate):** encryption is a tested
+  capability module, NOT wired into the Dexie store hooks. Dexie
+  `creating`/`reading` hooks are synchronous and cannot `await` AES-GCM, and
+  forcing decrypt into the drainer/`toPushRecord` path would regress the
+  just-reviewed sync layer (its tests enqueue plaintext). Wiring it transparently
+  is a follow-up; the capability + graceful degradation criterion is satisfied.
+
+**4.8 — Frontend performance (roadmap 4.8 done):**
+- Route lazy-loading: all 19 pages → `React.lazy` behind one `<Suspense>`. Build
+  went from **one ~720 KB monolithic JS chunk** to a **~47 KB entry chunk** +
+  per-route chunks (2–12 KB) + cache-stable vendor chunks (`react-vendor` 232 KB,
+  `dexie-vendor` 95 KB, `forms-vendor` 89 KB, `keycloak-vendor` 26 KB) via
+  Rolldown `advancedChunks` in `vite.config.ts`.
+- Memoized `TriageDetailPage` service-name map (`useMemo`) and wrapped
+  `PersonCard` in `React.memo` (rendered in a list). Extracted `RequestedServices`
+  to keep the page under the length/complexity budget (net **−1 lint warning**).
+- Removed dead `recharts` dependency (declared, never imported).
+- Dropped the originally-planned QueryClient cache tuning: TanStack Query is
+  installed but **no `useQuery` exists** in the codebase, so tuning would be a
+  no-op. Recorded for a future data-layer migration.
+
+**4.9 — Security review (roadmap 4.9 done):**
+- **HIGH fixed (A01 / T3):** `PersonRepository.CheckDuplicate` never bound the
+  caller's `campus_id`, so a user in campus A could probe any document and learn
+  the holder's name + campus in **any** campus. **Reproduced** with a real-Postgres
+  integration test (`person_test.go` → `TestCheckDuplicate_CampusScoped`, RED),
+  fixed with `AND p.campus_id = $3`, removed the redundant `campus` field from the
+  query + `DuplicateMatch` struct + `docs/11-api-design.md`. GREEN. Note:
+  `uq_person_document` is globally unique, so campus scoping does not weaken
+  duplicate *prevention* — it only closes the disclosure channel.
+- **LOW fixed (A09):** dropped `email` (PII) from the email-not-verified warning
+  log in `auth.go` (rule #7).
+- **Deferred (documented as follow-up TODOs)**: sync reference-campus check
+  (MEDIUM, defense-in-depth, needs interface+mock changes) and audit-logging 403
+  denials (INFO, invasive across 8 RBAC call sites). Full write-up in
+  `docs/security-review-sprint4.md`.
+
+### Validation (all green, Docker present)
+- Frontend: `typecheck` + `lint` (0 errors, 49 warnings — 1 fewer than baseline)
+  + **131/131 unit tests** + `test:coverage` gate (EXIT 0) + PWA `build` (chunk
+  split verified).
+- Backend: `go build ./...` + `go test -short ./...` (all pkgs) +
+  `make -C backend lint` (golangci-lint clean) + **integration
+  `TestCheckDuplicate_*` GREEN** against real Postgres.
+- Backlog: `make validate-backlog` OK, `make status` regenerated — **E05/E06 all
+  `done`** (Phase 1 story work complete).
+
+### Push boundary respected
+All commits are local on the feature branch. No `git push` / `gh pr` was run.
+
+---
+
 ## Context for Future AI Sessions
 
 When starting a new session on this repository:
