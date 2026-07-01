@@ -96,6 +96,17 @@ async function seedAppUser(identity: E2EIdentity): Promise<void> {
 
 async function cleanupTestData(identity: E2EIdentity): Promise<void> {
   await withClient(async (client) => {
+    // Child rows first (FK to person) — triages/attendances created by the
+    // offline slices reference the test persons scoped by the name prefix.
+    const persons = `SELECT id FROM person WHERE full_name LIKE $1`;
+    await client.query(
+      `DELETE FROM attendance WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
+    await client.query(
+      `DELETE FROM triage WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
     // Persons created by this test (scoped by the unique name prefix).
     await client.query(`DELETE FROM person WHERE full_name LIKE $1`, [`${identity.dataPrefix}%`]);
     await client.query(`DELETE FROM app_user WHERE keycloak_subject_id = $1`, [identity.subject]);

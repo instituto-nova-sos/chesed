@@ -32,18 +32,24 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // App shell is precached (generateSW). For live data, use network-first
-        // so online users always get fresh reads but a cached response still
-        // renders when offline — complementing the IndexedDB offline layer.
+        // App shell is precached (generateSW). For live data we use network-first
+        // ONLY for read-only reference endpoints (service types, campuses) that
+        // have no IndexedDB layer. The person/triage/attendance collections are
+        // deliberately EXCLUDED: those are served offline by the app's own Dexie
+        // cache (src/offline/*), which also holds pending offline writes. Letting
+        // the SW answer those GETs from its cache would mask the IndexedDB
+        // fallback and hide unsynced records — the SW cache and the app cache must
+        // not both own the same reads. See docs/12-offline-sync-strategy.md.
         runtimeCaching: [
           {
             urlPattern: ({ url, request }) =>
-              url.pathname.startsWith('/api/v1/') && request.method === 'GET',
+              request.method === 'GET' &&
+              /^\/api\/v1\/(service-types|campuses)/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'chesed-api-get',
+              cacheName: 'chesed-reference-get',
               networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
