@@ -2539,6 +2539,55 @@ indicator at zero pending, offline-disabled Sync-Now with title). Full unit
 suite 98 pass; typecheck clean; lint 0 errors / 50 warnings. **S05.5 → done**
 in `docs/09-backlog.md`.
 
+Track B critical review returned **NEEDS_DISCUSSION** — not for the S05.5 code
+(which the reviewer graded APPROVE-quality: all four criteria met, 100% file
+coverage, complexity warning eliminated) but because the reviewer ran the suite
+while HEAD was the Track C RED (intentionally-failing) commit. Resolved by
+landing Track C's GREEN (below) so the suite is green at the delivery tip; the
+reviewer's MINOR (an offline-state test that never went RED — Track A already
+rendered the notice) was addressed by reframing that test as a regression guard.
+
+## Session 31 (cont.) — Track C: conflict-resolution UI (2026-06-30)
+
+`getConflicts`/`discardConflict` existed in the engine but had no operator
+surface beyond the banner badge. Built under TDD (RED→GREEN):
+- `syncEngine.requeueConflict(queueId)` — clears the `conflicted` flag and
+  resets the cached entity to `pending` so the next drain resubmits it
+  (last-write-wins), preserving the captured data.
+- `useSyncConflicts` hook — load conflicts, `discard`, `resubmit`.
+- `SyncConflictsPage` (route `/sync/conflicts`) + `ConflictList` component —
+  per-record entity-type label + error, Reenviar/Descartar actions, empty state.
+- `SyncStatusBanner` conflict badge now links to `/sync/conflicts`.
+Tests: syncEngine requeue case, `useSyncConflicts` (3), `SyncConflictsPage` (4).
+
+## Session 31 (cont.) — Track D: PWA (task 4.4) + E2E extension (task 4.7)
+
+**PWA:** generated 192/512/maskable-512 PNG icons from the brand SVG via a
+reproducible `scripts/generate-pwa-icons.mjs` (`@resvg/resvg-js` devDep;
+`npm run generate:icons`), referenced them in the manifest (brand theme/bg
+color, favicon precached), added an `InstallPrompt` component
+(`beforeinstallprompt` capture, install/dismiss, hide on `appinstalled`;
+degrades to nothing where unsupported) mounted in `AppLayout`, and configured
+`workbox.runtimeCaching`.
+
+**Workbox scoping (bug found + fixed via E2E):** NetworkFirst is scoped to the
+read-only reference endpoints (`/service-types`, `/campuses`) ONLY. Caching the
+person/triage/attendance collection GETs made the SW answer them from cache and
+**masked the app's IndexedDB offline fallback** (which also holds unsynced
+records) — the person offline E2E slice regressed until this was narrowed. The
+SW cache and the app's Dexie cache must not both own the same reads.
+
+**E2E:** fixed the stale header comment in `sync-smoke.spec.ts`; added an
+`@smoke` offline-triage slice (create offline → cached list render → reconnect →
+drainer flushes to Postgres) that exercises S05.2's triage path against the real
+stack; `fixtures.ts` cleanup now deletes triage/attendance before persons (FK
+order). **E2E smoke 3/3 pass** against the live Docker stack (person online,
+person offline, triage offline).
+
+Roadmap: tasks **4.3 / 4.4 / 4.7 → Done**. Backlog: **S05.3 / S05.4 → done**
+(drainer + pull-merge + conflict surfacing all shipped). S05.1 remains
+`in_progress` (encryption-at-rest still deferred).
+
 ---
 
 ## Context for Future AI Sessions

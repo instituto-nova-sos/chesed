@@ -422,7 +422,7 @@
   - **Given** an offline-created record **when** connectivity returns **then** the queued entry is eligible for the drainer (S05.3) without further user action.
 
 **S05.3 - Sync queue and push (drainer)**
-- status: ready
+- status: done
 - depends_on: [S05.1, S05.2]
 - covers_requirements: [RF-48, RF-49, RNF-09]
 - parallel_with: [S05.4]
@@ -437,7 +437,7 @@
   - **Given** a batch-level error (oversize or missing campus) **when** the server responds **then** the client surfaces the error and does not silently drop the batch.
 
 **S05.4 - Pull sync (pull-merge)**
-- status: ready
+- status: done
 - depends_on: [S05.3]
 - covers_requirements: [RF-48, RF-49, RNF-09]
 - parallel_with: [S05.3]
