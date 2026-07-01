@@ -44,9 +44,20 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function fromBase64(value: string): Uint8Array {
+// Web Crypto expects an ArrayBuffer-backed view. Copying the bytes into a view
+// over a freshly-allocated ArrayBuffer guarantees the concrete `ArrayBuffer`
+// type the crypto overloads require (not the `ArrayBufferLike` union, which may
+// widen to SharedArrayBuffer under the build's lib settings) and is accepted by
+// the jsdom SubtleCrypto implementation as a TypedArray.
+function toBufferView(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+  copy.set(bytes);
+  return copy;
+}
+
+function fromBase64(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
@@ -91,7 +102,11 @@ export async function encryptPayload(
   const key = await loadOrCreateKey();
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const encoded = new TextEncoder().encode(JSON.stringify(data));
-  const buffer = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const buffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: toBufferView(iv) },
+    key,
+    toBufferView(encoded),
+  );
 
   return {
     enc: true,
@@ -113,8 +128,8 @@ export async function decryptPayload(
   }
 
   const key = await loadOrCreateKey();
-  const iv = new Uint8Array(stored.iv);
-  const ciphertext = new Uint8Array(stored.ciphertext);
+  const iv = toBufferView(new Uint8Array(stored.iv));
+  const ciphertext = toBufferView(new Uint8Array(stored.ciphertext));
   const buffer = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
     key,

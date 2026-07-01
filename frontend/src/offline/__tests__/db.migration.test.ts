@@ -52,7 +52,7 @@ describe('offline db v1 → v2 migration', () => {
     expect(person?.data.full_name).toBe('Legacy Person');
     const queued = await db.syncQueue.toArray();
     expect(queued).toHaveLength(1);
-    expect(queued[0].entityId).toBe('p-v1');
+    expect(queued[0]?.entityId).toBe('p-v1');
 
     // The new v2 stores must be usable after the upgrade.
     await db.triages.put({
