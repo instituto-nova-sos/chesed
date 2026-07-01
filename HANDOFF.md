@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-06-30 (Session 31)
+2026-07-01 (Session 33)
 
 ---
 
@@ -2660,6 +2660,64 @@ this environment, so the orchestrator applied every change in the main session.)
 
 ### Push boundary respected
 All commits are local on the feature branch. No `git push` / `gh pr` was run.
+
+---
+
+## Session 33: Phase 1 Security Hardening Follow-ups (2026-07-01)
+
+### What Was Done
+Closed the two hardening items the Sprint 4 security review (`docs/security-review-sprint4.md`)
+**deferred**, plus reconciled the stale roadmap. Delivered on branch
+`feat/phase1-hardening-followups`, three parallel-scoped tracks, each under TDD
+(RED→GREEN commit order). Investigation was fanned out to three read-only Explore
+subagents (sync code, RBAC/audit wiring, test infra/pipeline) before any edit; the
+critical-review gate was run by an independent `code-review-agent` subagent.
+
+**Track 1 — Sync cross-campus reference check (Finding 3, MEDIUM / threat T3):**
+- `buildSyncTriage`/`buildSyncAttendance` (`backend/internal/service/sync_service.go`)
+  previously stamped the caller's campus onto records referencing a foreign
+  `person_id`/`triage_id` with **no lookup** — a cross-campus data-link hole.
+- Widened `SyncPersonRepository`/`SyncTriageRepository` with a campus-scoped
+  `FindByID` (the concrete repos already had it). Added `requirePersonInCampus` /
+  `requireTriageInCampus` guards; a reference not visible in the caller's campus is
+  rejected as a per-record error with a **generic message** (never reveals foreign
+  existence). Extracted `resolveAttendanceRefs` to keep `buildSyncAttendance` under
+  the cyclomatic threshold (lint caught it — fixed, not suppressed).
+- Tests: 3 unit cross-campus cases + 1 real-Postgres integration test asserting **no
+  row persisted** on rejection.
+
+**Track 2 — RBAC 403 denials audited (Finding 4, INFO):**
+- `RequireRole` (`backend/internal/middleware/rbac.go`) now takes `auditSvc` and
+  writes an `ACCESS_DENIED`, `success=false` audit entry on every denial branch
+  (lacks-role AND no-claims); nil-safe; **swallow-and-log** on audit failure (never
+  fails the already-rejected request). Signature threaded through all 8 call sites in
+  `cmd/server/main.go` (added `auditSvc` to `appDeps`).
+- Migration `000020_add_access_denied_audit_action` (up/down) extends the
+  `audit_log.action_type` CHECK with `ACCESS_DENIED` — **additive only**, preserves
+  the append-only invariant (rule #6).
+- Tests: table-driven unit test (asserts audited-on-deny, not-on-allow) + 2
+  integration tests (denial writes the row; allow writes none).
+
+**Track 3 — Docs:** `docs/08-roadmap.md` Sprint 4 → DONE, 4.8/4.9 → Done (4.10 left
+as the ops/staging step); `docs/security-review-sprint4.md` Findings 3 & 4 → Fixed.
+
+### Verification
+`make deliver` reached **READY-FOR-PR** end-to-end (exit 0): validate-backlog, TDD
+order, backend build+lint+test+**integration** (real Postgres, incl. migration 000020
+and the 3 new tests), frontend all gates, **e2e smoke 3/3** against the real stack,
+critical-review **APPROVE**, DoD. Reviewer verdict (independent subagent): APPROVE, 0
+BLOCKER / 0 MAJOR / 1 MINOR / 2 SUGGESTION — verified no cross-campus leak, audit on
+all denial branches, append-only intact, genuine RED→GREEN.
+
+### Gotcha for future sessions
+`make deliver`'s review-gate path is `tasks/review-<branch>.md` with the branch name
+**verbatim** — a slash in the branch (`feat/...`) means the file lives at
+`tasks/review-feat/<rest>.md` (a `review-feat/` subdirectory), NOT a flattened name.
+
+### Push boundary respected
+All commits local on the feature branch (6 commits: RED→GREEN×2, docs, review-verdict
+chore). No `git push` / `gh pr` run. Suggested command printed for a human:
+`! git push -u origin feat/phase1-hardening-followups`.
 
 ---
 
