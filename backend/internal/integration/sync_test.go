@@ -302,6 +302,63 @@ func TestSyncPush_NoCampusReturns403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code, "body=%s", rec.Body.String())
 }
 
+// TestSyncPush_CrossCampusPersonReferenceRejected proves the multi-tenant
+// reference guard (security Finding 3, threat T3): a client authenticated for
+// campus B cannot attach a triage to a person that lives in campus A. Before
+// the fix, the push stamped the caller's campus onto a triage referencing a
+// foreign person_id, silently linking cross-campus data.
+func TestSyncPush_CrossCampusPersonReferenceRejected(t *testing.T) {
+	h := freshHarness(t)
+	ctx := context.Background()
+
+	// h.campusID is campus A; create campus B for the caller.
+	campusB := uuid.New()
+	_, err := h.pool.Exec(ctx, `
+		INSERT INTO campus (id, name, region, is_active)
+		VALUES ($1, 'Campus B', 'BRAZIL', TRUE)
+	`, campusB)
+	require.NoError(t, err)
+
+	// The person exists only in campus A.
+	personA := uuid.New()
+	_, err = h.pool.Exec(ctx, `
+		INSERT INTO person (id, full_name, document_type, document_number, nationality, campus_id)
+		VALUES ($1, 'Person A', 'CPF', '55555555555', 'BRA', $2)
+	`, personA, h.campusID)
+	require.NoError(t, err)
+
+	syncID := uuid.New()
+	payload := domain.SyncPushRequest{Records: []domain.SyncPushRecord{{
+		EntityType: domain.SyncEntityTriage,
+		SyncID:     syncID,
+		Data: map[string]any{
+			"person_id":      personA.String(),
+			"main_complaint": "cross-campus attempt",
+		},
+	}}}
+
+	// Push as campus B, referencing campus A's person.
+	req := h.authedRequest(postJSON(t, "/api/v1/sync/push", payload), func(c *auth.AuthClaims) {
+		c.CampusID = campusB
+	})
+	rec := h.doRequest(req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	var resp domain.SyncPushResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusError, resp.Results[0].Status,
+		"cross-campus person reference must be rejected")
+
+	// No triage row must have been written for this sync_id.
+	var count int
+	err = h.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM triage WHERE sync_id = $1`, syncID,
+	).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no triage row may be persisted for a cross-campus reference")
+}
+
 // --- helpers ----------------------------------------------------------------
 
 func postJSON(t *testing.T, path string, payload any) *http.Request {
