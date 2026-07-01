@@ -86,8 +86,9 @@ func authenticateRequest(r *http.Request, verifier *oidc.IDTokenVerifier) (auth.
 	}
 
 	if !claims.EmailVerified {
+		// Log the subject only; the email is PII and must not enter logs (rule #7).
 		slog.WarnContext(r.Context(), "middleware.OIDCAuth: email not verified",
-			"subject", claims.Subject, "email", claims.Email)
+			"subject", claims.Subject)
 		return auth.AuthClaims{}, &authError{http.StatusForbidden, "forbidden", "email not verified"}
 	}
 

@@ -66,12 +66,13 @@ type PersonFilter struct {
 	AgreementStatus string // "with_agreement", "without_agreement", "rejected"
 }
 
-// DuplicateMatch represents a potential duplicate person.
+// DuplicateMatch represents a potential duplicate person. Matches are always
+// within the caller's own campus (campus scoping is enforced in the query), so
+// the campus is implicit and deliberately not returned.
 type DuplicateMatch struct {
 	ID             uuid.UUID `json:"id"`
 	FullName       string    `json:"full_name"`
 	DocumentNumber string    `json:"document_number"`
-	Campus         string    `json:"campus"`
 	MatchType      string    `json:"match_type"`
 }
 
