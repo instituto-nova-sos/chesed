@@ -89,7 +89,7 @@ export function TriageCreatePage() {
         notes: values.notes || undefined,
         requested_service_types: values.requested_service_types,
       };
-      const created = await createTriageWithOfflineFallback(input, person.full_name);
+      const created = await createTriageWithOfflineFallback(input, person?.full_name);
       // Offline-created records live in the local list until they sync, so we
       // return to the list rather than a detail page the server can't serve yet.
       navigate(created.offline ? '/triages' : `/triages/${created.id}`);

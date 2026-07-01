@@ -90,7 +90,7 @@ export function AttendanceCreatePage() {
       )?.name;
       const created = await createAttendanceWithOfflineFallback(
         input,
-        person.full_name,
+        person?.full_name,
         serviceTypeName,
       );
       // Offline-created records live in the local list until they sync, so we
