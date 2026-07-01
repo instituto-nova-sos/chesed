@@ -179,25 +179,30 @@ func (r *AttendanceRepository) FindByIDWithTransitions(ctx context.Context, id, 
 }
 
 // List returns a paginated list of attendances scoped to campus.
-func (r *AttendanceRepository) List(ctx context.Context, filter domain.AttendanceFilter) (*domain.AttendanceListResult, error) {
+func buildAttendanceWhere(filter domain.AttendanceFilter) (string, []any) {
 	args := []any{filter.CampusID}
 	where := "a.campus_id = $1"
+	addClause := func(value any, clause string) {
+		args = append(args, value)
+		where += fmt.Sprintf(clause, len(args))
+	}
 	if filter.PersonID != nil {
-		args = append(args, *filter.PersonID)
-		where += fmt.Sprintf(" AND a.person_id = $%d", len(args))
+		addClause(*filter.PersonID, " AND a.person_id = $%d")
 	}
 	if filter.Status != nil {
-		args = append(args, *filter.Status)
-		where += fmt.Sprintf(" AND a.status = $%d", len(args))
+		addClause(*filter.Status, " AND a.status = $%d")
 	}
 	if filter.From != nil {
-		args = append(args, *filter.From)
-		where += fmt.Sprintf(" AND a.attendance_date >= $%d", len(args))
+		addClause(*filter.From, " AND a.attendance_date >= $%d")
 	}
 	if filter.To != nil {
-		args = append(args, *filter.To)
-		where += fmt.Sprintf(" AND a.attendance_date <= $%d", len(args))
+		addClause(*filter.To, " AND a.attendance_date <= $%d")
 	}
+	return where, args
+}
+
+func (r *AttendanceRepository) List(ctx context.Context, filter domain.AttendanceFilter) (*domain.AttendanceListResult, error) {
+	where, args := buildAttendanceWhere(filter)
 
 	countQuery := "SELECT COUNT(*) FROM attendance a WHERE " + where
 	var total int
@@ -260,7 +265,7 @@ func (r *AttendanceRepository) Transition(ctx context.Context, t domain.Attendan
 	if err != nil {
 		return nil, fmt.Errorf("attendanceRepository.Transition: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const updateQuery = `
 		UPDATE attendance

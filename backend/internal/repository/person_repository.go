@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/instituto-nova-sos/chesed/internal/domain"
 )
 
 // PersonRepository handles person persistence.
@@ -30,7 +30,7 @@ func (r *PersonRepository) Create(ctx context.Context, person domain.Person, add
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.Create: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	personQuery := `
 		INSERT INTO person (id, full_name, birth_date, document_type, document_number,
@@ -52,21 +52,8 @@ func (r *PersonRepository) Create(ctx context.Context, person domain.Person, add
 		return nil, fmt.Errorf("personRepository.Create: insert person: %w", err)
 	}
 
-	if address != nil {
-		addressQuery := `
-			INSERT INTO address (id, person_id, street, number, complement,
-			                     neighborhood, city, state, zip_code, country, is_primary)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			RETURNING created_at, updated_at`
-
-		err = tx.QueryRow(ctx, addressQuery,
-			address.ID, person.ID, address.Street, address.Number,
-			address.Complement, address.Neighborhood, address.City,
-			address.State, address.ZipCode, address.Country, address.IsPrimary,
-		).Scan(&address.CreatedAt, &address.UpdatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("personRepository.Create: insert address: %w", err)
-		}
+	if err := insertAddress(ctx, tx, person.ID, address); err != nil {
+		return nil, fmt.Errorf("personRepository.Create: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -74,6 +61,28 @@ func (r *PersonRepository) Create(ctx context.Context, person domain.Person, add
 	}
 
 	return &person, nil
+}
+
+// insertAddress inserts the optional primary address within an open transaction.
+// It is a no-op when address is nil.
+func insertAddress(ctx context.Context, tx pgx.Tx, personID uuid.UUID, address *domain.Address) error {
+	if address == nil {
+		return nil
+	}
+	const addressQuery = `
+		INSERT INTO address (id, person_id, street, number, complement,
+		                     neighborhood, city, state, zip_code, country, is_primary)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING created_at, updated_at`
+	err := tx.QueryRow(ctx, addressQuery,
+		address.ID, personID, address.Street, address.Number,
+		address.Complement, address.Neighborhood, address.City,
+		address.State, address.ZipCode, address.Country, address.IsPrimary,
+	).Scan(&address.CreatedAt, &address.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("insert address: %w", err)
+	}
+	return nil
 }
 
 // CreateWithSync inserts a person carrying the client-supplied sync_id.
@@ -85,7 +94,7 @@ func (r *PersonRepository) CreateWithSync(ctx context.Context, person domain.Per
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.CreateWithSync: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const q = `
 		INSERT INTO person (id, full_name, birth_date, document_type, document_number,
@@ -106,19 +115,8 @@ func (r *PersonRepository) CreateWithSync(ctx context.Context, person domain.Per
 		return nil, fmt.Errorf("personRepository.CreateWithSync: insert: %w", err)
 	}
 
-	if address != nil {
-		const aq = `
-			INSERT INTO address (id, person_id, street, number, complement,
-			                     neighborhood, city, state, zip_code, country, is_primary)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			RETURNING created_at, updated_at`
-		if err := tx.QueryRow(ctx, aq,
-			address.ID, person.ID, address.Street, address.Number,
-			address.Complement, address.Neighborhood, address.City,
-			address.State, address.ZipCode, address.Country, address.IsPrimary,
-		).Scan(&address.CreatedAt, &address.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("personRepository.CreateWithSync: insert address: %w", err)
-		}
+	if err := insertAddress(ctx, tx, person.ID, address); err != nil {
+		return nil, fmt.Errorf("personRepository.CreateWithSync: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -321,10 +319,21 @@ func (r *PersonRepository) Update(ctx context.Context, person domain.Person) (*d
 }
 
 // List returns a paginated list of persons matching the filter.
-func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter) (*domain.PersonListResult, error) {
-	offset := (filter.Page - 1) * filter.PerPage
+func appendAgreementCondition(sb *strings.Builder, status string) {
+	switch status {
+	case "with_agreement":
+		sb.WriteString(`
+		  AND pr_vol.id IS NOT NULL AND va.status = 'ACCEPTED'`)
+	case "without_agreement":
+		sb.WriteString(`
+		  AND pr_vol.id IS NOT NULL AND (va.id IS NULL OR va.status = 'PENDING')`)
+	case "rejected":
+		sb.WriteString(`
+		  AND pr_vol.id IS NOT NULL AND va.status = 'REJECTED'`)
+	}
+}
 
-	// Build dynamic query with optional agreement filter
+func buildPersonListQuery(filter domain.PersonFilter, offset int) (string, []any) {
 	var sb strings.Builder
 	args := []any{filter.CampusID}
 	argIdx := 2
@@ -338,7 +347,6 @@ func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter)
 		       ) AS roles
 		FROM person p`)
 
-	// Join for agreement filtering
 	if filter.AgreementStatus != "" {
 		sb.WriteString(`
 		LEFT JOIN person_role pr_vol ON pr_vol.person_id = p.id AND pr_vol.role_type = 'VOLUNTEER' AND pr_vol.is_active = TRUE
@@ -355,18 +363,7 @@ func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter)
 		argIdx++
 	}
 
-	// Agreement filter conditions
-	switch filter.AgreementStatus {
-	case "with_agreement":
-		sb.WriteString(`
-		  AND pr_vol.id IS NOT NULL AND va.status = 'ACCEPTED'`)
-	case "without_agreement":
-		sb.WriteString(`
-		  AND pr_vol.id IS NOT NULL AND (va.id IS NULL OR va.status = 'PENDING')`)
-	case "rejected":
-		sb.WriteString(`
-		  AND pr_vol.id IS NOT NULL AND va.status = 'REJECTED'`)
-	}
+	appendAgreementCondition(&sb, filter.AgreementStatus)
 
 	if filter.Query != "" {
 		sb.WriteString(`
@@ -379,8 +376,14 @@ func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter)
 	fmt.Fprintf(&sb, `
 		LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
 	args = append(args, filter.PerPage, offset)
+	return sb.String(), args
+}
 
-	rows, err := r.pool.Query(ctx, sb.String(), args...)
+func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter) (*domain.PersonListResult, error) {
+	offset := (filter.Page - 1) * filter.PerPage
+	query, args := buildPersonListQuery(filter, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.List: %w", err)
 	}

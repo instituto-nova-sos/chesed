@@ -47,43 +47,51 @@ func OIDCAuth(discoveryURL, clientID string, skipIssuerCheck bool) (func(http.Ha
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, err := extractBearerToken(r)
-			if err != nil {
-				writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid authorization header")
+			claims, authErr := authenticateRequest(r, verifier)
+			if authErr != nil {
+				writeError(w, authErr.status, authErr.code, authErr.message)
 				return
 			}
-
-			idToken, err := verifier.Verify(r.Context(), token)
-			if err != nil {
-				slog.WarnContext(r.Context(), "middleware.OIDCAuth: token verification failed",
-					"error", err.Error(),
-				)
-				writeError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
-				return
-			}
-
-			claims, err := extractClaims(idToken)
-			if err != nil {
-				slog.ErrorContext(r.Context(), "middleware.OIDCAuth: claims extraction failed",
-					"error", err.Error(),
-				)
-				writeError(w, http.StatusUnauthorized, "unauthorized", "invalid token claims")
-				return
-			}
-
-			if !claims.EmailVerified {
-				slog.WarnContext(r.Context(), "middleware.OIDCAuth: email not verified",
-					"subject", claims.Subject,
-					"email", claims.Email,
-				)
-				writeError(w, http.StatusForbidden, "forbidden", "email not verified")
-				return
-			}
-
 			ctx := auth.NewContext(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}, nil
+}
+
+// authError carries the HTTP response for a failed authentication.
+type authError struct {
+	status  int
+	code    string
+	message string
+}
+
+// authenticateRequest extracts and verifies the bearer token, validates the
+// claims, and enforces the email-verified gate.
+func authenticateRequest(r *http.Request, verifier *oidc.IDTokenVerifier) (auth.AuthClaims, *authError) {
+	token, err := extractBearerToken(r)
+	if err != nil {
+		return auth.AuthClaims{}, &authError{http.StatusUnauthorized, "unauthorized", "missing or invalid authorization header"}
+	}
+
+	idToken, err := verifier.Verify(r.Context(), token)
+	if err != nil {
+		slog.WarnContext(r.Context(), "middleware.OIDCAuth: token verification failed", "error", err.Error())
+		return auth.AuthClaims{}, &authError{http.StatusUnauthorized, "unauthorized", "invalid or expired token"}
+	}
+
+	claims, err := extractClaims(idToken)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "middleware.OIDCAuth: claims extraction failed", "error", err.Error())
+		return auth.AuthClaims{}, &authError{http.StatusUnauthorized, "unauthorized", "invalid token claims"}
+	}
+
+	if !claims.EmailVerified {
+		slog.WarnContext(r.Context(), "middleware.OIDCAuth: email not verified",
+			"subject", claims.Subject, "email", claims.Email)
+		return auth.AuthClaims{}, &authError{http.StatusForbidden, "forbidden", "email not verified"}
+	}
+
+	return claims, nil
 }
 
 func newProviderWithRetry(issuerURL string) (*oidc.Provider, error) {

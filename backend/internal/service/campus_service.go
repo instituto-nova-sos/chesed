@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -99,7 +100,7 @@ func (s *CampusService) Create(ctx context.Context, input CreateCampusInput) (*d
 	}
 
 	campusID := created.ID
-	s.auditSvc.LogAction(ctx, AuditParams{
+	if auditErr := s.auditSvc.LogAction(ctx, AuditParams{
 		ActionType:  "CREATE",
 		EntityType:  "campus",
 		EntityID:    &campusID,
@@ -107,7 +108,11 @@ func (s *CampusService) Create(ctx context.Context, input CreateCampusInput) (*d
 		Description: "campus created",
 		NewValues:   map[string]string{"name": created.Name, "region": created.Region},
 		Success:     true,
-	})
+	}); auditErr != nil {
+		slog.ErrorContext(ctx, "campusService.Create: audit failed",
+			"error", auditErr.Error(), "campus_id", campusID,
+		)
+	}
 
 	return created, nil
 }
@@ -133,7 +138,7 @@ func (s *CampusService) Update(ctx context.Context, id uuid.UUID, input UpdateCa
 		return nil, fmt.Errorf("campusService.Update: %w", err)
 	}
 
-	s.auditSvc.LogAction(ctx, AuditParams{
+	if auditErr := s.auditSvc.LogAction(ctx, AuditParams{
 		ActionType:  "UPDATE",
 		EntityType:  "campus",
 		EntityID:    &id,
@@ -141,7 +146,11 @@ func (s *CampusService) Update(ctx context.Context, id uuid.UUID, input UpdateCa
 		Description: "campus updated",
 		NewValues:   map[string]string{"name": updated.Name, "region": updated.Region},
 		Success:     true,
-	})
+	}); auditErr != nil {
+		slog.ErrorContext(ctx, "campusService.Update: audit failed",
+			"error", auditErr.Error(), "campus_id", id,
+		)
+	}
 
 	return updated, nil
 }

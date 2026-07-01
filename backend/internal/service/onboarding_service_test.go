@@ -92,142 +92,146 @@ func newOnboardingTestDeps() (*MockUserRepository, *MockPersonRepository, *MockP
 	return userRepo, personRepo, roleRepo, agreementRepo, svc
 }
 
-func TestOnboardingService_GetStatus(t *testing.T) {
-	campusID := uuid.New()
-	personID := uuid.New()
-	userID := uuid.New()
+// onboardingIDs returns a fresh campus/person/user ID triple for a test.
+func onboardingIDs() (campusID, personID, userID uuid.UUID) {
+	return uuid.New(), uuid.New(), uuid.New()
+}
 
-	t.Run("existing user with campus and person — accepted agreement", func(t *testing.T) {
-		userRepo, _, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_AcceptedAgreement(t *testing.T) {
+	campusID, personID, userID := onboardingIDs()
+	userRepo, _, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
 
-		appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-1").Return(appUser, nil)
-		roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
-			{RoleType: domain.RoleVolunteer, IsActive: true},
-		}, nil)
-		agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(true, nil)
+	appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-1").Return(appUser, nil)
+	roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
+		{RoleType: domain.RoleVolunteer, IsActive: true},
+	}, nil)
+	agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(true, nil)
 
-		claims := auth.AuthClaims{Subject: "sub-1", Email: "test@test.com", Roles: []string{"VOLUNTEER"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	claims := auth.AuthClaims{Subject: "sub-1", Email: "test@test.com", Roles: []string{"VOLUNTEER"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		require.NoError(t, err)
-		assert.Equal(t, &personID, status.PersonID)
-		assert.Equal(t, &campusID, status.CampusID)
-		assert.False(t, status.NeedsProfileCompletion)
-		assert.False(t, status.NeedsCampusAssignment)
-		assert.False(t, status.NeedsAgreement)
-	})
+	require.NoError(t, err)
+	assert.Equal(t, &personID, status.PersonID)
+	assert.Equal(t, &campusID, status.CampusID)
+	assert.False(t, status.NeedsProfileCompletion)
+	assert.False(t, status.NeedsCampusAssignment)
+	assert.False(t, status.NeedsAgreement)
+}
 
-	t.Run("existing user with campus and person — pending agreement", func(t *testing.T) {
-		userRepo, _, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_PendingAgreement(t *testing.T) {
+	campusID, personID, userID := onboardingIDs()
+	userRepo, _, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
 
-		appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-2").Return(appUser, nil)
-		roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
-			{RoleType: domain.RoleVolunteer, IsActive: true},
-		}, nil)
-		agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(false, nil)
+	appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-2").Return(appUser, nil)
+	roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
+		{RoleType: domain.RoleVolunteer, IsActive: true},
+	}, nil)
+	agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(false, nil)
 
-		claims := auth.AuthClaims{Subject: "sub-2", Email: "test@test.com", Roles: []string{"VOLUNTEER"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	claims := auth.AuthClaims{Subject: "sub-2", Email: "test@test.com", Roles: []string{"VOLUNTEER"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		require.NoError(t, err)
-		assert.False(t, status.NeedsProfileCompletion)
-		assert.True(t, status.NeedsAgreement)
-	})
+	require.NoError(t, err)
+	assert.False(t, status.NeedsProfileCompletion)
+	assert.True(t, status.NeedsAgreement)
+}
 
-	t.Run("existing user with campus but no person — needs profile completion", func(t *testing.T) {
-		userRepo, personRepo, _, _, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_NoPersonNeedsProfile(t *testing.T) {
+	campusID, _, userID := onboardingIDs()
+	userRepo, personRepo, _, _, svc := newOnboardingTestDeps()
 
-		appUser := &domain.AppUser{ID: userID, PersonID: nil, CampusID: &campusID}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-3").Return(appUser, nil)
-		personRepo.On("FindByEmail", mock.Anything, "new@test.com", campusID).Return(nil, domain.ErrNotFound)
+	appUser := &domain.AppUser{ID: userID, PersonID: nil, CampusID: &campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-3").Return(appUser, nil)
+	personRepo.On("FindByEmail", mock.Anything, "new@test.com", campusID).Return(nil, domain.ErrNotFound)
 
-		claims := auth.AuthClaims{Subject: "sub-3", Email: "new@test.com", Roles: []string{"VOLUNTEER"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	claims := auth.AuthClaims{Subject: "sub-3", Email: "new@test.com", Roles: []string{"VOLUNTEER"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		require.NoError(t, err)
-		assert.Nil(t, status.PersonID)
-		assert.True(t, status.NeedsProfileCompletion)
-		assert.False(t, status.NeedsCampusAssignment)
-	})
+	require.NoError(t, err)
+	assert.Nil(t, status.PersonID)
+	assert.True(t, status.NeedsProfileCompletion)
+	assert.False(t, status.NeedsCampusAssignment)
+}
 
-	t.Run("existing user with nil campus — auto-links person and campus", func(t *testing.T) {
-		userRepo, personRepo, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_NilCampusAutoLinks(t *testing.T) {
+	campusID, personID, userID := onboardingIDs()
+	userRepo, personRepo, roleRepo, agreementRepo, svc := newOnboardingTestDeps()
 
-		appUser := &domain.AppUser{ID: userID, PersonID: nil, CampusID: nil}
-		existingPerson := domain.Person{ID: personID, CampusID: campusID}
+	appUser := &domain.AppUser{ID: userID, PersonID: nil, CampusID: nil}
+	existingPerson := domain.Person{ID: personID, CampusID: campusID}
 
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-4").Return(appUser, nil)
-		personRepo.On("FindByEmailGlobal", mock.Anything, "existing@test.com").Return([]domain.Person{existingPerson}, nil)
-		userRepo.On("LinkPersonAndCampus", mock.Anything, userID, personID, campusID).Return(nil)
-		roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
-			{RoleType: domain.RoleVolunteer, IsActive: true},
-		}, nil)
-		agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(true, nil)
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-4").Return(appUser, nil)
+	personRepo.On("FindByEmailGlobal", mock.Anything, "existing@test.com").Return([]domain.Person{existingPerson}, nil)
+	userRepo.On("LinkPersonAndCampus", mock.Anything, userID, personID, campusID).Return(nil)
+	roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
+		{RoleType: domain.RoleVolunteer, IsActive: true},
+	}, nil)
+	agreementRepo.On("HasAcceptedAgreement", mock.Anything, personID).Return(true, nil)
 
-		claims := auth.AuthClaims{Subject: "sub-4", Email: "existing@test.com", Roles: []string{"VOLUNTEER"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	claims := auth.AuthClaims{Subject: "sub-4", Email: "existing@test.com", Roles: []string{"VOLUNTEER"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		require.NoError(t, err)
-		assert.Equal(t, &personID, status.PersonID)
-		assert.Equal(t, &campusID, status.CampusID)
-		assert.False(t, status.NeedsProfileCompletion)
-		assert.False(t, status.NeedsCampusAssignment)
-		userRepo.AssertCalled(t, "LinkPersonAndCampus", mock.Anything, userID, personID, campusID)
-	})
+	require.NoError(t, err)
+	assert.Equal(t, &personID, status.PersonID)
+	assert.Equal(t, &campusID, status.CampusID)
+	assert.False(t, status.NeedsProfileCompletion)
+	assert.False(t, status.NeedsCampusAssignment)
+	userRepo.AssertCalled(t, "LinkPersonAndCampus", mock.Anything, userID, personID, campusID)
+}
 
-	t.Run("no app_user and no person — needs campus and profile", func(t *testing.T) {
-		userRepo, personRepo, _, _, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_NoUserNoPerson(t *testing.T) {
+	userRepo, personRepo, _, _, svc := newOnboardingTestDeps()
 
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-5").Return(nil, domain.ErrNotFound)
-		personRepo.On("FindByEmailGlobal", mock.Anything, "brand-new@test.com").Return([]domain.Person{}, nil)
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-5").Return(nil, domain.ErrNotFound)
+	personRepo.On("FindByEmailGlobal", mock.Anything, "brand-new@test.com").Return([]domain.Person{}, nil)
 
-		claims := auth.AuthClaims{Subject: "sub-5", Email: "brand-new@test.com", Roles: []string{"VOLUNTEER"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	claims := auth.AuthClaims{Subject: "sub-5", Email: "brand-new@test.com", Roles: []string{"VOLUNTEER"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		require.NoError(t, err)
-		assert.Nil(t, status.PersonID)
-		assert.Nil(t, status.CampusID)
-		assert.True(t, status.NeedsProfileCompletion)
-		assert.True(t, status.NeedsCampusAssignment)
-	})
+	require.NoError(t, err)
+	assert.Nil(t, status.PersonID)
+	assert.Nil(t, status.CampusID)
+	assert.True(t, status.NeedsProfileCompletion)
+	assert.True(t, status.NeedsCampusAssignment)
+}
 
-	t.Run("no app_user but person found by email — derives campus", func(t *testing.T) {
-		userRepo, personRepo, roleRepo, _, svc := newOnboardingTestDeps()
+func TestOnboardingService_GetStatus_PersonFoundByEmail(t *testing.T) {
+	campusID, personID, _ := onboardingIDs()
+	userRepo, personRepo, roleRepo, _, svc := newOnboardingTestDeps()
 
-		person := domain.Person{ID: personID, CampusID: campusID}
+	person := domain.Person{ID: personID, CampusID: campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-6").Return(nil, domain.ErrNotFound)
+	personRepo.On("FindByEmailGlobal", mock.Anything, "precreated@test.com").Return([]domain.Person{person}, nil)
+	roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
+		{RoleType: domain.RoleProfessional, IsActive: true},
+	}, nil)
 
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-6").Return(nil, domain.ErrNotFound)
-		personRepo.On("FindByEmailGlobal", mock.Anything, "precreated@test.com").Return([]domain.Person{person}, nil)
-		roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
-			{RoleType: domain.RoleProfessional, IsActive: true},
-		}, nil)
+	claims := auth.AuthClaims{Subject: "sub-6", Email: "precreated@test.com", Roles: []string{"PROFESSIONAL"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		claims := auth.AuthClaims{Subject: "sub-6", Email: "precreated@test.com", Roles: []string{"PROFESSIONAL"}}
-		status, err := svc.GetStatus(context.Background(), claims)
+	require.NoError(t, err)
+	assert.Equal(t, &personID, status.PersonID)
+	assert.Equal(t, &campusID, status.CampusID)
+	assert.False(t, status.NeedsProfileCompletion)
+	assert.False(t, status.NeedsCampusAssignment)
+	assert.False(t, status.NeedsAgreement)
+}
 
-		require.NoError(t, err)
-		assert.Equal(t, &personID, status.PersonID)
-		assert.Equal(t, &campusID, status.CampusID)
-		assert.False(t, status.NeedsProfileCompletion)
-		assert.False(t, status.NeedsCampusAssignment)
-		assert.False(t, status.NeedsAgreement)
-	})
+func TestOnboardingService_GetStatus_NonVolunteerSkipsAgreement(t *testing.T) {
+	campusID, personID, userID := onboardingIDs()
+	userRepo, _, roleRepo, _, svc := newOnboardingTestDeps()
 
-	t.Run("non-volunteer skips agreement check", func(t *testing.T) {
-		userRepo, _, roleRepo, _, svc := newOnboardingTestDeps()
+	appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-7").Return(appUser, nil)
+	roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
+		{RoleType: domain.RoleProfessional, IsActive: true},
+	}, nil)
 
-		appUser := &domain.AppUser{ID: userID, PersonID: &personID, CampusID: &campusID}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, "sub-7").Return(appUser, nil)
-		roleRepo.On("FindByPersonID", mock.Anything, personID).Return([]domain.PersonRole{
-			{RoleType: domain.RoleProfessional, IsActive: true},
-		}, nil)
+	claims := auth.AuthClaims{Subject: "sub-7", Email: "pro@test.com", Roles: []string{"PROFESSIONAL"}}
+	status, err := svc.GetStatus(context.Background(), claims)
 
-		claims := auth.AuthClaims{Subject: "sub-7", Email: "pro@test.com", Roles: []string{"PROFESSIONAL"}}
-		status, err := svc.GetStatus(context.Background(), claims)
-
-		require.NoError(t, err)
-		assert.False(t, status.NeedsAgreement)
-	})
+	require.NoError(t, err)
+	assert.False(t, status.NeedsAgreement)
 }

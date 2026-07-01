@@ -75,37 +75,10 @@ func (h *AttendanceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /attendances.
 func (h *AttendanceHandler) List(w http.ResponseWriter, r *http.Request) {
-	filter := domain.AttendanceFilter{
-		Page:    parseIntParam(r.URL.Query().Get("page"), 1),
-		PerPage: parseIntParam(r.URL.Query().Get("per_page"), 20),
-	}
-
-	if personIDStr := r.URL.Query().Get("person_id"); personIDStr != "" {
-		id, err := uuid.Parse(personIDStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_person_id", "invalid person_id format")
-			return
-		}
-		filter.PersonID = &id
-	}
-	if status := r.URL.Query().Get("status"); status != "" {
-		filter.Status = &status
-	}
-	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
-		t, err := parseQueryDate(fromStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_from", "invalid from date")
-			return
-		}
-		filter.From = t
-	}
-	if toStr := r.URL.Query().Get("to"); toStr != "" {
-		t, err := parseQueryDate(toStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_to", "invalid to date")
-			return
-		}
-		filter.To = t
+	filter, code, msg := parseAttendanceFilter(r)
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, msg)
+		return
 	}
 
 	result, err := h.svc.ListAttendances(r.Context(), filter)
@@ -120,6 +93,42 @@ func (h *AttendanceHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// parseAttendanceFilter builds an AttendanceFilter from the query string.
+// On a malformed parameter it returns a non-empty (code, message) pair.
+func parseAttendanceFilter(r *http.Request) (domain.AttendanceFilter, string, string) {
+	q := r.URL.Query()
+	filter := domain.AttendanceFilter{
+		Page:    parseIntParam(q.Get("page"), 1),
+		PerPage: parseIntParam(q.Get("per_page"), 20),
+	}
+
+	if v := q.Get("person_id"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return filter, "invalid_person_id", "invalid person_id format"
+		}
+		filter.PersonID = &id
+	}
+	if v := q.Get("status"); v != "" {
+		filter.Status = &v
+	}
+	if v := q.Get("from"); v != "" {
+		t, err := parseQueryDate(v)
+		if err != nil {
+			return filter, "invalid_from", "invalid from date"
+		}
+		filter.From = t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := parseQueryDate(v)
+		if err != nil {
+			return filter, "invalid_to", "invalid to date"
+		}
+		filter.To = t
+	}
+	return filter, "", ""
 }
 
 // Transition handles POST /attendances/{id}/transitions.

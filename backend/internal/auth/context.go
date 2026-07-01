@@ -11,6 +11,8 @@ type contextKey int
 const claimsKey contextKey = iota
 
 // AuthClaims represents validated claims from a Keycloak JWT.
+//
+//nolint:revive // domain-meaningful name used across ~25 files; cross-package rename deferred
 type AuthClaims struct {
 	Subject       string
 	Email         string

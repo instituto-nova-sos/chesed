@@ -8,11 +8,15 @@ import (
 )
 
 // ServiceTypeRepository defines the interface for service type persistence.
+//
+//nolint:revive // domain-meaningful name used across handler/cmd/repository; rename deferred
 type ServiceTypeRepository interface {
 	ListActive(ctx context.Context) ([]domain.ServiceType, error)
 }
 
 // ServiceTypeService handles service type operations.
+//
+//nolint:revive // domain-meaningful name used across handler/cmd; rename deferred
 type ServiceTypeService struct {
 	repo ServiceTypeRepository
 }

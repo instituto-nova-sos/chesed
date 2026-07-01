@@ -138,17 +138,38 @@ func (s *SyncService) handlePerson(ctx context.Context, rec domain.SyncPushRecor
 		return errorResult(rec.SyncID, err.Error())
 	}
 
+	person, errResult := s.buildSyncPerson(ctx, rec, campusID)
+	if errResult != nil {
+		return *errResult
+	}
+
+	var address *domain.Address
+	created, err := s.personRepo.CreateWithSync(ctx, person, address, rec.SyncID)
+	if err != nil {
+		return mapSyncCreateError(rec.SyncID, err)
+	}
+
+	s.logCreate(ctx, "person", created.ID)
+	return createdResult(rec.SyncID, created.ID)
+}
+
+// buildSyncPerson decodes, validates, and maps a sync person record into a
+// domain.Person. A non-nil result indicates an early-return error.
+func (s *SyncService) buildSyncPerson(ctx context.Context, rec domain.SyncPushRecord, campusID uuid.UUID) (domain.Person, *domain.SyncPushResult) {
 	var in syncPersonInput
 	if err := decodeRecord(rec.Data, &in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Person{}, &r
 	}
 	if err := s.validate.Struct(in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Person{}, &r
 	}
 
 	birthDate, err := parseOptionalDate(in.BirthDate)
 	if err != nil {
-		return errorResult(rec.SyncID, fmt.Sprintf("invalid birth_date: %v", err))
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid birth_date: %v", err))
+		return domain.Person{}, &r
 	}
 
 	nationality := "BRA"
@@ -156,7 +177,7 @@ func (s *SyncService) handlePerson(ctx context.Context, rec domain.SyncPushRecor
 		nationality = *in.Nationality
 	}
 
-	person := domain.Person{
+	return domain.Person{
 		ID:             uuid.New(),
 		FullName:       in.FullName,
 		BirthDate:      birthDate,
@@ -170,19 +191,15 @@ func (s *SyncService) handlePerson(ctx context.Context, rec domain.SyncPushRecor
 		CampusID:       campusID,
 		IsActive:       true,
 		CreatedBy:      parseUserID(auth.ClaimsFromContext(ctx).Subject),
-	}
+	}, nil
+}
 
-	var address *domain.Address
-	created, err := s.personRepo.CreateWithSync(ctx, person, address, rec.SyncID)
-	if err != nil {
-		if errors.Is(err, domain.ErrDuplicate) || errors.Is(err, domain.ErrDuplicateEmail) || errors.Is(err, domain.ErrDuplicatePhone) {
-			return conflictResult(rec.SyncID, nil, err.Error())
-		}
-		return errorResult(rec.SyncID, err.Error())
+// mapSyncCreateError maps a repository create error to a conflict or error result.
+func mapSyncCreateError(syncID uuid.UUID, err error) domain.SyncPushResult {
+	if errors.Is(err, domain.ErrDuplicate) || errors.Is(err, domain.ErrDuplicateEmail) || errors.Is(err, domain.ErrDuplicatePhone) {
+		return conflictResult(syncID, nil, err.Error())
 	}
-
-	s.logCreate(ctx, "person", created.ID)
-	return createdResult(rec.SyncID, created.ID)
+	return errorResult(syncID, err.Error())
 }
 
 // --- Triage push ------------------------------------------------------------
@@ -208,53 +225,9 @@ func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecor
 		return errorResult(rec.SyncID, err.Error())
 	}
 
-	var in syncTriageInput
-	if err := decodeRecord(rec.Data, &in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
-	}
-	if err := s.validate.Struct(in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
-	}
-
-	personID, err := uuid.Parse(in.PersonID)
-	if err != nil {
-		return errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
-	}
-
-	triagedBy := uuid.Nil
-	if id := parseUserID(claims.Subject); id != nil {
-		triagedBy = *id
-	}
-
-	triageDate := time.Now().UTC()
-	if in.TriageDate != nil && *in.TriageDate != "" {
-		t, err := time.Parse(time.RFC3339, *in.TriageDate)
-		if err != nil {
-			return errorResult(rec.SyncID, fmt.Sprintf("invalid triage_date: %v", err))
-		}
-		triageDate = t
-	}
-
-	requested := make([]uuid.UUID, 0, len(in.RequestedTypes))
-	for _, raw := range in.RequestedTypes {
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			return errorResult(rec.SyncID, fmt.Sprintf("invalid requested_service_type_id %q: %v", raw, err))
-		}
-		requested = append(requested, id)
-	}
-
-	triage := domain.Triage{
-		ID:             uuid.New(),
-		PersonID:       personID,
-		CampusID:       campusID,
-		MainComplaint:  in.MainComplaint,
-		TriageDate:     triageDate,
-		Location:       in.Location,
-		TriagedBy:      triagedBy,
-		Notes:          in.Notes,
-		IsActive:       true,
-		RequestedTypes: requested,
+	triage, errResult := s.buildSyncTriage(rec, campusID, claims)
+	if errResult != nil {
+		return *errResult
 	}
 
 	created, err := s.triageRepo.CreateWithSync(ctx, triage, rec.SyncID)
@@ -267,6 +240,64 @@ func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecor
 
 	s.logCreate(ctx, "triage", created.ID)
 	return createdResult(rec.SyncID, created.ID)
+}
+
+// buildSyncTriage decodes, validates, and maps a sync triage record. A non-nil
+// result indicates an early-return error.
+func (s *SyncService) buildSyncTriage(rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Triage, *domain.SyncPushResult) {
+	var in syncTriageInput
+	if err := decodeRecord(rec.Data, &in); err != nil {
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Triage{}, &r
+	}
+	if err := s.validate.Struct(in); err != nil {
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Triage{}, &r
+	}
+
+	personID, err := uuid.Parse(in.PersonID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
+		return domain.Triage{}, &r
+	}
+
+	triageDate, err := parseSyncTimestamp(in.TriageDate)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid triage_date: %v", err))
+		return domain.Triage{}, &r
+	}
+
+	requested, err := parseUUIDList(in.RequestedTypes)
+	if err != nil {
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Triage{}, &r
+	}
+
+	triagedBy := uuid.Nil
+	if id := parseUserID(claims.Subject); id != nil {
+		triagedBy = *id
+	}
+
+	return domain.Triage{
+		ID:             uuid.New(),
+		PersonID:       personID,
+		CampusID:       campusID,
+		MainComplaint:  in.MainComplaint,
+		TriageDate:     triageDate,
+		Location:       in.Location,
+		TriagedBy:      triagedBy,
+		Notes:          in.Notes,
+		IsActive:       true,
+		RequestedTypes: requested,
+	}, nil
+}
+
+// parseSyncTimestamp parses an optional RFC3339 timestamp, defaulting to now.
+func parseSyncTimestamp(raw *string) (time.Time, error) {
+	if raw == nil || *raw == "" {
+		return time.Now().UTC(), nil
+	}
+	return time.Parse(time.RFC3339, *raw)
 }
 
 // --- Attendance push --------------------------------------------------------
@@ -294,57 +325,9 @@ func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushR
 		return errorResult(rec.SyncID, err.Error())
 	}
 
-	var in syncAttendanceInput
-	if err := decodeRecord(rec.Data, &in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
-	}
-	if err := s.validate.Struct(in); err != nil {
-		return errorResult(rec.SyncID, err.Error())
-	}
-
-	personID, err := uuid.Parse(in.PersonID)
-	if err != nil {
-		return errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
-	}
-	serviceTypeID, err := uuid.Parse(in.ServiceTypeID)
-	if err != nil {
-		return errorResult(rec.SyncID, fmt.Sprintf("invalid service_type_id: %v", err))
-	}
-	professionalID, err := uuid.Parse(in.ProfessionalID)
-	if err != nil {
-		return errorResult(rec.SyncID, fmt.Sprintf("invalid professional_id: %v", err))
-	}
-
-	var triageID *uuid.UUID
-	if in.TriageID != nil && *in.TriageID != "" {
-		id, err := uuid.Parse(*in.TriageID)
-		if err != nil {
-			return errorResult(rec.SyncID, fmt.Sprintf("invalid triage_id: %v", err))
-		}
-		triageID = &id
-	}
-
-	attDate := time.Now().UTC()
-	if in.AttendanceDate != nil && *in.AttendanceDate != "" {
-		t, err := time.Parse(time.RFC3339, *in.AttendanceDate)
-		if err != nil {
-			return errorResult(rec.SyncID, fmt.Sprintf("invalid attendance_date: %v", err))
-		}
-		attDate = t
-	}
-
-	a := domain.Attendance{
-		ID:              uuid.New(),
-		PersonID:        personID,
-		TriageID:        triageID,
-		CampusID:        campusID,
-		ServiceTypeID:   serviceTypeID,
-		ProfessionalID:  professionalID,
-		Status:          in.Status,
-		AttendanceDate:  attDate,
-		Observations:    in.Observations,
-		Recommendations: in.Recommendations,
-		CreatedBy:       parseUserID(claims.Subject),
+	a, errResult := s.buildSyncAttendance(rec, campusID, claims)
+	if errResult != nil {
+		return *errResult
 	}
 
 	created, err := s.attendanceRepo.CreateWithSync(ctx, a, rec.SyncID)
@@ -357,6 +340,62 @@ func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushR
 
 	s.logCreate(ctx, "attendance", created.ID)
 	return createdResult(rec.SyncID, created.ID)
+}
+
+// buildSyncAttendance decodes, validates, and maps a sync attendance record. A
+// non-nil result indicates an early-return error.
+func (s *SyncService) buildSyncAttendance(rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Attendance, *domain.SyncPushResult) {
+	var in syncAttendanceInput
+	if err := decodeRecord(rec.Data, &in); err != nil {
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Attendance{}, &r
+	}
+	if err := s.validate.Struct(in); err != nil {
+		r := errorResult(rec.SyncID, err.Error())
+		return domain.Attendance{}, &r
+	}
+
+	personID, err := uuid.Parse(in.PersonID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
+		return domain.Attendance{}, &r
+	}
+	serviceTypeID, err := uuid.Parse(in.ServiceTypeID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid service_type_id: %v", err))
+		return domain.Attendance{}, &r
+	}
+	professionalID, err := uuid.Parse(in.ProfessionalID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid professional_id: %v", err))
+		return domain.Attendance{}, &r
+	}
+
+	triageID, err := parseOptionalUUID(in.TriageID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid triage_id: %v", err))
+		return domain.Attendance{}, &r
+	}
+
+	attDate, err := parseSyncTimestamp(in.AttendanceDate)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid attendance_date: %v", err))
+		return domain.Attendance{}, &r
+	}
+
+	return domain.Attendance{
+		ID:              uuid.New(),
+		PersonID:        personID,
+		TriageID:        triageID,
+		CampusID:        campusID,
+		ServiceTypeID:   serviceTypeID,
+		ProfessionalID:  professionalID,
+		Status:          in.Status,
+		AttendanceDate:  attDate,
+		Observations:    in.Observations,
+		Recommendations: in.Recommendations,
+		CreatedBy:       parseUserID(claims.Subject),
+	}, nil
 }
 
 // --- Pull -------------------------------------------------------------------
@@ -404,35 +443,47 @@ func (s *SyncService) Pull(ctx context.Context, since time.Time, entityTypes []s
 func (s *SyncService) pullEntity(ctx context.Context, entity string, campusID uuid.UUID, since time.Time, limit int, out *[]domain.SyncPullRecord) (bool, error) {
 	switch entity {
 	case domain.SyncEntityPerson:
-		rows, err := s.personRepo.ListUpdatedSince(ctx, campusID, since, limit)
-		if err != nil {
-			return false, fmt.Errorf("pull person: %w", err)
-		}
-		for _, p := range rows {
-			*out = append(*out, toPullRecord(domain.SyncEntityPerson, p.ID, p.UpdatedAt, p))
-		}
-		return len(rows) >= limit, nil
+		return s.pullPersons(ctx, campusID, since, limit, out)
 	case domain.SyncEntityTriage:
-		rows, err := s.triageRepo.ListUpdatedSince(ctx, campusID, since, limit)
-		if err != nil {
-			return false, fmt.Errorf("pull triage: %w", err)
-		}
-		for _, t := range rows {
-			*out = append(*out, toPullRecord(domain.SyncEntityTriage, t.ID, t.UpdatedAt, t))
-		}
-		return len(rows) >= limit, nil
+		return s.pullTriages(ctx, campusID, since, limit, out)
 	case domain.SyncEntityAttendance:
-		rows, err := s.attendanceRepo.ListUpdatedSince(ctx, campusID, since, limit)
-		if err != nil {
-			return false, fmt.Errorf("pull attendance: %w", err)
-		}
-		for _, a := range rows {
-			*out = append(*out, toPullRecord(domain.SyncEntityAttendance, a.ID, a.UpdatedAt, a))
-		}
-		return len(rows) >= limit, nil
+		return s.pullAttendances(ctx, campusID, since, limit, out)
 	default:
 		return false, fmt.Errorf("%w: %s", domain.ErrInvalidEntityType, entity)
 	}
+}
+
+func (s *SyncService) pullPersons(ctx context.Context, campusID uuid.UUID, since time.Time, limit int, out *[]domain.SyncPullRecord) (bool, error) {
+	rows, err := s.personRepo.ListUpdatedSince(ctx, campusID, since, limit)
+	if err != nil {
+		return false, fmt.Errorf("pull person: %w", err)
+	}
+	for _, p := range rows {
+		*out = append(*out, toPullRecord(domain.SyncEntityPerson, p.ID, p.UpdatedAt, p))
+	}
+	return len(rows) >= limit, nil
+}
+
+func (s *SyncService) pullTriages(ctx context.Context, campusID uuid.UUID, since time.Time, limit int, out *[]domain.SyncPullRecord) (bool, error) {
+	rows, err := s.triageRepo.ListUpdatedSince(ctx, campusID, since, limit)
+	if err != nil {
+		return false, fmt.Errorf("pull triage: %w", err)
+	}
+	for _, t := range rows {
+		*out = append(*out, toPullRecord(domain.SyncEntityTriage, t.ID, t.UpdatedAt, t))
+	}
+	return len(rows) >= limit, nil
+}
+
+func (s *SyncService) pullAttendances(ctx context.Context, campusID uuid.UUID, since time.Time, limit int, out *[]domain.SyncPullRecord) (bool, error) {
+	rows, err := s.attendanceRepo.ListUpdatedSince(ctx, campusID, since, limit)
+	if err != nil {
+		return false, fmt.Errorf("pull attendance: %w", err)
+	}
+	for _, a := range rows {
+		*out = append(*out, toPullRecord(domain.SyncEntityAttendance, a.ID, a.UpdatedAt, a))
+	}
+	return len(rows) >= limit, nil
 }
 
 // --- Helpers ----------------------------------------------------------------
@@ -464,9 +515,15 @@ func decodeRecord(data map[string]any, target any) error {
 }
 
 func toPullRecord(entity string, id uuid.UUID, updated time.Time, payload any) domain.SyncPullRecord {
-	raw, _ := json.Marshal(payload)
 	m := map[string]any{}
-	_ = json.Unmarshal(raw, &m)
+	// payload is always a concrete domain struct, so these round-trips do not
+	// fail in practice; we still surface a failure rather than silently dropping
+	// it (consistent with the no-ignored-errors rule) and emit an empty Data map.
+	if raw, err := json.Marshal(payload); err != nil {
+		slog.Error("syncService.toPullRecord: marshal payload", "error", err.Error(), "entity", entity, "id", id)
+	} else if err := json.Unmarshal(raw, &m); err != nil {
+		slog.Error("syncService.toPullRecord: unmarshal payload", "error", err.Error(), "entity", entity, "id", id)
+	}
 	return domain.SyncPullRecord{
 		EntityType: entity,
 		ID:         id,

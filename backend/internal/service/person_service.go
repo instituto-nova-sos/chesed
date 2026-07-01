@@ -86,7 +86,7 @@ type AddRoleInput struct {
 
 // PersonService handles person business logic.
 type PersonService struct {
-	personRepo    PersonRepository
+	personRepo     PersonRepository
 	personRoleRepo PersonRoleRepository
 	agreementRepo  VolunteerAgreementRepository
 	auditSvc       *AuditService
@@ -114,68 +114,12 @@ func (s *PersonService) CreatePerson(ctx context.Context, input CreatePersonInpu
 	}
 
 	claims := auth.ClaimsFromContext(ctx)
-	campusID := claims.CampusID
-	userID := parseUserID(claims.Subject)
 
-	personID := uuid.New()
-	if input.SyncID != nil {
-		if parsed, err := uuid.Parse(*input.SyncID); err == nil {
-			personID = parsed
-		}
-	}
-
-	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
-		if !utils.ValidateCPF(*input.DocumentNumber) {
-			return nil, fmt.Errorf("personService.CreatePerson: %w", domain.ErrInvalidCPF)
-		}
-	}
-
-	birthDate, err := parseOptionalDate(input.BirthDate)
+	person, err := buildPersonFromInput(input, claims)
 	if err != nil {
-		return nil, fmt.Errorf("personService.CreatePerson: invalid birth_date: %w", err)
+		return nil, err
 	}
-
-	nationality := "BRA"
-	if input.Nationality != nil && *input.Nationality != "" {
-		nationality = *input.Nationality
-	}
-
-	person := domain.Person{
-		ID:             personID,
-		FullName:       input.FullName,
-		BirthDate:      birthDate,
-		DocumentType:   input.DocumentType,
-		DocumentNumber: input.DocumentNumber,
-		Nationality:    nationality,
-		Gender:         input.Gender,
-		Email:          input.Email,
-		Phone:          input.Phone,
-		ReferralSource: input.ReferralSource,
-		CampusID:       campusID,
-		IsActive:       true,
-		CreatedBy:      userID,
-	}
-
-	var address *domain.Address
-	if input.Address != nil {
-		country := "BRA"
-		if input.Address.Country != nil {
-			country = *input.Address.Country
-		}
-		address = &domain.Address{
-			ID:           uuid.New(),
-			PersonID:     personID,
-			Street:       input.Address.Street,
-			Number:       input.Address.Number,
-			Complement:   input.Address.Complement,
-			Neighborhood: input.Address.Neighborhood,
-			City:         input.Address.City,
-			State:        input.Address.State,
-			ZipCode:      input.Address.ZipCode,
-			Country:      country,
-			IsPrimary:    true,
-		}
-	}
+	address := buildPersonAddress(input.Address, person.ID)
 
 	created, err := s.personRepo.Create(ctx, person, address)
 	if err != nil {
@@ -197,6 +141,105 @@ func (s *PersonService) CreatePerson(ctx context.Context, input CreatePersonInpu
 	}
 
 	return created, nil
+}
+
+// buildPersonFromInput parses and maps a create input into a domain.Person,
+// honoring an optional client-supplied SyncID and validating the CPF.
+func buildPersonFromInput(input CreatePersonInput, claims auth.AuthClaims) (domain.Person, error) {
+	personID := uuid.New()
+	if input.SyncID != nil {
+		if parsed, err := uuid.Parse(*input.SyncID); err == nil {
+			personID = parsed
+		}
+	}
+
+	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
+		if !utils.ValidateCPF(*input.DocumentNumber) {
+			return domain.Person{}, fmt.Errorf("personService.CreatePerson: %w", domain.ErrInvalidCPF)
+		}
+	}
+
+	birthDate, err := parseOptionalDate(input.BirthDate)
+	if err != nil {
+		return domain.Person{}, fmt.Errorf("personService.CreatePerson: invalid birth_date: %w", err)
+	}
+
+	nationality := "BRA"
+	if input.Nationality != nil && *input.Nationality != "" {
+		nationality = *input.Nationality
+	}
+
+	return domain.Person{
+		ID:             personID,
+		FullName:       input.FullName,
+		BirthDate:      birthDate,
+		DocumentType:   input.DocumentType,
+		DocumentNumber: input.DocumentNumber,
+		Nationality:    nationality,
+		Gender:         input.Gender,
+		Email:          input.Email,
+		Phone:          input.Phone,
+		ReferralSource: input.ReferralSource,
+		CampusID:       claims.CampusID,
+		IsActive:       true,
+		CreatedBy:      parseUserID(claims.Subject),
+	}, nil
+}
+
+// applyPersonUpdate validates the document and birth date, then returns a copy
+// of old with the editable fields overwritten from input.
+func applyPersonUpdate(old *domain.Person, input UpdatePersonInput) (domain.Person, error) {
+	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
+		if !utils.ValidateCPF(*input.DocumentNumber) {
+			return domain.Person{}, fmt.Errorf("personService.UpdatePerson: %w", domain.ErrInvalidCPF)
+		}
+	}
+
+	birthDate, err := parseOptionalDate(input.BirthDate)
+	if err != nil {
+		return domain.Person{}, fmt.Errorf("personService.UpdatePerson: invalid birth_date: %w", err)
+	}
+
+	nationality := old.Nationality
+	if input.Nationality != nil && *input.Nationality != "" {
+		nationality = *input.Nationality
+	}
+
+	updated := *old
+	updated.FullName = input.FullName
+	updated.BirthDate = birthDate
+	updated.DocumentType = input.DocumentType
+	updated.DocumentNumber = input.DocumentNumber
+	updated.Nationality = nationality
+	updated.Gender = input.Gender
+	updated.Email = input.Email
+	updated.Phone = input.Phone
+	updated.ReferralSource = input.ReferralSource
+	return updated, nil
+}
+
+// buildPersonAddress maps an optional address input into a primary domain.Address.
+func buildPersonAddress(in *AddressInput, personID uuid.UUID) *domain.Address {
+	if in == nil {
+		return nil
+	}
+	country := "BRA"
+	if in.Country != nil {
+		country = *in.Country
+	}
+	return &domain.Address{
+		ID:           uuid.New(),
+		PersonID:     personID,
+		Street:       in.Street,
+		Number:       in.Number,
+		Complement:   in.Complement,
+		Neighborhood: in.Neighborhood,
+		City:         in.City,
+		State:        in.State,
+		ZipCode:      in.ZipCode,
+		Country:      country,
+		IsPrimary:    true,
+	}
 }
 
 // GetPerson returns a person with details by ID.
@@ -221,12 +264,6 @@ func (s *PersonService) UpdatePerson(ctx context.Context, id uuid.UUID, input Up
 		return nil, fmt.Errorf("personService.UpdatePerson: %w", err)
 	}
 
-	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
-		if !utils.ValidateCPF(*input.DocumentNumber) {
-			return nil, fmt.Errorf("personService.UpdatePerson: %w", domain.ErrInvalidCPF)
-		}
-	}
-
 	campusID := auth.CampusIDFromContext(ctx)
 
 	old, err := s.personRepo.FindByID(ctx, id, campusID)
@@ -234,51 +271,18 @@ func (s *PersonService) UpdatePerson(ctx context.Context, id uuid.UUID, input Up
 		return nil, fmt.Errorf("personService.UpdatePerson: find: %w", err)
 	}
 
-	birthDate, err := parseOptionalDate(input.BirthDate)
+	updated, err := applyPersonUpdate(old, input)
 	if err != nil {
-		return nil, fmt.Errorf("personService.UpdatePerson: invalid birth_date: %w", err)
+		return nil, err
 	}
-
-	nationality := old.Nationality
-	if input.Nationality != nil && *input.Nationality != "" {
-		nationality = *input.Nationality
-	}
-
-	updated := *old
-	updated.FullName = input.FullName
-	updated.BirthDate = birthDate
-	updated.DocumentType = input.DocumentType
-	updated.DocumentNumber = input.DocumentNumber
-	updated.Nationality = nationality
-	updated.Gender = input.Gender
-	updated.Email = input.Email
-	updated.Phone = input.Phone
-	updated.ReferralSource = input.ReferralSource
 
 	result, err := s.personRepo.Update(ctx, updated)
 	if err != nil {
 		return nil, fmt.Errorf("personService.UpdatePerson: update: %w", err)
 	}
 
-	if input.Address != nil {
-		country := "BRA"
-		if input.Address.Country != nil {
-			country = *input.Address.Country
-		}
-		addr := domain.Address{
-			ID:           uuid.New(),
-			PersonID:     id,
-			Street:       input.Address.Street,
-			Number:       input.Address.Number,
-			Complement:   input.Address.Complement,
-			Neighborhood: input.Address.Neighborhood,
-			City:         input.Address.City,
-			State:        input.Address.State,
-			ZipCode:      input.Address.ZipCode,
-			Country:      country,
-			IsPrimary:    true,
-		}
-		if _, addrErr := s.personRepo.UpdateAddress(ctx, id, addr); addrErr != nil {
+	if addr := buildPersonAddress(input.Address, id); addr != nil {
+		if _, addrErr := s.personRepo.UpdateAddress(ctx, id, *addr); addrErr != nil {
 			slog.ErrorContext(ctx, "personService.UpdatePerson: address update failed",
 				"error", addrErr.Error(), "person_id", id,
 			)
@@ -390,21 +394,27 @@ func (s *PersonService) AddRole(ctx context.Context, personID uuid.UUID, input A
 		s.createPendingAgreement(ctx, personID, created.ID, campusID)
 	}
 
+	s.logRoleCreated(ctx, created.ID, personID, input.RoleType,
+		fmt.Sprintf("role %s added to person", input.RoleType))
+
+	return created, nil
+}
+
+// logRoleCreated writes an audit entry for a created person_role, logging on failure.
+func (s *PersonService) logRoleCreated(ctx context.Context, roleID, personID uuid.UUID, roleType, description string) {
 	if auditErr := s.auditSvc.LogAction(ctx, AuditParams{
 		ActionType:  "CREATE",
 		EntityType:  "person_role",
-		EntityID:    &created.ID,
+		EntityID:    &roleID,
 		Module:      "person-management",
-		Description: fmt.Sprintf("role %s added to person", input.RoleType),
-		NewValues:   map[string]string{"role_type": input.RoleType, "person_id": personID.String()},
+		Description: description,
+		NewValues:   map[string]string{"role_type": roleType, "person_id": personID.String()},
 		Success:     true,
 	}); auditErr != nil {
-		slog.ErrorContext(ctx, "personService.AddRole: audit failed",
+		slog.ErrorContext(ctx, "personService: person_role audit failed",
 			"error", auditErr.Error(), "person_id", personID,
 		)
 	}
-
-	return created, nil
 }
 
 // ensureVolunteerRole checks if the person already has a VOLUNTEER role.
@@ -446,18 +456,8 @@ func (s *PersonService) ensureVolunteerRole(ctx context.Context, personID uuid.U
 
 	// Create pending agreement for the auto-assigned VOLUNTEER role
 	s.createPendingAgreement(ctx, personID, created.ID, campusID)
-
-	if auditErr := s.auditSvc.LogAction(ctx, AuditParams{
-		ActionType:  "CREATE",
-		EntityType:  "person_role",
-		EntityID:    &created.ID,
-		Module:      "person-management",
-		Description: "VOLUNTEER role auto-assigned (role hierarchy)",
-		NewValues:   map[string]string{"role_type": domain.RoleVolunteer, "person_id": personID.String()},
-		Success:     true,
-	}); auditErr != nil {
-		slog.ErrorContext(ctx, "personService: audit for auto-volunteer failed", "error", auditErr.Error())
-	}
+	s.logRoleCreated(ctx, created.ID, personID, domain.RoleVolunteer,
+		"VOLUNTEER role auto-assigned (role hierarchy)")
 
 	return nil
 }

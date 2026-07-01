@@ -131,147 +131,91 @@ func TestExtractIP(t *testing.T) {
 	}
 }
 
-func TestAutoProvision(t *testing.T) {
-	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify campus was enriched in context
-		claims := auth.ClaimsFromContext(r.Context())
-		if claims.CampusID != uuid.Nil {
+// provisionOKHandler returns 200 when the campus was enriched into the context,
+// 418 otherwise — so tests can distinguish enrichment from a bare pass-through.
+func provisionOKHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.ClaimsFromContext(r.Context()).CampusID != uuid.Nil {
 			w.WriteHeader(http.StatusOK)
 		} else {
-			w.WriteHeader(http.StatusTeapot) // signal missing campus
+			w.WriteHeader(http.StatusTeapot)
 		}
-	})
+	}
+}
 
-	t.Run("existing user with campus passes through", func(t *testing.T) {
-		userRepo := new(mockUserRepo)
-		auditRepo := new(mockAuditRepo)
-		auditSvc := service.NewAuditService(auditRepo)
-		userSvc := service.NewUserService(userRepo, auditSvc)
+// newProvisionTest wires the AutoProvision middleware over fresh mocks.
+func newProvisionTest() (*mockUserRepo, *mockAuditRepo, func(http.Handler) http.Handler) {
+	userRepo := new(mockUserRepo)
+	auditRepo := new(mockAuditRepo)
+	userSvc := service.NewUserService(userRepo, service.NewAuditService(auditRepo))
+	return userRepo, auditRepo, AutoProvision(userSvc)
+}
 
-		campusID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject: uuid.New().String(),
-			Email:   "test@chesed.test",
-			Roles:   []string{"VOLUNTEER"},
-		}
+// runProvision executes the middleware for the given claims (nil = no claims).
+func runProvision(mw func(http.Handler) http.Handler, claims *auth.AuthClaims) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	if claims != nil {
+		req = req.WithContext(auth.NewContext(req.Context(), *claims))
+	}
+	rec := httptest.NewRecorder()
+	mw(provisionOKHandler()).ServeHTTP(rec, req)
+	return rec
+}
 
-		existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: &campusID}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
-		userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
-		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
+func volunteerClaims(email string) auth.AuthClaims {
+	return auth.AuthClaims{Subject: uuid.New().String(), Email: email, Roles: []string{"VOLUNTEER"}}
+}
 
-		mw := AutoProvision(userSvc)
-		handler := mw(okHandler)
+func TestAutoProvision_ExistingUserWithCampus(t *testing.T) {
+	userRepo, auditRepo, mw := newProvisionTest()
+	campusID := uuid.New()
+	claims := volunteerClaims("test@chesed.test")
+	existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: &campusID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
+	auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req = req.WithContext(auth.NewContext(req.Context(), claims))
-		rec := httptest.NewRecorder()
+	rec := runProvision(mw, &claims)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	userRepo.AssertExpectations(t)
+}
 
-		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		userRepo.AssertExpectations(t)
-	})
+func TestAutoProvision_NewUserProvisioned(t *testing.T) {
+	userRepo, auditRepo, mw := newProvisionTest()
+	campusID := uuid.New()
+	claims := auth.AuthClaims{Subject: uuid.New().String(), Email: "new@chesed.test", Roles: []string{"SECRETARY"}}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, domain.ErrNotFound)
+	userRepo.On("Create", mock.Anything, mock.Anything).Return(&domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: &campusID}, nil)
+	auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
-	t.Run("new user provisioned with campus passes through", func(t *testing.T) {
-		userRepo := new(mockUserRepo)
-		auditRepo := new(mockAuditRepo)
-		auditSvc := service.NewAuditService(auditRepo)
-		userSvc := service.NewUserService(userRepo, auditSvc)
+	rec := runProvision(mw, &claims)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	userRepo.AssertExpectations(t)
+}
 
-		campusID := uuid.New()
-		claims := auth.AuthClaims{
-			Subject: uuid.New().String(),
-			Email:   "new@chesed.test",
-			Roles:   []string{"SECRETARY"},
-		}
+func TestAutoProvision_NilCampusForbidden(t *testing.T) {
+	userRepo, auditRepo, mw := newProvisionTest()
+	claims := volunteerClaims("test@chesed.test")
+	existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: nil}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
+	auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
 
-		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, domain.ErrNotFound)
-		userRepo.On("Create", mock.Anything, mock.Anything).Return(&domain.AppUser{
-			ID:       uuid.New(),
-			Email:    claims.Email,
-			CampusID: &campusID,
-		}, nil)
-		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
+	rec := runProvision(mw, &claims)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
 
-		mw := AutoProvision(userSvc)
-		handler := mw(okHandler)
+func TestAutoProvision_MissingClaimsUnauthorized(t *testing.T) {
+	_, _, mw := newProvisionTest()
+	rec := runProvision(mw, nil)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
 
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req = req.WithContext(auth.NewContext(req.Context(), claims))
-		rec := httptest.NewRecorder()
+func TestAutoProvision_ServiceErrorInternal(t *testing.T) {
+	userRepo, _, mw := newProvisionTest()
+	claims := volunteerClaims("test@chesed.test")
+	userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, assert.AnError)
 
-		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		userRepo.AssertExpectations(t)
-	})
-
-	t.Run("user with nil campus returns 403", func(t *testing.T) {
-		userRepo := new(mockUserRepo)
-		auditRepo := new(mockAuditRepo)
-		auditSvc := service.NewAuditService(auditRepo)
-		userSvc := service.NewUserService(userRepo, auditSvc)
-
-		claims := auth.AuthClaims{
-			Subject: uuid.New().String(),
-			Email:   "test@chesed.test",
-			Roles:   []string{"VOLUNTEER"},
-		}
-
-		// App user exists but has no campus
-		existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: nil}
-		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
-		userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
-		auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
-
-		mw := AutoProvision(userSvc)
-		handler := mw(okHandler)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req = req.WithContext(auth.NewContext(req.Context(), claims))
-		rec := httptest.NewRecorder()
-
-		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	})
-
-	t.Run("missing claims returns 401", func(t *testing.T) {
-		userRepo := new(mockUserRepo)
-		auditRepo := new(mockAuditRepo)
-		auditSvc := service.NewAuditService(auditRepo)
-		userSvc := service.NewUserService(userRepo, auditSvc)
-
-		mw := AutoProvision(userSvc)
-		handler := mw(okHandler)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		rec := httptest.NewRecorder()
-
-		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	t.Run("service error returns 500", func(t *testing.T) {
-		userRepo := new(mockUserRepo)
-		auditRepo := new(mockAuditRepo)
-		auditSvc := service.NewAuditService(auditRepo)
-		userSvc := service.NewUserService(userRepo, auditSvc)
-
-		claims := auth.AuthClaims{
-			Subject: uuid.New().String(),
-			Email:   "test@chesed.test",
-			Roles:   []string{"VOLUNTEER"},
-		}
-
-		userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(nil, assert.AnError)
-
-		mw := AutoProvision(userSvc)
-		handler := mw(okHandler)
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req = req.WithContext(auth.NewContext(req.Context(), claims))
-		rec := httptest.NewRecorder()
-
-		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	})
+	rec := runProvision(mw, &claims)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

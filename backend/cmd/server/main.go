@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/instituto-nova-sos/chesed/internal/config"
 	"github.com/instituto-nova-sos/chesed/internal/database"
 	"github.com/instituto-nova-sos/chesed/internal/handler"
 	"github.com/instituto-nova-sos/chesed/internal/middleware"
 	"github.com/instituto-nova-sos/chesed/internal/repository"
 	"github.com/instituto-nova-sos/chesed/internal/service"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -62,11 +62,28 @@ func run() error {
 	return startServer(srv, logger)
 }
 
-func setupRouter(
-	pool *pgxpool.Pool,
-	authMW func(http.Handler) http.Handler,
-) *chi.Mux {
-	// Repositories
+// appDeps bundles the constructed handlers and the repositories the router
+// middleware needs, so route registration can be split into focused helpers.
+type appDeps struct {
+	health       *handler.HealthHandler
+	serviceType  *handler.ServiceTypeHandler
+	person       *handler.PersonHandler
+	selfRegister *handler.SelfRegisterHandler
+	agreement    *handler.VolunteerAgreementHandler
+	onboarding   *handler.OnboardingHandler
+	campus       *handler.CampusHandler
+	triage       *handler.TriageHandler
+	attendance   *handler.AttendanceHandler
+	report       *handler.ReportHandler
+	sync         *handler.SyncHandler
+
+	userSvc        *service.UserService
+	agreementRepo  *repository.VolunteerAgreementRepository
+	personRoleRepo *repository.PersonRoleRepository
+}
+
+// buildDeps wires repositories → services → handlers.
+func buildDeps(pool *pgxpool.Pool) appDeps {
 	auditRepo := repository.NewAuditRepository(pool)
 	userRepo := repository.NewUserRepository(pool)
 	serviceTypeRepo := repository.NewServiceTypeRepository(pool)
@@ -78,133 +95,153 @@ func setupRouter(
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
 
-	// Services
 	auditSvc := service.NewAuditService(auditRepo)
 	userSvc := service.NewUserService(userRepo, auditSvc)
-	serviceTypeSvc := service.NewServiceTypeService(serviceTypeRepo)
 	personSvc := service.NewPersonService(personRepo, personRoleRepo, agreementRepo, auditSvc)
 	selfRegisterSvc := service.NewSelfRegisterService(personRepo, personRoleRepo, userRepo, agreementRepo, auditSvc)
 	agreementSvc := service.NewVolunteerAgreementService(agreementRepo, personRoleRepo, auditSvc)
 	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
-	campusSvc := service.NewCampusService(campusRepo, auditSvc)
-	triageSvc := service.NewTriageService(triageRepo, auditSvc)
-	attendanceSvc := service.NewAttendanceService(attendanceRepo, auditSvc)
-	reportSvc := service.NewReportService(reportRepo)
-	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
 
-	// Handlers
 	uploadDir := "uploads/agreements"
-	healthH := handler.NewHealthHandler(pool)
-	serviceTypeH := handler.NewServiceTypeHandler(serviceTypeSvc)
-	personH := handler.NewPersonHandler(personSvc)
-	selfRegisterH := handler.NewSelfRegisterHandler(selfRegisterSvc)
-	agreementH := handler.NewVolunteerAgreementHandler(agreementSvc, uploadDir)
-	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
-	campusH := handler.NewCampusHandler(campusSvc)
-	triageH := handler.NewTriageHandler(triageSvc)
-	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
-	reportH := handler.NewReportHandler(reportSvc)
-	syncH := handler.NewSyncHandler(syncSvc)
+	return appDeps{
+		health:         handler.NewHealthHandler(pool),
+		serviceType:    handler.NewServiceTypeHandler(service.NewServiceTypeService(serviceTypeRepo)),
+		person:         handler.NewPersonHandler(personSvc),
+		selfRegister:   handler.NewSelfRegisterHandler(selfRegisterSvc),
+		agreement:      handler.NewVolunteerAgreementHandler(agreementSvc, uploadDir),
+		onboarding:     handler.NewOnboardingHandler(onboardingSvc),
+		campus:         handler.NewCampusHandler(service.NewCampusService(campusRepo, auditSvc)),
+		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, auditSvc)),
+		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, auditSvc)),
+		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
+		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
+		userSvc:        userSvc,
+		agreementRepo:  agreementRepo,
+		personRoleRepo: personRoleRepo,
+	}
+}
 
-	// Router
+func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler) *chi.Mux {
+	d := buildDeps(pool)
+
 	r := chi.NewRouter()
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.CORS("http://localhost:5173"))
-
-	r.Get("/health", healthH.ServeHTTP)
+	r.Get("/health", d.health.ServeHTTP)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", healthH.ServeHTTP)
-
-		// Auth-only: onboarding status, self-register, campus list (no AutoProvision, no RBAC)
-		r.Group(func(r chi.Router) {
-			r.Use(authMW)
-			r.Get("/auth/me", onboardingH.GetStatus)
-			r.Post("/self-register", selfRegisterH.Register)
-			r.Get("/campuses", campusH.ListActive)
-		})
-
-		// Agreement routes: require auth + provision, but NOT agreement guard
-		r.Group(func(r chi.Router) {
-			r.Use(authMW)
-			r.Use(middleware.AutoProvision(userSvc))
-			r.Get("/volunteer-agreement/text", agreementH.GetText)
-			r.Post("/volunteer-agreement/accept", agreementH.Accept)
-			r.Post("/volunteer-agreement/reject", agreementH.Reject)
-		})
-
-		// Protected routes: require auth + provision + agreement
-		r.Group(func(r chi.Router) {
-			r.Use(authMW)
-			r.Use(middleware.AutoProvision(userSvc))
-			r.Use(middleware.RequireAgreement(agreementRepo, personRoleRepo))
-
-			allRoles := middleware.RequireRole("VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
-
-			r.With(allRoles).Get("/service-types", serviceTypeH.List)
-
-				// Campus management (ADMIN only)
-				r.Route("/campuses", func(r chi.Router) {
-					r.With(middleware.RequireRole("ADMIN")).Get("/all", campusH.ListAll)
-					r.With(middleware.RequireRole("ADMIN")).Get("/{id}", campusH.Get)
-					r.With(middleware.RequireRole("ADMIN")).Post("/", campusH.Create)
-					r.With(middleware.RequireRole("ADMIN")).Put("/{id}", campusH.Update)
-				})
-
-			r.Route("/persons", func(r chi.Router) {
-				r.With(allRoles).Post("/", personH.Create)
-				r.With(allRoles).Get("/", personH.List)
-				r.With(allRoles).Get("/check-duplicate", personH.CheckDuplicate)
-				r.With(allRoles).Get("/{id}", personH.Get)
-				r.With(middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")).
-					Put("/{id}", personH.Update)
-				r.With(middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")).
-					Get("/{id}/history", personH.GetHistory)
-				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
-					Post("/{id}/roles", personH.AddRole)
-				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
-					Patch("/{id}/roles/{roleId}", personH.ToggleRole)
-
-				// Agreement management for specific persons (COORDINATOR+)
-				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
-					Get("/{id}/agreement", agreementH.GetPersonAgreement)
-				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
-					Post("/{id}/agreement/upload", agreementH.Upload)
-				r.With(middleware.RequireRole("COORDINATOR", "ADMIN")).
-					Get("/{id}/agreement/document", agreementH.DownloadDocument)
-			})
-
-			triageRoles := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
-			r.Route("/triages", func(r chi.Router) {
-				r.With(triageRoles).Post("/", triageH.Create)
-				r.With(allRoles).Get("/", triageH.List)
-				r.With(allRoles).Get("/{id}", triageH.Get)
-				r.With(triageRoles).Patch("/{id}", triageH.Update)
-			})
-
-			attendanceRoles := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
-			r.Route("/attendances", func(r chi.Router) {
-				r.With(attendanceRoles).Post("/", attendanceH.Create)
-				r.With(allRoles).Get("/", attendanceH.List)
-				r.With(allRoles).Get("/{id}", attendanceH.Get)
-				r.With(attendanceRoles).Post("/{id}/transitions", attendanceH.Transition)
-				r.With(attendanceRoles).Patch("/{id}/notes", attendanceH.UpdateNotes)
-			})
-
-			reportRoles := middleware.RequireRole("COORDINATOR", "ADMIN")
-			r.Route("/reports", func(r chi.Router) {
-				r.With(reportRoles).Get("/attendances", reportH.AttendanceSummary)
-				r.With(reportRoles).Get("/attendances/export", reportH.AttendanceExport)
-			})
-
-			r.Route("/sync", func(r chi.Router) {
-				r.With(allRoles).Post("/push", syncH.Push)
-				r.With(allRoles).Get("/pull", syncH.Pull)
-			})
-		})
+		r.Get("/health", d.health.ServeHTTP)
+		d.registerAuthOnlyRoutes(r, authMW)
+		d.registerAgreementRoutes(r, authMW)
+		d.registerProtectedRoutes(r, authMW)
 	})
 
 	return r
+}
+
+// registerAuthOnlyRoutes mounts routes needing auth but no provision/RBAC.
+func (d appDeps) registerAuthOnlyRoutes(r chi.Router, authMW func(http.Handler) http.Handler) {
+	r.Group(func(r chi.Router) {
+		r.Use(authMW)
+		r.Get("/auth/me", d.onboarding.GetStatus)
+		r.Post("/self-register", d.selfRegister.Register)
+		r.Get("/campuses", d.campus.ListActive)
+	})
+}
+
+// registerAgreementRoutes mounts routes needing auth + provision but no agreement guard.
+func (d appDeps) registerAgreementRoutes(r chi.Router, authMW func(http.Handler) http.Handler) {
+	r.Group(func(r chi.Router) {
+		r.Use(authMW)
+		r.Use(middleware.AutoProvision(d.userSvc))
+		r.Get("/volunteer-agreement/text", d.agreement.GetText)
+		r.Post("/volunteer-agreement/accept", d.agreement.Accept)
+		r.Post("/volunteer-agreement/reject", d.agreement.Reject)
+	})
+}
+
+// registerProtectedRoutes mounts the fully-guarded application routes.
+func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler) http.Handler) {
+	r.Group(func(r chi.Router) {
+		r.Use(authMW)
+		r.Use(middleware.AutoProvision(d.userSvc))
+		r.Use(middleware.RequireAgreement(d.agreementRepo, d.personRoleRepo))
+
+		allRoles := middleware.RequireRole("VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+		r.With(allRoles).Get("/service-types", d.serviceType.List)
+
+		d.registerCampusRoutes(r)
+		d.registerPersonRoutes(r, allRoles)
+		d.registerTriageRoutes(r, allRoles)
+		d.registerAttendanceRoutes(r, allRoles)
+		d.registerReportRoutes(r)
+		d.registerSyncRoutes(r, allRoles)
+	})
+}
+
+func (d appDeps) registerCampusRoutes(r chi.Router) {
+	adminOnly := middleware.RequireRole("ADMIN")
+	r.Route("/campuses", func(r chi.Router) {
+		r.With(adminOnly).Get("/all", d.campus.ListAll)
+		r.With(adminOnly).Get("/{id}", d.campus.Get)
+		r.With(adminOnly).Post("/", d.campus.Create)
+		r.With(adminOnly).Put("/{id}", d.campus.Update)
+	})
+}
+
+func (d appDeps) registerPersonRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	secretaryUp := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	professionalUp := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
+	coordinatorUp := middleware.RequireRole("COORDINATOR", "ADMIN")
+	r.Route("/persons", func(r chi.Router) {
+		r.With(allRoles).Post("/", d.person.Create)
+		r.With(allRoles).Get("/", d.person.List)
+		r.With(allRoles).Get("/check-duplicate", d.person.CheckDuplicate)
+		r.With(allRoles).Get("/{id}", d.person.Get)
+		r.With(secretaryUp).Put("/{id}", d.person.Update)
+		r.With(professionalUp).Get("/{id}/history", d.person.GetHistory)
+		r.With(coordinatorUp).Post("/{id}/roles", d.person.AddRole)
+		r.With(coordinatorUp).Patch("/{id}/roles/{roleId}", d.person.ToggleRole)
+		r.With(coordinatorUp).Get("/{id}/agreement", d.agreement.GetPersonAgreement)
+		r.With(coordinatorUp).Post("/{id}/agreement/upload", d.agreement.Upload)
+		r.With(coordinatorUp).Get("/{id}/agreement/document", d.agreement.DownloadDocument)
+	})
+}
+
+func (d appDeps) registerTriageRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	triageRoles := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	r.Route("/triages", func(r chi.Router) {
+		r.With(triageRoles).Post("/", d.triage.Create)
+		r.With(allRoles).Get("/", d.triage.List)
+		r.With(allRoles).Get("/{id}", d.triage.Get)
+		r.With(triageRoles).Patch("/{id}", d.triage.Update)
+	})
+}
+
+func (d appDeps) registerAttendanceRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	attendanceRoles := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
+	r.Route("/attendances", func(r chi.Router) {
+		r.With(attendanceRoles).Post("/", d.attendance.Create)
+		r.With(allRoles).Get("/", d.attendance.List)
+		r.With(allRoles).Get("/{id}", d.attendance.Get)
+		r.With(attendanceRoles).Post("/{id}/transitions", d.attendance.Transition)
+		r.With(attendanceRoles).Patch("/{id}/notes", d.attendance.UpdateNotes)
+	})
+}
+
+func (d appDeps) registerReportRoutes(r chi.Router) {
+	reportRoles := middleware.RequireRole("COORDINATOR", "ADMIN")
+	r.Route("/reports", func(r chi.Router) {
+		r.With(reportRoles).Get("/attendances", d.report.AttendanceSummary)
+		r.With(reportRoles).Get("/attendances/export", d.report.AttendanceExport)
+	})
+}
+
+func (d appDeps) registerSyncRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	r.Route("/sync", func(r chi.Router) {
+		r.With(allRoles).Post("/push", d.sync.Push)
+		r.With(allRoles).Get("/pull", d.sync.Pull)
+	})
 }
 
 func setupLogger(level string) *slog.Logger {

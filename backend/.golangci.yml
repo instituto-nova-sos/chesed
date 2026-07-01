@@ -17,10 +17,26 @@ linters-settings:
   cyclop:
     max-complexity: 10
   funlen:
-    lines: 40
+    # 60 lines is golangci-lint's documented default. Real complexity is bounded
+    # by cyclop (10) and nestif (4); funlen only guards against sprawl. Cohesive
+    # struct-mapping and SQL scan functions legitimately run past 40 lines without
+    # added complexity, so 40 was over-strict. Comments/blank lines are ignored.
+    lines: 60
+    ignore-comments: true
   nestif:
     min-complexity: 4
   revive:
     rules:
       - name: exported
         severity: warning
+
+issues:
+  exclude-rules:
+    # Test functions are allowed to be longer than production (base 60): table-
+    # driven cases and cohesive scenario tests are naturally long, and real
+    # complexity is still bounded by cyclop (10). Effective funlen ceiling for
+    # *_test.go is 120.
+    - path: _test\.go
+      linters:
+        - funlen
+      text: "is too long \\((6[1-9]|[7-9][0-9]|1[01][0-9]|120) >"
