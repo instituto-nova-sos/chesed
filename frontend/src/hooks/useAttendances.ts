@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listAttendances, type ListAttendancesParams } from '../api/attendances';
+import { cacheAttendanceList, getCachedAttendances } from '../offline/attendanceOffline';
+import { isNetworkError } from '../api/errors';
 import type { AttendanceListItem, AttendanceStatus, Pagination } from '../types';
 
 export function useAttendances(initialParams: ListAttendancesParams = {}) {
@@ -27,10 +29,20 @@ export function useAttendances(initialParams: ListAttendancesParams = {}) {
         if (cancelled) return;
         setAttendances(res.data);
         setPagination(res.pagination);
+        void cacheAttendanceList(res.data);
       })
-      .catch((err: unknown) => {
+      .catch(async (err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Falha ao carregar atendimentos');
+        // Offline / network failure: serve the local cache (which includes
+        // pending offline-created records) instead of an empty error state.
+        if (!navigator.onLine || isNetworkError(err)) {
+          const cached = await getCachedAttendances();
+          setAttendances(cached);
+          setPagination((p) => ({ ...p, total: cached.length }));
+          setError(null);
+        } else {
+          setError(err instanceof Error ? err.message : 'Falha ao carregar atendimentos');
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
