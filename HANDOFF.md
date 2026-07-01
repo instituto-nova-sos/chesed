@@ -2503,10 +2503,41 @@ round-trip and offline read-your-writes.
   remaining S05.1 gap.
 - The generic sync engine already drains triage/attendance to `/sync/push` and
   merges pulls (keyed by `entity_type`) — no engine change was needed.
-- Remaining parallel tracks this pass: **B** (S05.5 indicator polish),
-  **C** (conflict-resolution UI surfacing `getConflicts`/`discardConflict`),
-  **D** (PWA icons/workbox/install prompt + E2E triage/attendance offline
-  slices — D's E2E slices exercise this session's Track A end to end).
+- Remaining parallel tracks this pass: **C** (conflict-resolution UI surfacing
+  `getConflicts`/`discardConflict`), **D** (PWA icons/workbox/install prompt +
+  E2E triage/attendance offline slices — D's E2E slices exercise Track A end to
+  end).
+
+### Track A delivery
+
+`make deliver` reached **READY-FOR-PR** (exit 0) with Docker up: backend
+build/lint(0)/test/integration ✅ · frontend
+typecheck/lint(0 err)/test(95)/integration(12)/coverage(≥floors)/build ✅ ·
+E2E smoke 2/2 ✅ · **critical-review APPROVE**
+(`tasks/review-feat/autonomous-delivery-and-offline-sync-drainer.md`) · DoD ✅.
+Nothing pushed (push boundary honored). The reviewer's one MINOR (an untested
+`?? 0` branch) was closed inline before the verdict.
+
+## Session 31 (cont.) — Track B: S05.5 status indicator (2026-06-30)
+
+### Deliverables (TDD, RED→GREEN)
+
+`SyncStatusBanner` extended to satisfy all four S05.5 acceptance criteria:
+- offline notice when `!isOnline`;
+- a syncing indicator (spinner + "Sincronizando…") visible during an active
+  drain — the banner now stays mounted while `isSyncing` even at zero pending;
+- Sync-Now disabled with an explanatory `title` ("will run once online") when
+  offline, and while already syncing.
+
+Refactored the badges, syncing indicator, title, and hide-guard into small
+helpers (`SyncingIndicator`, `PendingBadge`, `ConflictBadge`, `syncNowTitleFor`,
+`bannerIsHidden`). This **removed the pre-existing banner complexity warning**,
+dropping the frontend lint baseline **51 → 50**.
+
+Tests: `SyncStatusBanner.test.tsx` +3 RED-first cases (offline state, syncing
+indicator at zero pending, offline-disabled Sync-Now with title). Full unit
+suite 98 pass; typecheck clean; lint 0 errors / 50 warnings. **S05.5 → done**
+in `docs/09-backlog.md`.
 
 ---
 

@@ -452,7 +452,7 @@
   - **Given** an interrupted pull (tab closed mid-page) **when** the app restarts **then** the merge resumes from the persisted cursor without data corruption.
 
 **S05.5 - Online/offline status indicator**
-- status: ready
+- status: done
 - depends_on: [S05.1]
 - covers_requirements: [RF-48, RNF-18]
 - parallel_with: [S05.1, S05.2]
