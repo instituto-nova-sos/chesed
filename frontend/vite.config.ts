@@ -11,15 +11,49 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Chesed - Instituto Nova SOS',
         short_name: 'Chesed',
         description: 'Social services management platform',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#863bff',
+        background_color: '#863bff',
         display: 'standalone',
         start_url: '/',
-        icons: [],
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: 'pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        // App shell is precached (generateSW). For live data we use network-first
+        // ONLY for read-only reference endpoints (service types, campuses) that
+        // have no IndexedDB layer. The person/triage/attendance collections are
+        // deliberately EXCLUDED: those are served offline by the app's own Dexie
+        // cache (src/offline/*), which also holds pending offline writes. Letting
+        // the SW answer those GETs from its cache would mask the IndexedDB
+        // fallback and hide unsynced records — the SW cache and the app cache must
+        // not both own the same reads. See docs/12-offline-sync-strategy.md.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              request.method === 'GET' &&
+              /^\/api\/v1\/(service-types|campuses)/.test(url.pathname),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'chesed-reference-get',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

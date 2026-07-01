@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { createAttendance } from '../api/attendances';
+import { createAttendanceWithOfflineFallback } from '../offline/attendanceOffline';
 import { getPerson } from '../api/persons';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
 import { useAuthStore } from '../store/authStore';
@@ -85,8 +85,17 @@ export function AttendanceCreatePage() {
         observations: values.observations || undefined,
         recommendations: values.recommendations || undefined,
       };
-      const created = await createAttendance(input);
-      navigate(`/attendances/${created.id}`);
+      const serviceTypeName = serviceTypes.find(
+        (st) => st.id === values.service_type_id,
+      )?.name;
+      const created = await createAttendanceWithOfflineFallback(
+        input,
+        person?.full_name,
+        serviceTypeName,
+      );
+      // Offline-created records live in the local list until they sync, so we
+      // return to the list rather than a detail page the server can't serve yet.
+      navigate(created.offline ? '/attendances' : `/attendances/${created.id}`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Falha ao criar atendimento');
     } finally {

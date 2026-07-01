@@ -178,6 +178,30 @@ export async function discardConflict(queueId: number): Promise<void> {
   await db.syncQueue.delete(queueId);
 }
 
+/**
+ * requeueConflict clears the `conflicted` flag on a queue item and returns its
+ * cached entity to `pending`, so the next drain re-pushes it (last-write-wins
+ * resubmission after an operator reviews the conflict). The captured data is
+ * unchanged — only its eligibility for auto-drain is restored.
+ */
+export async function requeueConflict(queueId: number): Promise<void> {
+  const item = await db.syncQueue.get(queueId);
+  if (!item) return;
+  // A resubmit is a fresh attempt: reset retryCount so an item that hit several
+  // transient errors before the conflict does not start near the dead-letter
+  // ceiling on its next drain.
+  await db.syncQueue.update(queueId, {
+    conflicted: false,
+    lastError: undefined,
+    retryCount: 0,
+  });
+  const table = db.table<LocalEntity>(TABLE_BY_TYPE[item.entityType]);
+  const cached = await table.get(item.entityId);
+  if (cached) {
+    await table.update(item.entityId, { syncStatus: 'pending' });
+  }
+}
+
 async function bumpRetry(item: SyncQueueItem, message: string): Promise<void> {
   if (item.id === undefined) return;
   const nextRetry = item.retryCount + 1;

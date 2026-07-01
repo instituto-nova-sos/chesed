@@ -408,7 +408,7 @@
   - **Given** a record written to a store **when** the page is reloaded **then** the record is still present (durability across sessions).
 
 **S05.2 - Offline record creation**
-- status: in_progress
+- status: done
 - depends_on: [S05.1, S03.8]
 - covers_requirements: [RF-46, RF-47]
 - parallel_with: [S05.5]
@@ -422,7 +422,7 @@
   - **Given** an offline-created record **when** connectivity returns **then** the queued entry is eligible for the drainer (S05.3) without further user action.
 
 **S05.3 - Sync queue and push (drainer)**
-- status: ready
+- status: done
 - depends_on: [S05.1, S05.2]
 - covers_requirements: [RF-48, RF-49, RNF-09]
 - parallel_with: [S05.4]
@@ -437,7 +437,7 @@
   - **Given** a batch-level error (oversize or missing campus) **when** the server responds **then** the client surfaces the error and does not silently drop the batch.
 
 **S05.4 - Pull sync (pull-merge)**
-- status: ready
+- status: done
 - depends_on: [S05.3]
 - covers_requirements: [RF-48, RF-49, RNF-09]
 - parallel_with: [S05.3]
@@ -452,7 +452,7 @@
   - **Given** an interrupted pull (tab closed mid-page) **when** the app restarts **then** the merge resumes from the persisted cursor without data corruption.
 
 **S05.5 - Online/offline status indicator**
-- status: ready
+- status: done
 - depends_on: [S05.1]
 - covers_requirements: [RF-48, RNF-18]
 - parallel_with: [S05.1, S05.2]

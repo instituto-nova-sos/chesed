@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { createTriage } from '../api/triages';
+import { createTriageWithOfflineFallback } from '../offline/triageOffline';
 import { getPerson } from '../api/persons';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
 import { Button } from '../components/ui/Button';
@@ -89,8 +89,10 @@ export function TriageCreatePage() {
         notes: values.notes || undefined,
         requested_service_types: values.requested_service_types,
       };
-      const created = await createTriage(input);
-      navigate(`/triages/${created.id}`);
+      const created = await createTriageWithOfflineFallback(input, person?.full_name);
+      // Offline-created records live in the local list until they sync, so we
+      // return to the list rather than a detail page the server can't serve yet.
+      navigate(created.offline ? '/triages' : `/triages/${created.id}`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Falha ao criar triagem');
     } finally {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listTriages, type ListTriagesParams } from '../api/triages';
+import { cacheTriageList, getCachedTriages } from '../offline/triageOffline';
+import { isNetworkError } from '../api/errors';
 import type { TriageListItem, Pagination } from '../types';
 
 export function useTriages(initialParams: ListTriagesParams = {}) {
@@ -27,10 +29,20 @@ export function useTriages(initialParams: ListTriagesParams = {}) {
         if (cancelled) return;
         setTriages(res.data);
         setPagination(res.pagination);
+        void cacheTriageList(res.data);
       })
-      .catch((err: unknown) => {
+      .catch(async (err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Falha ao carregar triagens');
+        // Offline / network failure: serve the local cache (which includes
+        // pending offline-created records) instead of an empty error state.
+        if (!navigator.onLine || isNetworkError(err)) {
+          const cached = await getCachedTriages();
+          setTriages(cached);
+          setPagination((p) => ({ ...p, total: cached.length }));
+          setError(null);
+        } else {
+          setError(err instanceof Error ? err.message : 'Falha ao carregar triagens');
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);

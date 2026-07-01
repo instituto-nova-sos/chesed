@@ -311,10 +311,11 @@ const checkConnectivity = async (): Promise<boolean> => {
 
 | Resource | Strategy | Reason |
 |----------|----------|--------|
-| App shell (HTML, JS, CSS) | Cache-first, update in background | Fast load; update on next visit |
-| API responses (GET) | Network-first, fall back to cache | Fresh data when online; cached when offline |
+| App shell (HTML, JS, CSS) | Cache-first (precache), update in background | Fast load; update on next visit |
+| Reference-data GETs (`/service-types`, `/campuses`) | Network-first, fall back to cache | Read-only lookups with no IndexedDB layer; fresh online, cached offline |
+| Entity-collection GETs (`/persons`, `/triages`, `/attendances`) | **Not** SW-cached — served by the app's IndexedDB (Dexie) layer | The Dexie cache also holds pending offline writes; a SW cache would answer these GETs from stale data and mask unsynced records. The SW cache and the app cache must not both own the same reads. |
 | API mutations (POST, PATCH) | Network-only, queue if offline | Mutations must reach server; queue for sync |
-| Static assets (fonts, icons) | Cache-first | Rarely change |
+| Static assets (fonts, icons) | Cache-first (precache) | Rarely change |
 | Images/documents | Cache-first with expiry | Large; don't re-download frequently |
 
 ### PWA Manifest

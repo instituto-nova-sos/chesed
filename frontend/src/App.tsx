@@ -24,6 +24,7 @@ import { AttendanceListPage } from './pages/AttendanceListPage';
 import { AttendanceCreatePage } from './pages/AttendanceCreatePage';
 import { AttendanceDetailPage } from './pages/AttendanceDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { SyncConflictsPage } from './pages/SyncConflictsPage';
 
 export function App() {
   const { initialized, isLoading, initialize } = useAuthStore();
@@ -100,6 +101,7 @@ export function App() {
           <Route path="attendances/new" element={<AttendanceCreatePage />} />
           <Route path="attendances/:id" element={<AttendanceDetailPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="sync/conflicts" element={<SyncConflictsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

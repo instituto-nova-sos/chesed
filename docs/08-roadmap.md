@@ -109,11 +109,11 @@ test infrastructure. See "Parallelization Model" below for the critical path.
 |---|------|-------------|--------|
 | 4.1 | Sync API: push endpoint (batch upload of offline records) | 2.1, 3.2 | Done |
 | 4.2 | Sync API: pull endpoint (fetch updates since last sync) | 4.1 | Done |
-| 4.3 | React: sync engine (Dexie v2, `useOnlineSync` drainer, pull-merge, conflict surfacing) | 2.8, 4.1 | In progress |
-| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.9 | Todo |
+| 4.3 | React: sync engine (Dexie v2, `useOnlineSync` drainer, pull-merge, conflict surfacing) | 2.8, 4.1 | Done |
+| 4.4 | PWA setup: Service Worker, manifest, install prompt | 1.9 | Done |
 | 4.5 | Report API: attendance count by period with CSV export | 3.2 | Done |
 | 4.6 | React: Report page (date range, table, CSV download) | 4.5 | Done |
-| 4.7 | End-to-end testing (critical flows) | All above | In progress |
+| 4.7 | End-to-end testing (critical flows) | All above | Done |
 | 4.8 | Performance optimization (lazy loading, caching) | All above | Todo |
 | 4.9 | Security review (OWASP checklist, penetration basics) | All above | Todo |
 | 4.10 | Deploy to staging environment | All above | Todo |

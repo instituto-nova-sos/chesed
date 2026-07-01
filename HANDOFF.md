@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-06-03 (Session 28)
+2026-06-30 (Session 31)
 
 ---
 
@@ -2444,6 +2444,149 @@ After remediation: backend lint 0, **76** frontend unit tests, 12 integration, *
 - Offline-create fallback is wired for **person** only; triage/attendance forms still POST online-only (extend with the same `*WithOfflineFallback` pattern when those slices are prioritized).
 - Conflict resolution surface: `getConflicts()`/`discardConflict()` exist and the banner shows a conflict badge, but a full review/merge/resubmit UI is not yet built — next slice.
 - Bundle >500 kB warning — code-splitting deferred.
+
+---
+
+## Session 31 — Sprint 4 parallel tracks: S05.2 triage/attendance offline-create (2026-06-30)
+
+### Context
+
+With the offline-sync serial chain (S05.1→S05.3→S05.4 + conflict detection)
+delivered in Session 30, the remaining Sprint 4 work is the roadmap's
+**parallel tracks** (`docs/08-roadmap.md` → Parallelization Model): S05.2
+completion, S05.5 status-indicator polish, the conflict-resolution UI, PWA
+(4.4), and E2E extension (4.7). This session delivers **Track A — S05.2**:
+extend offline-create + list-cache fallback from person to triage and
+attendance. Work stops before Sprint 5 (Phase 2), the first phase-level wall.
+
+### Deliverables (TDD, RED→GREEN commit order)
+
+**New offline modules** (mirror `personOffline.ts`, generic engine unchanged):
+- `frontend/src/offline/triageOffline.ts` — `createTriageWithOfflineFallback`,
+  `cacheTriageList`, `getCachedTriages`, `saveTriageOffline`. Offline save
+  writes a valid `TriageListItem` to `db.triages` + a `syncQueue` entry
+  (`entityType:'triage'`, `sync_id` = client UUID).
+- `frontend/src/offline/attendanceOffline.ts` — same shape for attendance;
+  cached item defaults `status:'SCHEDULED'` (Phase 1 state machine).
+
+**Wiring:**
+- `TriageCreatePage` / `AttendanceCreatePage` submit through the
+  `*WithOfflineFallback` helper, passing `person.full_name` (and the resolved
+  service-type name for attendance) so the offline list row is readable;
+  navigate to the list (not detail) when the create was offline.
+- `useTriages` / `useAttendances` cache the server list on success and serve
+  the IndexedDB cache (incl. pending offline records) on `!navigator.onLine ||
+  isNetworkError`, matching `usePersons`.
+
+**Tests (all RED-first):** `triageOffline.test.ts` (7),
+`attendanceOffline.test.ts` (7), `useTriagesOffline.test.tsx` (2),
+`useAttendancesOffline.test.tsx` (2) — online API path, offline queue+cache,
+network-error fallback, non-network re-throw, valid cached shape, list cache
+round-trip and offline read-your-writes.
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| `npm test` (unit) | PASS — 94 (was 76; +18) |
+| `npm run test:integration` (MSW) | PASS — 12 |
+| `npm run test:coverage` | PASS — `src/offline` 99.29% lines / 86.95% branches (≥80% floor) |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS — 0 errors, 51 warnings (unchanged baseline) |
+
+### Notes / Follow-ups
+
+- **S05.2 → done** in `docs/09-backlog.md`. **S05.1 stays `in_progress`**: the
+  Dexie v2 schema/stores/migration/durability criteria are met, but the
+  "encryption at rest" acceptance criterion is not implemented (no
+  `dexie-encrypted` / `crypto.subtle` in `src/offline/`). Tracked as the one
+  remaining S05.1 gap.
+- The generic sync engine already drains triage/attendance to `/sync/push` and
+  merges pulls (keyed by `entity_type`) — no engine change was needed.
+- Remaining parallel tracks this pass: **C** (conflict-resolution UI surfacing
+  `getConflicts`/`discardConflict`), **D** (PWA icons/workbox/install prompt +
+  E2E triage/attendance offline slices — D's E2E slices exercise Track A end to
+  end).
+
+### Track A delivery
+
+`make deliver` reached **READY-FOR-PR** (exit 0) with Docker up: backend
+build/lint(0)/test/integration ✅ · frontend
+typecheck/lint(0 err)/test(95)/integration(12)/coverage(≥floors)/build ✅ ·
+E2E smoke 2/2 ✅ · **critical-review APPROVE**
+(`tasks/review-feat/autonomous-delivery-and-offline-sync-drainer.md`) · DoD ✅.
+Nothing pushed (push boundary honored). The reviewer's one MINOR (an untested
+`?? 0` branch) was closed inline before the verdict.
+
+## Session 31 (cont.) — Track B: S05.5 status indicator (2026-06-30)
+
+### Deliverables (TDD, RED→GREEN)
+
+`SyncStatusBanner` extended to satisfy all four S05.5 acceptance criteria:
+- offline notice when `!isOnline`;
+- a syncing indicator (spinner + "Sincronizando…") visible during an active
+  drain — the banner now stays mounted while `isSyncing` even at zero pending;
+- Sync-Now disabled with an explanatory `title` ("will run once online") when
+  offline, and while already syncing.
+
+Refactored the badges, syncing indicator, title, and hide-guard into small
+helpers (`SyncingIndicator`, `PendingBadge`, `ConflictBadge`, `syncNowTitleFor`,
+`bannerIsHidden`). This **removed the pre-existing banner complexity warning**,
+dropping the frontend lint baseline **51 → 50**.
+
+Tests: `SyncStatusBanner.test.tsx` +3 RED-first cases (offline state, syncing
+indicator at zero pending, offline-disabled Sync-Now with title). Full unit
+suite 98 pass; typecheck clean; lint 0 errors / 50 warnings. **S05.5 → done**
+in `docs/09-backlog.md`.
+
+Track B critical review returned **NEEDS_DISCUSSION** — not for the S05.5 code
+(which the reviewer graded APPROVE-quality: all four criteria met, 100% file
+coverage, complexity warning eliminated) but because the reviewer ran the suite
+while HEAD was the Track C RED (intentionally-failing) commit. Resolved by
+landing Track C's GREEN (below) so the suite is green at the delivery tip; the
+reviewer's MINOR (an offline-state test that never went RED — Track A already
+rendered the notice) was addressed by reframing that test as a regression guard.
+
+## Session 31 (cont.) — Track C: conflict-resolution UI (2026-06-30)
+
+`getConflicts`/`discardConflict` existed in the engine but had no operator
+surface beyond the banner badge. Built under TDD (RED→GREEN):
+- `syncEngine.requeueConflict(queueId)` — clears the `conflicted` flag and
+  resets the cached entity to `pending` so the next drain resubmits it
+  (last-write-wins), preserving the captured data.
+- `useSyncConflicts` hook — load conflicts, `discard`, `resubmit`.
+- `SyncConflictsPage` (route `/sync/conflicts`) + `ConflictList` component —
+  per-record entity-type label + error, Reenviar/Descartar actions, empty state.
+- `SyncStatusBanner` conflict badge now links to `/sync/conflicts`.
+Tests: syncEngine requeue case, `useSyncConflicts` (3), `SyncConflictsPage` (4).
+
+## Session 31 (cont.) — Track D: PWA (task 4.4) + E2E extension (task 4.7)
+
+**PWA:** generated 192/512/maskable-512 PNG icons from the brand SVG via a
+reproducible `scripts/generate-pwa-icons.mjs` (`@resvg/resvg-js` devDep;
+`npm run generate:icons`), referenced them in the manifest (brand theme/bg
+color, favicon precached), added an `InstallPrompt` component
+(`beforeinstallprompt` capture, install/dismiss, hide on `appinstalled`;
+degrades to nothing where unsupported) mounted in `AppLayout`, and configured
+`workbox.runtimeCaching`.
+
+**Workbox scoping (bug found + fixed via E2E):** NetworkFirst is scoped to the
+read-only reference endpoints (`/service-types`, `/campuses`) ONLY. Caching the
+person/triage/attendance collection GETs made the SW answer them from cache and
+**masked the app's IndexedDB offline fallback** (which also holds unsynced
+records) — the person offline E2E slice regressed until this was narrowed. The
+SW cache and the app's Dexie cache must not both own the same reads.
+
+**E2E:** fixed the stale header comment in `sync-smoke.spec.ts`; added an
+`@smoke` offline-triage slice (create offline → cached list render → reconnect →
+drainer flushes to Postgres) that exercises S05.2's triage path against the real
+stack; `fixtures.ts` cleanup now deletes triage/attendance before persons (FK
+order). **E2E smoke 3/3 pass** against the live Docker stack (person online,
+person offline, triage offline).
+
+Roadmap: tasks **4.3 / 4.4 / 4.7 → Done**. Backlog: **S05.3 / S05.4 → done**
+(drainer + pull-merge + conflict surfacing all shipped). S05.1 remains
+`in_progress` (encryption-at-rest still deferred).
 
 ---
 

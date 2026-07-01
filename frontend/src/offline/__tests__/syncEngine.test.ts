@@ -7,6 +7,7 @@ import {
   getConflicts,
   getRetryable,
   discardConflict,
+  requeueConflict,
   MAX_RETRIES,
   type PushFn,
   type SyncPushRecord,
@@ -220,6 +221,33 @@ describe('conflict / retry queue helpers', () => {
     const key = (await queue('b', { conflicted: true })) as number;
     await discardConflict(key);
     expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it('requeueConflict clears the conflicted flag and makes the item retryable', async () => {
+    const key = (await queue('b', {
+      conflicted: true,
+      lastError: 'server conflict',
+      retryCount: 2,
+    })) as number;
+    await db.persons.put({
+      id: 'b',
+      data: { id: 'b', full_name: 'Preserved' },
+      syncStatus: 'conflict',
+      localCreatedAt: 'x',
+    });
+
+    await requeueConflict(key);
+
+    const item = await db.syncQueue.get(key);
+    expect(item?.conflicted).toBeFalsy();
+    // A resubmit is a fresh attempt: the retry counter resets so a previously
+    // error-bumped item does not start near the dead-letter ceiling.
+    expect(item?.retryCount).toBe(0);
+    // The cached entity returns to pending so it is not shown as a conflict.
+    expect((await db.persons.get('b'))?.syncStatus).toBe('pending');
+    // It is now eligible for the next automatic drain again.
+    expect((await getRetryable()).map((r) => r.entityId)).toContain('b');
+    expect((await getConflicts()).length).toBe(0);
   });
 
   it('resolves a created result even when no cached entity row exists', async () => {

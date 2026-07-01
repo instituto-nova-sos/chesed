@@ -13,16 +13,13 @@ import { test, expect, DATABASE_URL, withClient } from './fixtures';
  * integration tests (MSW + testcontainers), not here. See
  * .project-ai/rules/e2e-test-tiers.md.
  *
- * OFFLINE PORTION — currently SKIPPED (see the test.fixme block at the bottom).
- * The offline-visible-from-cache and queue-drains-on-reconnect assertions cannot
- * pass yet because the frontend sync DRAINER is not wired into the running app:
- *   - PersonListPage/usePersons read straight from the API, not from the Dexie
- *     cache (src/offline/personOffline.ts exists but nothing reads it on the list
- *     path), so an offline list would be empty rather than cache-served.
- *   - No background drainer pushes the Dexie syncQueue to /api/v1/sync/push.
- * The drainer ships in the next feature (see tasks/todo.md "sync drainer offline").
- * Rather than assert something false, the offline steps are marked test.fixme
- * with this reason and activate once the drainer lands.
+ * OFFLINE PORTION — ACTIVE. The sync drainer is wired into the running app
+ * (useOnlineSync in AppLayout auto-drains on reconnect; usePersons/useTriages
+ * serve the Dexie cache offline). Each offline slice below creates a record with
+ * the browser offline, confirms it renders from the IndexedDB cache, reconnects,
+ * and asserts the drainer flushed the syncQueue to /api/v1/sync/push and the row
+ * reached Postgres. Person covers the base case; triage covers the S05.2
+ * per-entity offline-create path against the real stack.
  */
 
 test.describe('person offline-first critical slice', () => {
@@ -108,6 +105,63 @@ test.describe('person offline-first critical slice', () => {
               return res.rowCount ?? 0;
             }),
           { timeout: 30_000, message: 'sync queue should drain to Postgres after reconnect' },
+        )
+        .toBe(1);
+    },
+  );
+
+  // ── OFFLINE TRIAGE SLICE — exercises the S05.2 per-entity offline-create path.
+  // A person is created ONLINE first (to obtain a person_id), then a triage is
+  // created OFFLINE: it must persist to Dexie + the sync queue, render from the
+  // cached triage list, and drain to Postgres on reconnect.
+  test(
+    '@smoke offline triage stays visible then drains on reconnect',
+    async ({ page, authenticate, context, identity }) => {
+      const personName = `${identity.dataPrefix}Triage Person`;
+      const complaint = `${identity.dataPrefix}dor nas costas`;
+
+      await authenticate();
+
+      // Create the person online so the triage form has a person_id.
+      await page.goto('/persons');
+      await page.getByRole('button', { name: 'Nova Pessoa' }).click();
+      await page.getByPlaceholder('Ex: Maria da Silva Santos').fill(personName);
+      await page.getByRole('button', { name: 'Cadastrar Pessoa' }).click();
+      await expect(page).toHaveURL(/\/persons\/[0-9a-f-]{36}/);
+      const personId = page.url().split('/persons/')[1] ?? '';
+
+      // Prime the triage list cache + mount the drainer while online.
+      await page.goto('/triages');
+
+      // Open the triage form WHILE ONLINE so its person + service-type context
+      // loads (the create page fetches those on mount). Then fill and go offline
+      // before submit — mirroring the person slice: the create itself is offline.
+      await page.goto(`/triages/new?person_id=${personId}`);
+      const complaintField = page.locator('textarea').first();
+      await expect(complaintField).toBeVisible();
+      await complaintField.fill(complaint);
+
+      await context.setOffline(true);
+      await page.getByRole('button', { name: 'Salvar Triagem' }).click();
+
+      // Offline create returns to the list, served from the IndexedDB cache.
+      await expect(page).toHaveURL(/\/triages$/);
+      await expect(page.getByText(complaint)).toBeVisible();
+
+      // Reconnect: the drainer flushes the queued triage to /api/v1/sync/push.
+      await context.setOffline(false);
+
+      await expect
+        .poll(
+          async () =>
+            withClient(async (client) => {
+              const res = await client.query(
+                `SELECT 1 FROM triage WHERE main_complaint = $1`,
+                [complaint],
+              );
+              return res.rowCount ?? 0;
+            }),
+          { timeout: 30_000, message: 'triage sync queue should drain to Postgres after reconnect' },
         )
         .toBe(1);
     },

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "generate:icons": "node scripts/generate-pwa-icons.mjs",
     "test": "vitest run --exclude '**/*.integration.test.*'",
     "test:watch": "vitest --exclude '**/*.integration.test.*'",
     "test:coverage": "vitest run --coverage --exclude '**/*.integration.test.*'",
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.49.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
