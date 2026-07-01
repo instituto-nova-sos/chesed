@@ -43,8 +43,7 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: ({ url, request }) =>
-              request.method === 'GET' &&
-              /^\/api\/v1\/(service-types|campuses)/.test(url.pathname),
+              request.method === 'GET' && /^\/api\/v1\/(service-types|campuses)/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'chesed-reference-get',
@@ -57,6 +56,29 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Split large third-party libraries into their own long-lived chunks so an
+    // app-code change does not bust the vendor cache, and the route chunks stay
+    // small. Rolldown's advancedChunks matches against resolved module ids.
+    rolldownOptions: {
+      output: {
+        advancedChunks: {
+          groups: [
+            {
+              name: 'react-vendor',
+              test: /node_modules[/\\](react|react-dom|react-router|react-router-dom|scheduler)[/\\]/,
+            },
+            {
+              name: 'forms-vendor',
+              test: /node_modules[/\\](zod|react-hook-form|@hookform[/\\]resolvers)[/\\]/,
+            },
+            { name: 'dexie-vendor', test: /node_modules[/\\]dexie[/\\]/ },
+            { name: 'keycloak-vendor', test: /node_modules[/\\]keycloak-js[/\\]/ },
+          ],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
