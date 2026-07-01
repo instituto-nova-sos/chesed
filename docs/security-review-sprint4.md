@@ -76,9 +76,13 @@ with a campus-scoped `FindByID` and updating the unit-test mocks — see TODO be
 - Secrets are read from environment variables (`internal/config`); no secrets are
   hardcoded in Go/TS source or committed compose files (prod compose uses
   `${...}` references). Dev/e2e compose credentials are non-prod placeholders.
-- Offline-at-rest encryption (S05.1, this sprint) adds AES-GCM field encryption
-  for the Dexie offline layer with Web Crypto feature-detection and graceful
-  plaintext degradation (`frontend/src/offline/encryption.ts`).
+- Offline-at-rest encryption (S05.1, this sprint) adds an AES-GCM field-encryption
+  **capability** for the Dexie offline layer with Web Crypto feature-detection and
+  graceful plaintext degradation (`frontend/src/offline/encryption.ts`). At-rest
+  encryption activates once the store wraps the record `data` field through
+  `encryptPayload`/`decryptPayload`; that wiring is a documented follow-up (Dexie's
+  synchronous hooks cannot await AES-GCM, so it belongs in the async read/write
+  helpers). Until then the module is tested but not yet on the live write path.
 - TLS termination is assumed at the reverse proxy/Cloudflare edge (infra item).
 
 ---
