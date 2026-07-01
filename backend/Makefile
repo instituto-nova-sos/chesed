@@ -1,5 +1,12 @@
 .PHONY: build run test test-integration test-all lint clean migrate-up migrate-down migrate-create migrate-force migrate-up-prod
 
+# Pin the Go toolchain to the version declared in go.mod (and the production
+# Dockerfile). golangci-lint embeds a go/types typechecker built against the Go
+# version it was compiled with; running it under a newer system toolchain makes
+# it emit spurious "undefined" / "requires newer Go version" typecheck errors.
+# Pinning here keeps lint/build/test consistent with what actually ships.
+export GOTOOLCHAIN ?= go1.25.5
+
 MIGRATE_URL ?= postgres://chesed:chesed@localhost:5432/chesed?sslmode=disable
 
 build:
