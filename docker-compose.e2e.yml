@@ -1,0 +1,116 @@
+# Chesed E2E test stack.
+#
+# Purpose: stand up the REAL Go API against a REAL PostgreSQL so Playwright can
+# drive the built frontend through the full network → API → DB path. Keycloak is
+# MOCKED by the `mock-oidc` service (frontend/e2e/mock-oidc) so we exercise the
+# production token-validation middleware without running the heavy Keycloak +
+# realm-import stack. The Playwright fixture injects a token signed by the same
+# mock issuer; the API accepts it because it fetches the mock issuer's JWKS.
+#
+# Ports (host):
+#   e2e-db        5433  (offset from the dev 5432 so both can run side by side)
+#   e2e-mock-oidc 8181  (offset from the dev keycloak 8180)
+#   e2e-api       8081  (offset from the dev 8080)
+#
+# Usage (see docs/e2e-testing.md for the full flow):
+#   docker compose -f docker-compose.e2e.yml up -d --build
+#   cd frontend && npm run build && npm run test:e2e:smoke
+#   docker compose -f docker-compose.e2e.yml down -v
+#
+# NOTE: CI is paused (see CLAUDE.md). This stack is run locally by the operator.
+
+services:
+  e2e-db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: chesed
+      POSTGRES_PASSWORD: chesed
+      POSTGRES_DB: chesed
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesed"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chesed-e2e
+
+  # Mock OIDC issuer — stands in for Keycloak. Serves discovery + JWKS and
+  # mints signed RS256 tokens via GET /e2e/token. TEST ONLY.
+  mock-oidc:
+    build:
+      context: ./frontend/e2e/mock-oidc
+      dockerfile: Dockerfile
+    ports:
+      - "8181:8080"
+    environment:
+      PORT: "8080"
+      # The issuer URL must be IDENTICAL from the API's perspective (server-to-
+      # server JWKS fetch) and inside the minted token's `iss`/`aud`. Using the
+      # in-network service name keeps both consistent; the host-side Playwright
+      # fixture reaches /e2e/token via the published 8181 port but the token it
+      # receives is issued for `http://mock-oidc:8080`, which the API trusts.
+      ISSUER_BASE: "http://mock-oidc:8080"
+      REALM: "chesed"
+      CLIENT_ID: "chesed-pwa"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chesed-e2e
+
+  # Apply all migrations from disk before the API starts (reuses the production
+  # backend image + migrations/run.sh, so the E2E schema is exactly what ships).
+  e2e-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://chesed:chesed@e2e-db:5432/chesed?sslmode=disable
+    command: ["sh", "./migrations/run.sh"]
+    depends_on:
+      e2e-db:
+        condition: service_healthy
+    networks:
+      - chesed-e2e
+
+  e2e-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_PORT: "8080"
+      DATABASE_URL: postgres://chesed:chesed@e2e-db:5432/chesed?sslmode=disable
+      # Point the OIDC verifier at the mock issuer instead of Keycloak.
+      KEYCLOAK_URL: "http://mock-oidc:8080"
+      KEYCLOAK_REALM: "chesed"
+      KEYCLOAK_CLIENT_ID: "chesed-pwa"
+      # Issuer in the token matches the discovery doc, so the issuer check passes;
+      # kept "true" to stay tolerant of host/in-network URL differences, exactly
+      # like the dev stack.
+      OIDC_SKIP_ISSUER_CHECK: "true"
+      LOG_LEVEL: debug
+    depends_on:
+      e2e-db:
+        condition: service_healthy
+      mock-oidc:
+        condition: service_healthy
+      e2e-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    networks:
+      - chesed-e2e
+
+networks:
+  chesed-e2e:
+    driver: bridge
