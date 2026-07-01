@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useOnlineSync } from '../../hooks/useOnlineSync';
 
 interface SyncBannerState {
@@ -50,7 +51,10 @@ function PendingBadge({ count }: { count: number }) {
 
 function ConflictBadge({ count }: { count: number }) {
   return (
-    <span className="inline-flex items-center gap-1 font-medium text-amber-700">
+    <Link
+      to="/sync/conflicts"
+      className="inline-flex items-center gap-1 font-medium text-amber-700 hover:underline"
+    >
       <span
         aria-label="conflitos"
         className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white"
@@ -58,7 +62,7 @@ function ConflictBadge({ count }: { count: number }) {
         {count}
       </span>
       {count === 1 ? 'conflito' : 'conflitos'} de sincronização
-    </span>
+    </Link>
   );
 }
 

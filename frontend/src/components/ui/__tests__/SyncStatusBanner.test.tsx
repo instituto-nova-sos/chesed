@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import type { OnlineSyncState } from '../../../hooks/useOnlineSync';
 
 const state: { value: OnlineSyncState } = { value: defaultState() };
@@ -21,19 +22,28 @@ vi.mock('../../../hooks/useOnlineSync', () => ({
 
 import { SyncStatusBanner } from '../SyncStatusBanner';
 
+// The conflict badge links to /sync/conflicts, so the banner needs a router.
+function renderBanner() {
+  return render(
+    <MemoryRouter>
+      <SyncStatusBanner />
+    </MemoryRouter>,
+  );
+}
+
 describe('SyncStatusBanner', () => {
   beforeEach(() => {
     state.value = defaultState();
   });
 
   it('renders nothing when fully synced and online', () => {
-    const { container } = render(<SyncStatusBanner />);
+    const { container } = renderBanner();
     expect(container).toBeEmptyDOMElement();
   });
 
   it('shows the pending count and a Sync Now button', () => {
     state.value = { ...defaultState(), pendingCount: 3 };
-    render(<SyncStatusBanner />);
+    renderBanner();
     expect(screen.getByText(/3/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sincronizar/i })).toBeInTheDocument();
   });
@@ -41,26 +51,29 @@ describe('SyncStatusBanner', () => {
   it('calls syncNow when the button is clicked', async () => {
     const syncNow = vi.fn();
     state.value = { ...defaultState(), pendingCount: 2, syncNow };
-    render(<SyncStatusBanner />);
+    renderBanner();
     await userEvent.click(screen.getByRole('button', { name: /sincronizar/i }));
     expect(syncNow).toHaveBeenCalledOnce();
   });
 
-  it('surfaces a conflict warning when conflicts exist', () => {
+  it('surfaces a conflict warning linking to the resolution page', () => {
     state.value = { ...defaultState(), conflictCount: 1 };
-    render(<SyncStatusBanner />);
-    expect(screen.getByText(/conflito/i)).toBeInTheDocument();
+    renderBanner();
+    const link = screen.getByRole('link', { name: /conflito/i });
+    expect(link).toHaveAttribute('href', '/sync/conflicts');
   });
 
   it('disables the button while syncing', () => {
     state.value = { ...defaultState(), pendingCount: 1, isSyncing: true };
-    render(<SyncStatusBanner />);
+    renderBanner();
     expect(screen.getByRole('button', { name: /sincroniz/i })).toBeDisabled();
   });
 
+  // Regression guard: the offline notice was introduced in Track A and must
+  // survive the S05.5 refactor (it is criterion 1, already satisfied).
   it('shows the offline state when the browser is offline', () => {
     state.value = { ...defaultState(), isOnline: false };
-    render(<SyncStatusBanner />);
+    renderBanner();
     expect(screen.getByText(/offline/i)).toBeInTheDocument();
   });
 
@@ -68,13 +81,13 @@ describe('SyncStatusBanner', () => {
     // Mid-drain the queue can momentarily read 0 pending while records are
     // in flight; the banner must still surface the syncing state (S05.5).
     state.value = { ...defaultState(), isSyncing: true, pendingCount: 0 };
-    render(<SyncStatusBanner />);
+    renderBanner();
     expect(screen.getByText(/sincronizando/i)).toBeInTheDocument();
   });
 
   it('disables Sync Now and indicates it will run once online when offline', () => {
     state.value = { ...defaultState(), isOnline: false, pendingCount: 2 };
-    render(<SyncStatusBanner />);
+    renderBanner();
     const button = screen.getByRole('button', { name: /sincroniz/i });
     expect(button).toBeDisabled();
     // The user is told the action defers until connectivity returns.
