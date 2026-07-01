@@ -120,4 +120,15 @@ describe('saveTriageOffline', () => {
     expect(cached.main_complaint).toBe('Dor de cabeça');
     expect(cached.requested_service_count).toBe(1);
   });
+
+  it('defaults requested_service_count to 0 when no services are requested', async () => {
+    const noServices = {
+      person_id: 'person-1',
+      main_complaint: 'Dor',
+    } as unknown as CreateTriageInput;
+    const id = await saveTriageOffline(noServices);
+    const cached = (await db.triages.get(id))?.data as unknown as TriageListItem;
+    expect(cached.requested_service_count).toBe(0);
+    expect(cached.person_name).toBe('');
+  });
 });
