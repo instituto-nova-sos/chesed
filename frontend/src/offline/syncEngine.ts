@@ -187,7 +187,14 @@ export async function discardConflict(queueId: number): Promise<void> {
 export async function requeueConflict(queueId: number): Promise<void> {
   const item = await db.syncQueue.get(queueId);
   if (!item) return;
-  await db.syncQueue.update(queueId, { conflicted: false, lastError: undefined });
+  // A resubmit is a fresh attempt: reset retryCount so an item that hit several
+  // transient errors before the conflict does not start near the dead-letter
+  // ceiling on its next drain.
+  await db.syncQueue.update(queueId, {
+    conflicted: false,
+    lastError: undefined,
+    retryCount: 0,
+  });
   const table = db.table<LocalEntity>(TABLE_BY_TYPE[item.entityType]);
   const cached = await table.get(item.entityId);
   if (cached) {

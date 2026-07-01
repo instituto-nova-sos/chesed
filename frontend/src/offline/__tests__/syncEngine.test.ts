@@ -224,7 +224,11 @@ describe('conflict / retry queue helpers', () => {
   });
 
   it('requeueConflict clears the conflicted flag and makes the item retryable', async () => {
-    const key = (await queue('b', { conflicted: true, lastError: 'server conflict' })) as number;
+    const key = (await queue('b', {
+      conflicted: true,
+      lastError: 'server conflict',
+      retryCount: 2,
+    })) as number;
     await db.persons.put({
       id: 'b',
       data: { id: 'b', full_name: 'Preserved' },
@@ -236,6 +240,9 @@ describe('conflict / retry queue helpers', () => {
 
     const item = await db.syncQueue.get(key);
     expect(item?.conflicted).toBeFalsy();
+    // A resubmit is a fresh attempt: the retry counter resets so a previously
+    // error-bumped item does not start near the dead-letter ceiling.
+    expect(item?.retryCount).toBe(0);
     // The cached entity returns to pending so it is not shown as a conflict.
     expect((await db.persons.get('b'))?.syncStatus).toBe('pending');
     // It is now eligible for the next automatic drain again.
