@@ -59,10 +59,10 @@ export default defineConfig({
   build: {
     // Split large third-party libraries into their own long-lived chunks so an
     // app-code change does not bust the vendor cache, and the route chunks stay
-    // small. Rolldown's advancedChunks matches against resolved module ids.
+    // small. Rolldown's codeSplitting groups match against resolved module ids.
     rolldownOptions: {
       output: {
-        advancedChunks: {
+        codeSplitting: {
           groups: [
             {
               name: 'react-vendor',
