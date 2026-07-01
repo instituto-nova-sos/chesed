@@ -57,4 +57,27 @@ describe('SyncStatusBanner', () => {
     render(<SyncStatusBanner />);
     expect(screen.getByRole('button', { name: /sincroniz/i })).toBeDisabled();
   });
+
+  it('shows the offline state when the browser is offline', () => {
+    state.value = { ...defaultState(), isOnline: false };
+    render(<SyncStatusBanner />);
+    expect(screen.getByText(/offline/i)).toBeInTheDocument();
+  });
+
+  it('shows a syncing indicator during an active drain even with zero pending', () => {
+    // Mid-drain the queue can momentarily read 0 pending while records are
+    // in flight; the banner must still surface the syncing state (S05.5).
+    state.value = { ...defaultState(), isSyncing: true, pendingCount: 0 };
+    render(<SyncStatusBanner />);
+    expect(screen.getByText(/sincronizando/i)).toBeInTheDocument();
+  });
+
+  it('disables Sync Now and indicates it will run once online when offline', () => {
+    state.value = { ...defaultState(), isOnline: false, pendingCount: 2 };
+    render(<SyncStatusBanner />);
+    const button = screen.getByRole('button', { name: /sincroniz/i });
+    expect(button).toBeDisabled();
+    // The user is told the action defers until connectivity returns.
+    expect(button).toHaveAttribute('title', expect.stringMatching(/conex|online/i));
+  });
 });
