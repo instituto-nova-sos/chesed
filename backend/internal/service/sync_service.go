@@ -18,6 +18,7 @@ import (
 
 // SyncPersonRepository is the subset of person persistence used by the sync engine.
 type SyncPersonRepository interface {
+	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Person, error)
 	FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Person, error)
 	CreateWithSync(ctx context.Context, person domain.Person, address *domain.Address, syncID uuid.UUID) (*domain.Person, error)
 	ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Person, error)
@@ -25,6 +26,7 @@ type SyncPersonRepository interface {
 
 // SyncTriageRepository is the subset of triage persistence used by the sync engine.
 type SyncTriageRepository interface {
+	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Triage, error)
 	FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Triage, error)
 	CreateWithSync(ctx context.Context, triage domain.Triage, syncID uuid.UUID) (*domain.Triage, error)
 	ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Triage, error)
@@ -225,7 +227,7 @@ func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecor
 		return errorResult(rec.SyncID, err.Error())
 	}
 
-	triage, errResult := s.buildSyncTriage(rec, campusID, claims)
+	triage, errResult := s.buildSyncTriage(ctx, rec, campusID, claims)
 	if errResult != nil {
 		return *errResult
 	}
@@ -244,7 +246,7 @@ func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecor
 
 // buildSyncTriage decodes, validates, and maps a sync triage record. A non-nil
 // result indicates an early-return error.
-func (s *SyncService) buildSyncTriage(rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Triage, *domain.SyncPushResult) {
+func (s *SyncService) buildSyncTriage(ctx context.Context, rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Triage, *domain.SyncPushResult) {
 	var in syncTriageInput
 	if err := decodeRecord(rec.Data, &in); err != nil {
 		r := errorResult(rec.SyncID, err.Error())
@@ -259,6 +261,9 @@ func (s *SyncService) buildSyncTriage(rec domain.SyncPushRecord, campusID uuid.U
 	if err != nil {
 		r := errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
 		return domain.Triage{}, &r
+	}
+	if errResult := s.requirePersonInCampus(ctx, rec.SyncID, personID, campusID); errResult != nil {
+		return domain.Triage{}, errResult
 	}
 
 	triageDate, err := parseSyncTimestamp(in.TriageDate)
@@ -290,6 +295,37 @@ func (s *SyncService) buildSyncTriage(rec domain.SyncPushRecord, campusID uuid.U
 		IsActive:       true,
 		RequestedTypes: requested,
 	}, nil
+}
+
+// requirePersonInCampus rejects a pushed record whose referenced person does
+// not belong to the caller's campus (security Finding 3, threat T3). A campus
+// mismatch surfaces as ErrNotFound from the campus-scoped lookup and yields a
+// generic error result — the response never reveals whether the person exists
+// in another campus. Any other lookup error also rejects the record.
+func (s *SyncService) requirePersonInCampus(ctx context.Context, syncID, personID, campusID uuid.UUID) *domain.SyncPushResult {
+	if _, err := s.personRepo.FindByID(ctx, personID, campusID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			r := errorResult(syncID, "person_id not found in campus")
+			return &r
+		}
+		r := errorResult(syncID, err.Error())
+		return &r
+	}
+	return nil
+}
+
+// requireTriageInCampus is the triage-reference counterpart of
+// requirePersonInCampus, guarding an optional attendance.triage_id link.
+func (s *SyncService) requireTriageInCampus(ctx context.Context, syncID, triageID, campusID uuid.UUID) *domain.SyncPushResult {
+	if _, err := s.triageRepo.FindByID(ctx, triageID, campusID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			r := errorResult(syncID, "triage_id not found in campus")
+			return &r
+		}
+		r := errorResult(syncID, err.Error())
+		return &r
+	}
+	return nil
 }
 
 // parseSyncTimestamp parses an optional RFC3339 timestamp, defaulting to now.
@@ -325,7 +361,7 @@ func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushR
 		return errorResult(rec.SyncID, err.Error())
 	}
 
-	a, errResult := s.buildSyncAttendance(rec, campusID, claims)
+	a, errResult := s.buildSyncAttendance(ctx, rec, campusID, claims)
 	if errResult != nil {
 		return *errResult
 	}
@@ -344,7 +380,16 @@ func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushR
 
 // buildSyncAttendance decodes, validates, and maps a sync attendance record. A
 // non-nil result indicates an early-return error.
-func (s *SyncService) buildSyncAttendance(rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Attendance, *domain.SyncPushResult) {
+// syncAttendanceRefs holds the resolved UUID references of an attendance push
+// record after parsing and campus-scoped validation.
+type syncAttendanceRefs struct {
+	personID       uuid.UUID
+	serviceTypeID  uuid.UUID
+	professionalID uuid.UUID
+	triageID       *uuid.UUID
+}
+
+func (s *SyncService) buildSyncAttendance(ctx context.Context, rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Attendance, *domain.SyncPushResult) {
 	var in syncAttendanceInput
 	if err := decodeRecord(rec.Data, &in); err != nil {
 		r := errorResult(rec.SyncID, err.Error())
@@ -355,26 +400,9 @@ func (s *SyncService) buildSyncAttendance(rec domain.SyncPushRecord, campusID uu
 		return domain.Attendance{}, &r
 	}
 
-	personID, err := uuid.Parse(in.PersonID)
-	if err != nil {
-		r := errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
-		return domain.Attendance{}, &r
-	}
-	serviceTypeID, err := uuid.Parse(in.ServiceTypeID)
-	if err != nil {
-		r := errorResult(rec.SyncID, fmt.Sprintf("invalid service_type_id: %v", err))
-		return domain.Attendance{}, &r
-	}
-	professionalID, err := uuid.Parse(in.ProfessionalID)
-	if err != nil {
-		r := errorResult(rec.SyncID, fmt.Sprintf("invalid professional_id: %v", err))
-		return domain.Attendance{}, &r
-	}
-
-	triageID, err := parseOptionalUUID(in.TriageID)
-	if err != nil {
-		r := errorResult(rec.SyncID, fmt.Sprintf("invalid triage_id: %v", err))
-		return domain.Attendance{}, &r
+	refs, errResult := s.resolveAttendanceRefs(ctx, rec, in, campusID)
+	if errResult != nil {
+		return domain.Attendance{}, errResult
 	}
 
 	attDate, err := parseSyncTimestamp(in.AttendanceDate)
@@ -385,16 +413,57 @@ func (s *SyncService) buildSyncAttendance(rec domain.SyncPushRecord, campusID uu
 
 	return domain.Attendance{
 		ID:              uuid.New(),
-		PersonID:        personID,
-		TriageID:        triageID,
+		PersonID:        refs.personID,
+		TriageID:        refs.triageID,
 		CampusID:        campusID,
-		ServiceTypeID:   serviceTypeID,
-		ProfessionalID:  professionalID,
+		ServiceTypeID:   refs.serviceTypeID,
+		ProfessionalID:  refs.professionalID,
 		Status:          in.Status,
 		AttendanceDate:  attDate,
 		Observations:    in.Observations,
 		Recommendations: in.Recommendations,
 		CreatedBy:       parseUserID(claims.Subject),
+	}, nil
+}
+
+// resolveAttendanceRefs parses and campus-validates the UUID references of an
+// attendance record. The referenced person (and optional triage) must belong
+// to the caller's campus (security Finding 3). A non-nil result is an
+// early-return rejection.
+func (s *SyncService) resolveAttendanceRefs(ctx context.Context, rec domain.SyncPushRecord, in syncAttendanceInput, campusID uuid.UUID) (syncAttendanceRefs, *domain.SyncPushResult) {
+	personID, err := uuid.Parse(in.PersonID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid person_id: %v", err))
+		return syncAttendanceRefs{}, &r
+	}
+	if errResult := s.requirePersonInCampus(ctx, rec.SyncID, personID, campusID); errResult != nil {
+		return syncAttendanceRefs{}, errResult
+	}
+	serviceTypeID, err := uuid.Parse(in.ServiceTypeID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid service_type_id: %v", err))
+		return syncAttendanceRefs{}, &r
+	}
+	professionalID, err := uuid.Parse(in.ProfessionalID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid professional_id: %v", err))
+		return syncAttendanceRefs{}, &r
+	}
+	triageID, err := parseOptionalUUID(in.TriageID)
+	if err != nil {
+		r := errorResult(rec.SyncID, fmt.Sprintf("invalid triage_id: %v", err))
+		return syncAttendanceRefs{}, &r
+	}
+	if triageID != nil {
+		if errResult := s.requireTriageInCampus(ctx, rec.SyncID, *triageID, campusID); errResult != nil {
+			return syncAttendanceRefs{}, errResult
+		}
+	}
+	return syncAttendanceRefs{
+		personID:       personID,
+		serviceTypeID:  serviceTypeID,
+		professionalID: professionalID,
+		triageID:       triageID,
 	}, nil
 }
 
