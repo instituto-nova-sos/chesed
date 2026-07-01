@@ -71,6 +71,54 @@ Before marking any story, task, or feature as complete. Before writing a "done" 
    - Story ID references backlog (e.g., S03.1) or tagged as TE/chore.
    - Each commit is atomic — one logical change per commit.
 
+9. **TDD commit-order gate (RED before GREEN)** — **AUTHORITATIVE, BLOCKING**
+
+   This is the authoritative enforcement of `.project-ai/rules/tdd-enforcement.md`
+   (the `make deliver` heuristic is convenience only). For the feature branch,
+   verify via `git log --name-only` that the **first commit touching test files
+   precedes the first commit touching production files**. A production file landing
+   in — or before — the first test-touching commit is a violation: it means code
+   was written without a prior failing test.
+
+   - **Scope**: the branch's own commits, in chronological order. Resolve the base
+     with `git merge-base main HEAD`, then walk `git rev-list --reverse <base>..HEAD`.
+     Per story (story ID in the commit subject, e.g. `S03.1`), the ordering must
+     hold within that story's commit subsequence; for a single-story branch the
+     whole branch is one subsequence.
+
+   - **File classification (exact suffix / path matching)**:
+     - **Test files** (extended regex):
+       `(_test\.go|\.test\.ts|\.test\.tsx|\.integration\.test\.ts|\.integration\.test\.tsx)$`
+       plus e2e specs under `frontend/e2e/` matching `\.spec\.ts$`.
+     - **Production files**: any path under `backend/` or `frontend/src/` that is
+       **not** a test file and **not** an Allowed Exception (pure config /
+       scaffolding / generated code, per `tdd-enforcement.md`). A commit carrying a
+       `No-Test-Rationale:` body line is treated as an allowed exception and does
+       not count as a production-first violation.
+
+   - **Check**: walk the commits in order; record the index of the first commit
+     whose file set intersects the test regex (`first_test`) and the first commit
+     whose file set contains a production file (`first_prod`). The gate PASSES when
+     `first_test` is empty, or `first_prod` is empty, or `first_test <= first_prod`.
+     The gate also requires the RED commit to carry **only** test files (no
+     production file in the first test-touching commit).
+
+   - **Failure message** (block, do not mark complete):
+     ```
+     TDD ORDER VIOLATION (pre-review): production code committed before a failing test.
+       Story:            <story-id or branch>
+       First test commit:  <sha/index or "none">
+       First prod commit:  <sha/index> — <offending file(s)>
+     Per .project-ai/rules/tdd-enforcement.md the RED test commit must precede the
+     GREEN production commit. Do NOT rewrite history to fake the order. Treat as a
+     process miss: re-derive the missing test, confirm it fails when the production
+     code is reverted, and record the gap for the reviewer (REQUEST_CHANGES).
+     ```
+
+   - If the order cannot be proven RED-first, this hook **blocks**. Allowed
+     exceptions (config/scaffolding/generated) must carry a `No-Test-Rationale:`
+     note in the commit body to be skipped.
+
 ## Enforcement Mechanism
 
 - The AI agent must execute this hook before any "task complete" declaration.

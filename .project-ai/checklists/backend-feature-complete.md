@@ -65,6 +65,7 @@ Use this checklist before marking any backend feature as done. Every item must p
 
 ## Code Quality
 
+- [ ] **TDD**: test was written first and seen to fail before implementation (verifiable via RED→GREEN commit order; see `rules/tdd-enforcement.md`)
 - [ ] No `_` for errors — all errors are handled or explicitly documented
 - [ ] `context.Context` propagated as first parameter in all function chains
 - [ ] `make test` (unit tests) passes with zero failures

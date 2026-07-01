@@ -325,3 +325,60 @@ When recurring friction, ambiguity, repeated work, or quality gaps are identifie
 - Remove artifacts that prove unnecessary
 
 These tools are **living project artifacts** that evolve with the project. Maintaining and improving them is an explicit responsibility during delivery.
+
+---
+
+## Autonomous Delivery & Push Boundary
+
+Feature delivery is driven by a single autonomous gate and **ends before push**.
+
+### `make deliver` — the single autonomous gate
+
+`make deliver` (root `Makefile`) chains every **local** quality gate, fail-fast, in
+this order:
+
+1. `make validate-backlog` — backlog metadata integrity.
+2. TDD commit-order gate — best-effort heuristic in `make`; the **authoritative**
+   RED→GREEN enforcement is the `pre-review` hook (`.project-ai/hooks/pre-review.md`).
+3. Backend: `build` + `lint` + `test`, then `test-integration` (Docker-gated:
+   SKIPPED-NEEDS-DOCKER when Docker is absent; real test failures fail the pipeline
+   when Docker is present — this also covers `auth_middleware_test`).
+4. Frontend: `typecheck` + `lint` + `test` + `test:integration` + `test:coverage`
+   + `build`.
+5. `test:e2e:smoke` — Playwright against the real compose stack (Docker-gated; the
+   **sprint gate requires it green**).
+6. **Mandatory critical-review gate** — consumes `tasks/review-<branch>.md`.
+7. Definition of Done gate (`.project-ai/checklists/definition-of-done.md`).
+
+On all green it prints the `READY-FOR-PR` banner and the **suggested** push command,
+then stops.
+
+### Mandatory critical-review gate
+
+Every delivery passes a **blocking** critical review. The
+`autonomous-critical-review` skill (`.project-ai/skills/autonomous-critical-review.md`)
+runs the `reviewer` agent over `git diff main...HEAD` and **writes the verdict to a
+file**: `tasks/review-<branch>.md`, in the reviewer's report format (Quality Gate,
+Clean Code, Complexity, Issues by severity, Verdict). `make deliver` **fails** unless
+that file exists and its verdict is `APPROVE`. The `pre-merge` hook sources the
+APPROVE verdict from this same file.
+
+### 3-cycle autonomous auto-remediation
+
+On a `REQUEST_CHANGES` verdict, the orchestrator
+(`.project-ai/workflows/autonomous-delivery.md`) applies `refactor-for-quality`
+**under TDD** (failing test first → RED → GREEN) and re-runs `make deliver`
+**autonomously, with no human approval per cycle, up to 3 cycles**. If it does not
+converge to `APPROVE` after 3 cycles, the impasse is recorded in
+`tasks/review-<branch>.md` and the run **stops for human decision** — no gate is
+weakened to force a pass.
+
+### HARD push boundary (non-negotiable)
+
+The AI agent **MUST NOT** run `git push`, `gh pr create`, or `gh pr merge`. The
+GitHub PAT has no push / PR / merge permission and it will not be granted. The
+pipeline and every artifact it invokes never push, open, or merge. Autonomous
+delivery is **complete** at: local commits on the feature branch (RED→GREEN order) +
+`tasks/review-<branch>.md` with verdict `APPROVE` + the printed `READY-FOR-PR`
+banner. The final step prints — but does not execute — the suggested
+`! git push -u origin <branch>` for a human to run.

@@ -19,6 +19,7 @@ Use this checklist at the end of each sprint before tagging a release. Every ite
 - [ ] New business logic has unit tests (service layer coverage)
 - [ ] New form interactions have React Testing Library tests
 - [ ] Repository integration tests run against real PostgreSQL
+- [ ] E2E critical flows pass per `e2e-critical-flows.md` (FULL `npm run test:e2e` green + `auth_middleware_test.go` green)
 
 ## Code Quality
 
