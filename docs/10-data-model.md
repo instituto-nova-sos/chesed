@@ -26,11 +26,18 @@ The following tables are created in Phase 1 database migrations:
 
 ### Phase 2 Tables
 The following tables are added in Phase 2 migrations:
-- `campaign` — Social action events
-- `campaign_team` — Team member assignments
+- `campaign` — Social action events *(Sprint 5 — implemented)*
+- `campaign_team` — Team member assignments *(Sprint 5 — implemented)*
 - `document` — File attachments
 - `consent` — LGPD consent records with signature
 - `donation` — Financial and in-kind contributions
+
+> **Sprint 5 note**: the Phase 1 migrations created `triage.campaign_id` and
+> `attendance.campaign_id` as bare nullable UUID columns (no FK, since
+> `campaign` did not exist yet). The Sprint 5 migrations create `campaign` and
+> `campaign_team`, then add the `REFERENCES campaign(id)` foreign keys and the
+> `idx_triage_campaign` / `idx_attendance_campaign` indexes shown in the DDL
+> below.
 
 ---
 
