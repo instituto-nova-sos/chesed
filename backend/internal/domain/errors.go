@@ -9,6 +9,7 @@ var (
 	ErrDuplicateEmail    = errors.New("duplicate email")
 	ErrDuplicatePhone    = errors.New("duplicate phone")
 	ErrForbidden         = errors.New("forbidden")
+	ErrValidation        = errors.New("validation failed")
 	ErrUnauthorized      = errors.New("unauthorized")
 	ErrInvalidCPF        = errors.New("invalid CPF")
 	ErrAgreementRequired = errors.New("volunteer agreement required")

@@ -74,6 +74,7 @@ type appDeps struct {
 	campus       *handler.CampusHandler
 	triage       *handler.TriageHandler
 	attendance   *handler.AttendanceHandler
+	campaign     *handler.CampaignHandler
 	report       *handler.ReportHandler
 	sync         *handler.SyncHandler
 
@@ -94,6 +95,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 	campusRepo := repository.NewCampusRepository(pool)
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
+	campaignRepo := repository.NewCampaignRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
@@ -114,6 +116,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		campus:         handler.NewCampusHandler(service.NewCampusService(campusRepo, auditSvc)),
 		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, auditSvc)),
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, auditSvc)),
+		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
 		userSvc:        userSvc,
@@ -176,6 +179,7 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		d.registerPersonRoutes(r, allRoles)
 		d.registerTriageRoutes(r, allRoles)
 		d.registerAttendanceRoutes(r, allRoles)
+		d.registerCampaignRoutes(r, allRoles)
 		d.registerReportRoutes(r)
 		d.registerSyncRoutes(r, allRoles)
 	})
@@ -228,6 +232,18 @@ func (d appDeps) registerAttendanceRoutes(r chi.Router, allRoles func(http.Handl
 		r.With(allRoles).Get("/{id}", d.attendance.Get)
 		r.With(attendanceRoles).Post("/{id}/transitions", d.attendance.Transition)
 		r.With(attendanceRoles).Patch("/{id}/notes", d.attendance.UpdateNotes)
+	})
+}
+
+func (d appDeps) registerCampaignRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	coordinatorUp := middleware.RequireRole(d.auditSvc, "COORDINATOR", "ADMIN")
+	r.Route("/campaigns", func(r chi.Router) {
+		r.With(coordinatorUp).Post("/", d.campaign.Create)
+		r.With(allRoles).Get("/", d.campaign.List)
+		r.With(allRoles).Get("/{id}", d.campaign.Get)
+		r.With(coordinatorUp).Put("/{id}", d.campaign.Update)
+		r.With(coordinatorUp).Post("/{id}/team", d.campaign.AddTeamMember)
+		r.With(coordinatorUp).Delete("/{id}/team/{personId}", d.campaign.RemoveTeamMember)
 	})
 }
 

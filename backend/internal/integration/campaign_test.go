@@ -45,7 +45,7 @@ func seedSecondCampus(t *testing.T, h *testHarness) uuid.UUID {
 	return id
 }
 
-func postJSON(h *testHarness, path string, payload map[string]any, opts ...func(*auth.AuthClaims)) *httptest.ResponseRecorder {
+func postCampaignJSON(h *testHarness, path string, payload map[string]any, opts ...func(*auth.AuthClaims)) *httptest.ResponseRecorder {
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -59,7 +59,7 @@ func TestCampaignCRUD_HappyPath(t *testing.T) {
 	h := freshHarness(t)
 	ctx := context.Background()
 
-	rec := postJSON(h, "/api/v1/campaigns", map[string]any{
+	rec := postCampaignJSON(h, "/api/v1/campaigns", map[string]any{
 		"name":          "March Social Action",
 		"campaign_type": "SOCIAL_ACTION",
 		"start_date":    "2026-07-10",
@@ -162,7 +162,7 @@ func TestCampaign_RBACBoundary(t *testing.T) {
 	h := freshHarness(t)
 	ctx := context.Background()
 
-	rec := postJSON(h, "/api/v1/campaigns", map[string]any{
+	rec := postCampaignJSON(h, "/api/v1/campaigns", map[string]any{
 		"name": "Rogue", "campaign_type": "OTHER", "start_date": "2026-07-01",
 	}) // default claims: VOLUNTEER
 	require.Equal(t, http.StatusForbidden, rec.Code)
@@ -185,12 +185,12 @@ func TestCampaign_Validation(t *testing.T) {
 	h := freshHarness(t)
 	ctx := context.Background()
 
-	rec := postJSON(h, "/api/v1/campaigns", map[string]any{
+	rec := postCampaignJSON(h, "/api/v1/campaigns", map[string]any{
 		"name": "Bad Type", "campaign_type": "PARTY", "start_date": "2026-07-10",
 	}, asCoordinator)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	rec = postJSON(h, "/api/v1/campaigns", map[string]any{
+	rec = postCampaignJSON(h, "/api/v1/campaigns", map[string]any{
 		"name": "Bad Dates", "campaign_type": "OTHER",
 		"start_date": "2026-07-10", "end_date": "2026-07-01",
 	}, asCoordinator)
@@ -208,7 +208,7 @@ func TestCampaignTeam_Flow(t *testing.T) {
 	h := freshHarness(t)
 	ctx := context.Background()
 
-	rec := postJSON(h, "/api/v1/campaigns", map[string]any{
+	rec := postCampaignJSON(h, "/api/v1/campaigns", map[string]any{
 		"name": "Team Campaign", "campaign_type": "COMMUNITY", "start_date": "2026-07-10",
 	}, asCoordinator)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -220,14 +220,14 @@ func TestCampaignTeam_Flow(t *testing.T) {
 	memberID := seedPerson(t, h, h.campusID, "Maria Silva", "11122233344")
 	teamPath := fmt.Sprintf("/api/v1/campaigns/%s/team", created.ID)
 
-	rec = postJSON(h, teamPath, map[string]any{
+	rec = postCampaignJSON(h, teamPath, map[string]any{
 		"person_id": memberID.String(), "role_in_campaign": "VOLUNTEER",
 	}, asCoordinator)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "Maria Silva")
 
 	// Duplicate assignment → 409 and still a single row.
-	rec = postJSON(h, teamPath, map[string]any{
+	rec = postCampaignJSON(h, teamPath, map[string]any{
 		"person_id": memberID.String(), "role_in_campaign": "SUPPORT",
 	}, asCoordinator)
 	assert.Equal(t, http.StatusConflict, rec.Code)
@@ -240,7 +240,7 @@ func TestCampaignTeam_Flow(t *testing.T) {
 	// Person from another campus → generic 400, nothing persisted.
 	secondCampus := seedSecondCampus(t, h)
 	foreignPerson := seedPerson(t, h, secondCampus, "Foreign Person", "55566677788")
-	rec = postJSON(h, teamPath, map[string]any{
+	rec = postCampaignJSON(h, teamPath, map[string]any{
 		"person_id": foreignPerson.String(), "role_in_campaign": "VOLUNTEER",
 	}, asCoordinator)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
