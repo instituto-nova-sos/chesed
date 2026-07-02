@@ -23,6 +23,7 @@ type TriageRepository interface {
 // CreateTriageInput holds validated input for triage creation.
 type CreateTriageInput struct {
 	PersonID              string   `json:"person_id" validate:"required,uuid"`
+	CampaignID            *string  `json:"campaign_id" validate:"omitempty,uuid"`
 	MainComplaint         string   `json:"main_complaint" validate:"required,max=2000"`
 	AssignedTeam          *string  `json:"assigned_team" validate:"omitempty,uuid"`
 	TriageDate            *string  `json:"triage_date" validate:"omitempty"`
@@ -42,13 +43,14 @@ type UpdateTriageInput struct {
 
 // TriageService handles triage business logic.
 type TriageService struct {
-	repo     TriageRepository
-	auditSvc *AuditService
+	repo         TriageRepository
+	campaignRepo CampaignRefRepository
+	auditSvc     *AuditService
 }
 
 // NewTriageService creates a new TriageService.
-func NewTriageService(repo TriageRepository, auditSvc *AuditService) *TriageService {
-	return &TriageService{repo: repo, auditSvc: auditSvc}
+func NewTriageService(repo TriageRepository, campaignRepo CampaignRefRepository, auditSvc *AuditService) *TriageService {
+	return &TriageService{repo: repo, campaignRepo: campaignRepo, auditSvc: auditSvc}
 }
 
 // CreateTriage creates a new triage.
@@ -66,6 +68,12 @@ func (s *TriageService) CreateTriage(ctx context.Context, input CreateTriageInpu
 	if err != nil {
 		return nil, err
 	}
+
+	campaignID, err := resolveCampaignRef(ctx, s.campaignRepo, input.CampaignID, claims.CampusID)
+	if err != nil {
+		return nil, fmt.Errorf("triageService.CreateTriage: %w", err)
+	}
+	triage.CampaignID = campaignID
 
 	created, err := s.repo.Create(ctx, triage)
 	if err != nil {

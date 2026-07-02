@@ -30,6 +30,32 @@ type CampaignPersonRepository interface {
 	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Person, error)
 }
 
+// CampaignRefRepository is the minimal campus-scoped campaign lookup other
+// aggregates (triage, attendance) use to validate campaign references.
+type CampaignRefRepository interface {
+	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Campaign, error)
+}
+
+// resolveCampaignRef validates an optional campaign reference against the
+// caller's campus. Rejections are generic (ErrValidation) so foreign-campus
+// existence is never disclosed (threat model T3).
+func resolveCampaignRef(ctx context.Context, repo CampaignRefRepository, campaignID *string, campusID uuid.UUID) (*uuid.UUID, error) {
+	id, err := parseOptionalUUID(campaignID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid campaign_id: %w", domain.ErrValidation)
+	}
+	if id == nil {
+		return nil, nil
+	}
+	if _, err := repo.FindByID(ctx, *id, campusID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("campaign reference not resolvable: %w", domain.ErrValidation)
+		}
+		return nil, fmt.Errorf("resolve campaign: %w", err)
+	}
+	return id, nil
+}
+
 // CreateCampaignInput holds validated input for campaign creation.
 type CreateCampaignInput struct {
 	Name            string  `json:"name" validate:"required,max=200"`

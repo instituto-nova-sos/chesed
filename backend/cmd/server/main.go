@@ -114,8 +114,8 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		agreement:      handler.NewVolunteerAgreementHandler(agreementSvc, uploadDir),
 		onboarding:     handler.NewOnboardingHandler(onboardingSvc),
 		campus:         handler.NewCampusHandler(service.NewCampusService(campusRepo, auditSvc)),
-		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, auditSvc)),
-		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, auditSvc)),
+		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, campaignRepo, auditSvc)),
+		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
@@ -252,6 +252,7 @@ func (d appDeps) registerReportRoutes(r chi.Router) {
 	r.Route("/reports", func(r chi.Router) {
 		r.With(reportRoles).Get("/attendances", d.report.AttendanceSummary)
 		r.With(reportRoles).Get("/attendances/export", d.report.AttendanceExport)
+		r.With(reportRoles).Get("/campaigns/{id}", d.report.CampaignMetrics)
 	})
 }
 

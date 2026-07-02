@@ -154,11 +154,11 @@ func TestAttendanceRepository_FindBySyncID(t *testing.T) {
 		mock.ExpectQuery(`SELECT .*FROM attendance.*WHERE sync_id = \$1 AND campus_id = \$2`).
 			WithArgs(syncID, campusID).
 			WillReturnRows(pgxmock.NewRows([]string{
-				"id", "person_id", "triage_id", "campus_id", "service_type_id", "professional_id",
+				"id", "person_id", "triage_id", "campaign_id", "campus_id", "service_type_id", "professional_id",
 				"status", "attendance_date", "observations", "recommendations",
 				"created_at", "updated_at", "created_by",
 			}).AddRow(
-				attendanceID, personID, nil, campusID, serviceTypeID, professionalID,
+				attendanceID, personID, nil, nil, campusID, serviceTypeID, professionalID,
 				"SCHEDULED", now, nil, nil,
 				now, now, nil,
 			))
@@ -198,11 +198,11 @@ func TestAttendanceRepository_ListUpdatedSince(t *testing.T) {
 		mock.ExpectQuery(`SELECT .*FROM attendance.*WHERE campus_id = \$1 AND updated_at > \$2.*ORDER BY updated_at ASC.*LIMIT \$3`).
 			WithArgs(campusID, since, 100).
 			WillReturnRows(pgxmock.NewRows([]string{
-				"id", "person_id", "triage_id", "campus_id", "service_type_id", "professional_id",
+				"id", "person_id", "triage_id", "campaign_id", "campus_id", "service_type_id", "professional_id",
 				"status", "attendance_date", "observations", "recommendations",
 				"created_at", "updated_at", "created_by",
 			}).AddRow(
-				attendanceID, personID, nil, campusID, serviceTypeID, professionalID,
+				attendanceID, personID, nil, nil, campusID, serviceTypeID, professionalID,
 				"SCHEDULED", updatedAt, nil, nil,
 				updatedAt, updatedAt, nil,
 			))
@@ -228,7 +228,7 @@ func TestAttendanceRepository_CreateWithSync(t *testing.T) {
 
 		mock.ExpectQuery(regexp.MustCompile(`INSERT INTO attendance.*sync_id.*RETURNING created_at, updated_at`).String()).
 			WithArgs(
-				attendanceID, personID, (*uuid.UUID)(nil), campusID, serviceTypeID,
+				attendanceID, personID, (*uuid.UUID)(nil), (*uuid.UUID)(nil), campusID, serviceTypeID,
 				professionalID, "SCHEDULED", now, (*string)(nil),
 				(*string)(nil), (*uuid.UUID)(nil), syncID,
 			).

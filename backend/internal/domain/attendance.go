@@ -42,6 +42,7 @@ type Attendance struct {
 	ID              uuid.UUID  `json:"id"`
 	PersonID        uuid.UUID  `json:"person_id"`
 	TriageID        *uuid.UUID `json:"triage_id,omitempty"`
+	CampaignID      *uuid.UUID `json:"campaign_id,omitempty"`
 	CampusID        uuid.UUID  `json:"campus_id"`
 	ServiceTypeID   uuid.UUID  `json:"service_type_id"`
 	ProfessionalID  uuid.UUID  `json:"professional_id"`

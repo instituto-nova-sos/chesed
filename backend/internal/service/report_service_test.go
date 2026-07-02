@@ -19,6 +19,14 @@ type MockReportRepository struct {
 	mock.Mock
 }
 
+func (m *MockReportRepository) BuildCampaignMetrics(ctx context.Context, campaignID, campusID uuid.UUID) (*domain.CampaignMetrics, error) {
+	args := m.Called(ctx, campaignID, campusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CampaignMetrics), args.Error(1)
+}
+
 func (m *MockReportRepository) BuildAttendanceReport(
 	ctx context.Context,
 	filter domain.AttendanceReportFilter,

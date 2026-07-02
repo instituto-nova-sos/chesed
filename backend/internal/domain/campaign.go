@@ -64,6 +64,24 @@ type CampaignFilter struct {
 	PerPage  int
 }
 
+// CampaignPeriod is the date window of a campaign in metrics responses.
+type CampaignPeriod struct {
+	StartDate time.Time  `json:"start_date"`
+	EndDate   *time.Time `json:"end_date,omitempty"`
+}
+
+// CampaignMetrics aggregates per-campaign counters for the dashboard report.
+type CampaignMetrics struct {
+	CampaignID          uuid.UUID      `json:"campaign_id"`
+	CampaignName        string         `json:"campaign_name"`
+	Status              string         `json:"status"`
+	Period              CampaignPeriod `json:"period"`
+	TriageCount         int            `json:"triage_count"`
+	AttendanceTotal     int            `json:"attendance_total"`
+	AttendancesByStatus map[string]int `json:"attendances_by_status"`
+	TeamSize            int            `json:"team_size"`
+}
+
 // CampaignStatuses enumerates the valid campaign lifecycle states.
 var CampaignStatuses = []string{"PLANNED", "ACTIVE", "COMPLETED", "CANCELLED"}
 

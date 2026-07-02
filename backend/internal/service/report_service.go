@@ -22,6 +22,7 @@ type ReportRepository interface {
 		filter domain.AttendanceReportFilter,
 		emit func(domain.AttendanceCSVRow) error,
 	) error
+	BuildCampaignMetrics(ctx context.Context, campaignID, campusID uuid.UUID) (*domain.CampaignMetrics, error)
 }
 
 // ReportService produces attendance summary reports and CSV exports.
@@ -83,4 +84,19 @@ func buildReportFilter(ctx context.Context, start, end time.Time) (domain.Attend
 		Start:    start,
 		End:      end,
 	}, nil
+}
+
+// GetCampaignMetrics returns per-campaign counters scoped to the caller's
+// campus. A campaign outside the campus surfaces as ErrNotFound.
+func (s *ReportService) GetCampaignMetrics(ctx context.Context, campaignID uuid.UUID) (*domain.CampaignMetrics, error) {
+	campusID := auth.CampusIDFromContext(ctx)
+	if campusID == uuid.Nil {
+		return nil, fmt.Errorf("reportService.GetCampaignMetrics: %w", domain.ErrForbidden)
+	}
+
+	metrics, err := s.repo.BuildCampaignMetrics(ctx, campaignID, campusID)
+	if err != nil {
+		return nil, fmt.Errorf("reportService.GetCampaignMetrics: %w", err)
+	}
+	return metrics, nil
 }
