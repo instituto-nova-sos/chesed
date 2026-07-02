@@ -25,6 +25,21 @@ import { setupServer } from 'msw/node';
 export const API_BASE = 'http://localhost:8080/api/v1';
 
 export const handlers = [
+  http.get(`${API_BASE}/campaigns`, () =>
+    HttpResponse.json({
+      data: [
+        {
+          id: '00000000-0000-0000-0000-00000000c001',
+          name: 'Default Campaign',
+          campaign_type: 'SOCIAL_ACTION',
+          status: 'ACTIVE',
+          start_date: '2026-07-10T00:00:00Z',
+          location_name: 'Community Center',
+        },
+      ],
+      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    }),
+  ),
   http.get(`${API_BASE}/persons`, ({ request }) => {
     const url = new URL(request.url);
     const q = url.searchParams.get('q') ?? '';
