@@ -67,10 +67,73 @@ func (m *MockAttendanceRepository) UpdateNotes(ctx context.Context, id, campusID
 }
 
 func newTestAttendanceService() (*AttendanceService, *MockAttendanceRepository, *MockAuditRepository) {
+	svc, repo, _, auditRepo := newTestAttendanceServiceWithCampaign()
+	return svc, repo, auditRepo
+}
+
+// newTestAttendanceServiceWithCampaign exposes the campaign reference mock for
+// campaign-link cases (S07.3). Campaign-less tests never touch the mock.
+func newTestAttendanceServiceWithCampaign() (*AttendanceService, *MockAttendanceRepository, *MockCampaignRepository, *MockAuditRepository) {
 	repo := new(MockAttendanceRepository)
+	campaignRepo := new(MockCampaignRepository)
 	auditRepo := new(MockAuditRepository)
 	auditSvc := NewAuditService(auditRepo)
-	return NewAttendanceService(repo, auditSvc), repo, auditRepo
+	return NewAttendanceService(repo, campaignRepo, auditSvc), repo, campaignRepo, auditRepo
+}
+
+func TestAttendanceService_CreateAttendance_CampaignLink(t *testing.T) {
+	t.Run("campaign in campus is linked", func(t *testing.T) {
+		svc, repo, campaignRepo, auditRepo := newTestAttendanceServiceWithCampaign()
+		ctx, claims := attendanceTestContext()
+
+		campaignID := uuid.New()
+		campaignRepo.On("FindByID", mock.Anything, campaignID, claims.CampusID).
+			Return(&domain.Campaign{ID: campaignID, CampusID: claims.CampusID}, nil)
+		repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Attendance")).
+			Return(&domain.Attendance{ID: uuid.New(), Status: domain.AttendanceStatusScheduled}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		input := validCreateInput()
+		cid := campaignID.String()
+		input.CampaignID = &cid
+		_, err := svc.CreateAttendance(ctx, input)
+		require.NoError(t, err)
+
+		stored := repo.Calls[0].Arguments.Get(1).(domain.Attendance)
+		require.NotNil(t, stored.CampaignID)
+		assert.Equal(t, campaignID, *stored.CampaignID)
+	})
+
+	t.Run("campaign outside campus is a generic validation error", func(t *testing.T) {
+		svc, repo, campaignRepo, _ := newTestAttendanceServiceWithCampaign()
+		ctx, _ := attendanceTestContext()
+
+		campaignRepo.On("FindByID", mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, domain.ErrNotFound)
+
+		input := validCreateInput()
+		cid := uuid.New().String()
+		input.CampaignID = &cid
+		_, err := svc.CreateAttendance(ctx, input)
+		require.ErrorIs(t, err, domain.ErrValidation)
+		repo.AssertNotCalled(t, "Create")
+	})
+
+	t.Run("no campaign keeps the link nil", func(t *testing.T) {
+		svc, repo, campaignRepo, auditRepo := newTestAttendanceServiceWithCampaign()
+		ctx, _ := attendanceTestContext()
+
+		repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Attendance")).
+			Return(&domain.Attendance{ID: uuid.New(), Status: domain.AttendanceStatusScheduled}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		_, err := svc.CreateAttendance(ctx, validCreateInput())
+		require.NoError(t, err)
+
+		stored := repo.Calls[0].Arguments.Get(1).(domain.Attendance)
+		assert.Nil(t, stored.CampaignID)
+		campaignRepo.AssertNotCalled(t, "FindByID")
+	})
 }
 
 func attendanceTestContext() (context.Context, auth.AuthClaims) {

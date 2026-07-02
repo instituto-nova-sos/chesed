@@ -51,10 +51,80 @@ func (m *MockTriageRepository) Update(ctx context.Context, triage domain.Triage)
 }
 
 func newTestTriageService() (*TriageService, *MockTriageRepository, *MockAuditRepository) {
+	svc, repo, _, auditRepo := newTestTriageServiceWithCampaign()
+	return svc, repo, auditRepo
+}
+
+// newTestTriageServiceWithCampaign exposes the campaign reference mock for
+// campaign-link cases (S07.3). Campaign-less tests never touch the mock.
+func newTestTriageServiceWithCampaign() (*TriageService, *MockTriageRepository, *MockCampaignRepository, *MockAuditRepository) {
 	repo := new(MockTriageRepository)
+	campaignRepo := new(MockCampaignRepository)
 	auditRepo := new(MockAuditRepository)
 	auditSvc := NewAuditService(auditRepo)
-	return NewTriageService(repo, auditSvc), repo, auditRepo
+	return NewTriageService(repo, campaignRepo, auditSvc), repo, campaignRepo, auditRepo
+}
+
+func TestTriageService_CreateTriage_CampaignLink(t *testing.T) {
+	base := func() CreateTriageInput {
+		return CreateTriageInput{
+			PersonID:      uuid.New().String(),
+			MainComplaint: "needs support",
+		}
+	}
+
+	t.Run("campaign in campus is linked", func(t *testing.T) {
+		svc, repo, campaignRepo, auditRepo := newTestTriageServiceWithCampaign()
+		ctx, claims := triageTestContext()
+
+		campaignID := uuid.New()
+		campaignRepo.On("FindByID", mock.Anything, campaignID, claims.CampusID).
+			Return(&domain.Campaign{ID: campaignID, CampusID: claims.CampusID}, nil)
+		repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Triage")).
+			Return(&domain.Triage{ID: uuid.New()}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		input := base()
+		cid := campaignID.String()
+		input.CampaignID = &cid
+		_, err := svc.CreateTriage(ctx, input)
+		require.NoError(t, err)
+
+		stored := repo.Calls[0].Arguments.Get(1).(domain.Triage)
+		require.NotNil(t, stored.CampaignID)
+		assert.Equal(t, campaignID, *stored.CampaignID)
+	})
+
+	t.Run("campaign outside campus is a generic validation error", func(t *testing.T) {
+		svc, repo, campaignRepo, _ := newTestTriageServiceWithCampaign()
+		ctx, _ := triageTestContext()
+
+		campaignRepo.On("FindByID", mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, domain.ErrNotFound)
+
+		input := base()
+		cid := uuid.New().String()
+		input.CampaignID = &cid
+		_, err := svc.CreateTriage(ctx, input)
+		require.ErrorIs(t, err, domain.ErrValidation)
+		repo.AssertNotCalled(t, "Create")
+	})
+
+	t.Run("no campaign keeps the link nil", func(t *testing.T) {
+		svc, repo, campaignRepo, auditRepo := newTestTriageServiceWithCampaign()
+		ctx, _ := triageTestContext()
+
+		repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Triage")).
+			Return(&domain.Triage{ID: uuid.New()}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		_, err := svc.CreateTriage(ctx, base())
+		require.NoError(t, err)
+
+		stored := repo.Calls[0].Arguments.Get(1).(domain.Triage)
+		assert.Nil(t, stored.CampaignID)
+		campaignRepo.AssertNotCalled(t, "FindByID")
+	})
 }
 
 func triageTestContext() (context.Context, auth.AuthClaims) {

@@ -142,18 +142,28 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
+	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
+	attendanceSvc := service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)
+	reportSvc := service.NewReportService(repository.NewReportRepository(pool))
 
 	syncH := handler.NewSyncHandler(syncSvc)
 	campaignH := handler.NewCampaignHandler(campaignSvc)
+	triageH := handler.NewTriageHandler(triageSvc)
+	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
+	reportH := handler.NewReportHandler(reportSvc)
 
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
+	professionalUp := middleware.RequireRole(auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
 
 	r := chi.NewRouter()
 	r.Route("/api/v1/sync", func(r chi.Router) {
 		r.Post("/push", syncH.Push)
 		r.Get("/pull", syncH.Pull)
 	})
+	r.With(professionalUp).Post("/api/v1/triages", triageH.Create)
+	r.With(professionalUp).Post("/api/v1/attendances", attendanceH.Create)
+	r.With(coordinatorUp).Get("/api/v1/reports/campaigns/{id}", reportH.CampaignMetrics)
 	r.Route("/api/v1/campaigns", func(r chi.Router) {
 		r.With(coordinatorUp).Post("/", campaignH.Create)
 		r.With(allRoles).Get("/", campaignH.List)

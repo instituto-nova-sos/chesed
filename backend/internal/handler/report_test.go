@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/auth"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
@@ -228,5 +229,81 @@ func TestReportHandler_AttendanceExport(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.AttendanceExport(rec, req)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func (m *mockReportRepo) BuildCampaignMetrics(ctx context.Context, campaignID, campusID uuid.UUID) (*domain.CampaignMetrics, error) {
+	args := m.Called(ctx, campaignID, campusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CampaignMetrics), args.Error(1)
+}
+
+func campaignMetricsRouter(h *ReportHandler) http.Handler {
+	r := chi.NewRouter()
+	r.Get("/reports/campaigns/{id}", h.CampaignMetrics)
+	return r
+}
+
+func TestReportHandler_CampaignMetrics(t *testing.T) {
+	t.Run("returns 200 with metrics payload", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		campaignID := uuid.New()
+		repo.On("BuildCampaignMetrics", mock.Anything, campaignID, mock.Anything).
+			Return(&domain.CampaignMetrics{
+				CampaignID:          campaignID,
+				CampaignName:        "March Social Action",
+				Status:              "ACTIVE",
+				TriageCount:         42,
+				AttendanceTotal:     61,
+				AttendancesByStatus: map[string]int{"COMPLETED": 50, "SCHEDULED": 11},
+				TeamSize:            12,
+			}, nil)
+
+		req := authedRequest(http.MethodGet, "/reports/campaigns/"+campaignID.String())
+		rec := httptest.NewRecorder()
+		campaignMetricsRouter(h).ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got domain.CampaignMetrics
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, 42, got.TriageCount)
+		assert.Equal(t, 12, got.TeamSize)
+	})
+
+	t.Run("404 when campaign not visible in campus", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		repo.On("BuildCampaignMetrics", mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, domain.ErrNotFound)
+
+		req := authedRequest(http.MethodGet, "/reports/campaigns/"+uuid.New().String())
+		rec := httptest.NewRecorder()
+		campaignMetricsRouter(h).ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("400 on malformed id", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		req := authedRequest(http.MethodGet, "/reports/campaigns/not-a-uuid")
+		rec := httptest.NewRecorder()
+		campaignMetricsRouter(h).ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("403 without campus context", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		req := httptest.NewRequest(http.MethodGet, "/reports/campaigns/"+uuid.New().String(), nil)
+		rec := httptest.NewRecorder()
+		campaignMetricsRouter(h).ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
 }
