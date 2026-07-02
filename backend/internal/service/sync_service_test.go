@@ -27,6 +27,14 @@ func (m *MockSyncPersonRepo) FindBySyncID(ctx context.Context, syncID, campusID 
 	return nil, args.Error(1)
 }
 
+func (m *MockSyncPersonRepo) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Person, error) {
+	args := m.Called(ctx, id, campusID)
+	if p, ok := args.Get(0).(*domain.Person); ok {
+		return p, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockSyncPersonRepo) CreateWithSync(ctx context.Context, person domain.Person, address *domain.Address, syncID uuid.UUID) (*domain.Person, error) {
 	args := m.Called(ctx, person, address, syncID)
 	if p, ok := args.Get(0).(*domain.Person); ok {
@@ -47,6 +55,14 @@ type MockSyncTriageRepo struct{ mock.Mock }
 
 func (m *MockSyncTriageRepo) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Triage, error) {
 	args := m.Called(ctx, syncID, campusID)
+	if v, ok := args.Get(0).(*domain.Triage); ok {
+		return v, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockSyncTriageRepo) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Triage, error) {
+	args := m.Called(ctx, id, campusID)
 	if v, ok := args.Get(0).(*domain.Triage); ok {
 		return v, args.Error(1)
 	}
@@ -233,7 +249,7 @@ func TestSyncService_Push_UnknownEntityTypeReportsErrorPerRecord(t *testing.T) {
 }
 
 func TestSyncService_Push_TriageNewCreated(t *testing.T) {
-	svc, _, tRepo, _, auditRepo := newSyncService(t)
+	svc, pRepo, tRepo, _, auditRepo := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	personID := uuid.New()
@@ -248,6 +264,8 @@ func TestSyncService_Push_TriageNewCreated(t *testing.T) {
 	}
 
 	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).
+		Return(&domain.Person{ID: personID, CampusID: campusID}, nil).Once()
 	tRepo.On("CreateWithSync", ctx,
 		mock.MatchedBy(func(tr domain.Triage) bool {
 			return tr.PersonID == personID && tr.CampusID == campusID && tr.MainComplaint == "Dor de cabeça"
@@ -309,7 +327,7 @@ func TestSyncService_Push_TriageInvalidPersonIDReportsError(t *testing.T) {
 }
 
 func TestSyncService_Push_AttendanceNewCreated(t *testing.T) {
-	svc, _, _, aRepo, auditRepo := newSyncService(t)
+	svc, pRepo, _, aRepo, auditRepo := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	personID := uuid.New()
@@ -328,6 +346,8 @@ func TestSyncService_Push_AttendanceNewCreated(t *testing.T) {
 	}
 
 	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).
+		Return(&domain.Person{ID: personID, CampusID: campusID}, nil).Once()
 	aRepo.On("CreateWithSync", ctx,
 		mock.MatchedBy(func(a domain.Attendance) bool {
 			return a.PersonID == personID && a.ServiceTypeID == serviceTypeID && a.Status == domain.AttendanceStatusScheduled
@@ -388,7 +408,7 @@ func TestSyncService_Push_TriageFindBySyncIDInternalErrorReportsError(t *testing
 }
 
 func TestSyncService_Push_TriageWithValidTriageDateAndRequestedServices(t *testing.T) {
-	svc, _, tRepo, _, auditRepo := newSyncService(t)
+	svc, pRepo, tRepo, _, auditRepo := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	personID := uuid.New()
@@ -407,6 +427,8 @@ func TestSyncService_Push_TriageWithValidTriageDateAndRequestedServices(t *testi
 		},
 	}
 	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).
+		Return(&domain.Person{ID: personID, CampusID: campusID}, nil).Once()
 	tRepo.On("CreateWithSync", ctx,
 		mock.MatchedBy(func(tr domain.Triage) bool {
 			return tr.TriageDate.Equal(parsedDate) &&
@@ -424,7 +446,7 @@ func TestSyncService_Push_TriageWithValidTriageDateAndRequestedServices(t *testi
 }
 
 func TestSyncService_Push_TriageInvalidTriageDateReportsError(t *testing.T) {
-	svc, _, tRepo, _, _ := newSyncService(t)
+	svc, pRepo, tRepo, _, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -437,6 +459,8 @@ func TestSyncService_Push_TriageInvalidTriageDateReportsError(t *testing.T) {
 		},
 	}
 	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 
 	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
 	require.NoError(t, err)
@@ -445,7 +469,7 @@ func TestSyncService_Push_TriageInvalidTriageDateReportsError(t *testing.T) {
 }
 
 func TestSyncService_Push_TriageCreateDuplicateReturnsConflict(t *testing.T) {
-	svc, _, tRepo, _, _ := newSyncService(t)
+	svc, pRepo, tRepo, _, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -457,6 +481,8 @@ func TestSyncService_Push_TriageCreateDuplicateReturnsConflict(t *testing.T) {
 		},
 	}
 	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	tRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Triage"), rec.SyncID).
 		Return(nil, domain.ErrDuplicate).Once()
 
@@ -466,7 +492,7 @@ func TestSyncService_Push_TriageCreateDuplicateReturnsConflict(t *testing.T) {
 }
 
 func TestSyncService_Push_TriageCreateGenericErrorReturnsError(t *testing.T) {
-	svc, _, tRepo, _, _ := newSyncService(t)
+	svc, pRepo, tRepo, _, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -478,6 +504,8 @@ func TestSyncService_Push_TriageCreateGenericErrorReturnsError(t *testing.T) {
 		},
 	}
 	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	tRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Triage"), rec.SyncID).
 		Return(nil, errors.New("FK violation")).Once()
 
@@ -537,7 +565,7 @@ func TestSyncService_Push_AttendanceIdempotent(t *testing.T) {
 }
 
 func TestSyncService_Push_AttendanceWithTriageIDAndAttendanceDate(t *testing.T) {
-	svc, _, _, aRepo, auditRepo := newSyncService(t)
+	svc, pRepo, tRepo, aRepo, auditRepo := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	personID := uuid.New()
@@ -560,6 +588,10 @@ func TestSyncService_Push_AttendanceWithTriageIDAndAttendanceDate(t *testing.T) 
 		},
 	}
 	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).
+		Return(&domain.Person{ID: personID, CampusID: campusID}, nil).Once()
+	tRepo.On("FindByID", ctx, triageID, campusID).
+		Return(&domain.Triage{ID: triageID, CampusID: campusID}, nil).Once()
 	aRepo.On("CreateWithSync", ctx,
 		mock.MatchedBy(func(a domain.Attendance) bool {
 			return a.TriageID != nil && *a.TriageID == triageID &&
@@ -576,7 +608,7 @@ func TestSyncService_Push_AttendanceWithTriageIDAndAttendanceDate(t *testing.T) 
 }
 
 func TestSyncService_Push_AttendanceInvalidAttendanceDateReportsError(t *testing.T) {
-	svc, _, _, aRepo, _ := newSyncService(t)
+	svc, pRepo, _, aRepo, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -591,6 +623,8 @@ func TestSyncService_Push_AttendanceInvalidAttendanceDateReportsError(t *testing
 		},
 	}
 	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 
 	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
 	require.NoError(t, err)
@@ -599,7 +633,7 @@ func TestSyncService_Push_AttendanceInvalidAttendanceDateReportsError(t *testing
 }
 
 func TestSyncService_Push_AttendanceCreateDuplicateReturnsConflict(t *testing.T) {
-	svc, _, _, aRepo, _ := newSyncService(t)
+	svc, pRepo, _, aRepo, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -613,6 +647,8 @@ func TestSyncService_Push_AttendanceCreateDuplicateReturnsConflict(t *testing.T)
 		},
 	}
 	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	aRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Attendance"), rec.SyncID).
 		Return(nil, domain.ErrDuplicate).Once()
 
@@ -622,7 +658,7 @@ func TestSyncService_Push_AttendanceCreateDuplicateReturnsConflict(t *testing.T)
 }
 
 func TestSyncService_Push_AttendanceCreateGenericErrorReturnsError(t *testing.T) {
-	svc, _, _, aRepo, _ := newSyncService(t)
+	svc, pRepo, _, aRepo, _ := newSyncService(t)
 	campusID := uuid.New()
 	ctx := ctxWithCampus(t, campusID)
 	rec := domain.SyncPushRecord{
@@ -636,6 +672,8 @@ func TestSyncService_Push_AttendanceCreateGenericErrorReturnsError(t *testing.T)
 		},
 	}
 	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	aRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Attendance"), rec.SyncID).
 		Return(nil, errors.New("FK violation: person_id")).Once()
 
@@ -731,6 +769,97 @@ func TestSyncService_Pull_HasMoreWhenLimitReached(t *testing.T) {
 	assert.True(t, resp.HasMore)
 	require.NotNil(t, resp.NextSince)
 	assert.Equal(t, lastUpdated, *resp.NextSince)
+}
+
+// --- Cross-campus reference rejection (S04.9, security Finding 3) --------------
+
+func TestSyncService_Push_TriageCrossCampusPersonRejected(t *testing.T) {
+	svc, pRepo, tRepo, _, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+	personID := uuid.New() // belongs to a different campus
+
+	rec := domain.SyncPushRecord{
+		EntityType: domain.SyncEntityTriage,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"person_id":      personID.String(),
+			"main_complaint": "Dor de cabeça",
+		},
+	}
+
+	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	// The referenced person is not visible in the caller's campus.
+	pRepo.On("FindByID", ctx, personID, campusID).Return(nil, domain.ErrNotFound).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusError, resp.Results[0].Status)
+	pRepo.AssertExpectations(t)
+	// The record must never be persisted when the reference is cross-campus.
+	tRepo.AssertNotCalled(t, "CreateWithSync", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestSyncService_Push_AttendanceCrossCampusPersonRejected(t *testing.T) {
+	svc, pRepo, _, aRepo, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+	personID := uuid.New() // belongs to a different campus
+
+	rec := domain.SyncPushRecord{
+		EntityType: domain.SyncEntityAttendance,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"person_id":       personID.String(),
+			"service_type_id": uuid.New().String(),
+			"professional_id": uuid.New().String(),
+			"status":          domain.AttendanceStatusScheduled,
+		},
+	}
+
+	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).Return(nil, domain.ErrNotFound).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusError, resp.Results[0].Status)
+	pRepo.AssertExpectations(t)
+	aRepo.AssertNotCalled(t, "CreateWithSync", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestSyncService_Push_AttendanceCrossCampusTriageRejected(t *testing.T) {
+	svc, pRepo, tRepo, aRepo, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+	personID := uuid.New()
+	triageID := uuid.New() // person is in-campus, but the triage reference is not
+
+	rec := domain.SyncPushRecord{
+		EntityType: domain.SyncEntityAttendance,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"person_id":       personID.String(),
+			"triage_id":       triageID.String(),
+			"service_type_id": uuid.New().String(),
+			"professional_id": uuid.New().String(),
+			"status":          domain.AttendanceStatusScheduled,
+		},
+	}
+
+	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, personID, campusID).
+		Return(&domain.Person{ID: personID, CampusID: campusID}, nil).Once()
+	tRepo.On("FindByID", ctx, triageID, campusID).Return(nil, domain.ErrNotFound).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusError, resp.Results[0].Status)
+	pRepo.AssertExpectations(t)
+	tRepo.AssertExpectations(t)
+	aRepo.AssertNotCalled(t, "CreateWithSync", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // --- Helpers ------------------------------------------------------------------

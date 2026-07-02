@@ -78,6 +78,7 @@ type appDeps struct {
 	sync         *handler.SyncHandler
 
 	userSvc        *service.UserService
+	auditSvc       *service.AuditService
 	agreementRepo  *repository.VolunteerAgreementRepository
 	personRoleRepo *repository.PersonRoleRepository
 }
@@ -116,6 +117,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
 		userSvc:        userSvc,
+		auditSvc:       auditSvc,
 		agreementRepo:  agreementRepo,
 		personRoleRepo: personRoleRepo,
 	}
@@ -167,7 +169,7 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		r.Use(middleware.AutoProvision(d.userSvc))
 		r.Use(middleware.RequireAgreement(d.agreementRepo, d.personRoleRepo))
 
-		allRoles := middleware.RequireRole("VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+		allRoles := middleware.RequireRole(d.auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 		r.With(allRoles).Get("/service-types", d.serviceType.List)
 
 		d.registerCampusRoutes(r)
@@ -180,7 +182,7 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 }
 
 func (d appDeps) registerCampusRoutes(r chi.Router) {
-	adminOnly := middleware.RequireRole("ADMIN")
+	adminOnly := middleware.RequireRole(d.auditSvc, "ADMIN")
 	r.Route("/campuses", func(r chi.Router) {
 		r.With(adminOnly).Get("/all", d.campus.ListAll)
 		r.With(adminOnly).Get("/{id}", d.campus.Get)
@@ -190,9 +192,9 @@ func (d appDeps) registerCampusRoutes(r chi.Router) {
 }
 
 func (d appDeps) registerPersonRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
-	secretaryUp := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
-	professionalUp := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
-	coordinatorUp := middleware.RequireRole("COORDINATOR", "ADMIN")
+	secretaryUp := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	professionalUp := middleware.RequireRole(d.auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	coordinatorUp := middleware.RequireRole(d.auditSvc, "COORDINATOR", "ADMIN")
 	r.Route("/persons", func(r chi.Router) {
 		r.With(allRoles).Post("/", d.person.Create)
 		r.With(allRoles).Get("/", d.person.List)
@@ -209,7 +211,7 @@ func (d appDeps) registerPersonRoutes(r chi.Router, allRoles func(http.Handler) 
 }
 
 func (d appDeps) registerTriageRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
-	triageRoles := middleware.RequireRole("SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	triageRoles := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	r.Route("/triages", func(r chi.Router) {
 		r.With(triageRoles).Post("/", d.triage.Create)
 		r.With(allRoles).Get("/", d.triage.List)
@@ -219,7 +221,7 @@ func (d appDeps) registerTriageRoutes(r chi.Router, allRoles func(http.Handler) 
 }
 
 func (d appDeps) registerAttendanceRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
-	attendanceRoles := middleware.RequireRole("PROFESSIONAL", "COORDINATOR", "ADMIN")
+	attendanceRoles := middleware.RequireRole(d.auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	r.Route("/attendances", func(r chi.Router) {
 		r.With(attendanceRoles).Post("/", d.attendance.Create)
 		r.With(allRoles).Get("/", d.attendance.List)
@@ -230,7 +232,7 @@ func (d appDeps) registerAttendanceRoutes(r chi.Router, allRoles func(http.Handl
 }
 
 func (d appDeps) registerReportRoutes(r chi.Router) {
-	reportRoles := middleware.RequireRole("COORDINATOR", "ADMIN")
+	reportRoles := middleware.RequireRole(d.auditSvc, "COORDINATOR", "ADMIN")
 	r.Route("/reports", func(r chi.Router) {
 		r.With(reportRoles).Get("/attendances", d.report.AttendanceSummary)
 		r.With(reportRoles).Get("/attendances/export", d.report.AttendanceExport)

@@ -40,6 +40,7 @@ import (
 
 	"github.com/instituto-nova-sos/chesed/internal/auth"
 	"github.com/instituto-nova-sos/chesed/internal/handler"
+	"github.com/instituto-nova-sos/chesed/internal/middleware"
 	"github.com/instituto-nova-sos/chesed/internal/repository"
 	"github.com/instituto-nova-sos/chesed/internal/service"
 )
@@ -146,6 +147,12 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 		r.Post("/push", syncH.Push)
 		r.Get("/pull", syncH.Pull)
 	})
+	// A route guarded by RequireRole so integration tests can assert that a
+	// 403 denial is written to audit_log (security Finding 4). ADMIN-only.
+	r.With(middleware.RequireRole(auditSvc, "ADMIN")).
+		Get("/api/v1/test/admin-only", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
 	return r
 }
 
