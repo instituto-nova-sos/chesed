@@ -137,15 +137,30 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 
+	campaignRepo := repository.NewCampaignRepository(pool)
+
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
+	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
 
 	syncH := handler.NewSyncHandler(syncSvc)
+	campaignH := handler.NewCampaignHandler(campaignSvc)
+
+	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
 
 	r := chi.NewRouter()
 	r.Route("/api/v1/sync", func(r chi.Router) {
 		r.Post("/push", syncH.Push)
 		r.Get("/pull", syncH.Pull)
+	})
+	r.Route("/api/v1/campaigns", func(r chi.Router) {
+		r.With(coordinatorUp).Post("/", campaignH.Create)
+		r.With(allRoles).Get("/", campaignH.List)
+		r.With(allRoles).Get("/{id}", campaignH.Get)
+		r.With(coordinatorUp).Put("/{id}", campaignH.Update)
+		r.With(coordinatorUp).Post("/{id}/team", campaignH.AddTeamMember)
+		r.With(coordinatorUp).Delete("/{id}/team/{personId}", campaignH.RemoveTeamMember)
 	})
 	// A route guarded by RequireRole so integration tests can assert that a
 	// 403 denial is written to audit_log (security Finding 4). ADMIN-only.
