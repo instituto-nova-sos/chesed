@@ -195,16 +195,21 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 
 ## Phase 2: Extended Features (Weeks 10-17)
 
-### Sprint 5: Campaigns and Teams (Weeks 10-11)
+### Sprint 5: Campaigns and Teams (Weeks 10-11) — DONE
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 5.1 | Campaign API: CRUD, status management | Phase 1 |
-| 5.2 | Campaign team API: assign persons to campaigns | 5.1 |
-| 5.3 | Link triage and attendance to campaigns | 5.1, 3.2 |
-| 5.4 | React: Campaign list and detail pages | 5.1 |
-| 5.5 | React: Campaign form and team assignment | 5.4 |
-| 5.6 | React: Campaign dashboard (metrics per campaign) | 5.4 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 5.1 | Campaign API: CRUD, status management | Phase 1 | Done |
+| 5.2 | Campaign team API: assign persons to campaigns | 5.1 | Done |
+| 5.3 | Link triage and attendance to campaigns | 5.1, 3.2 | Done |
+| 5.4 | React: Campaign list and detail pages | 5.1 | Done |
+| 5.5 | React: Campaign form and team assignment | 5.4 | Done |
+| 5.6 | React: Campaign dashboard (metrics per campaign) | 5.4 | Done |
+
+> **5.3 note**: the API accepts and campus-validates `campaign_id` on triage
+> and attendance creation; surfacing a campaign selector in the triage and
+> attendance forms (and in the offline sync payload) is a documented follow-up
+> for the next slice.
 
 ### Sprint 6: Documents and Consent (Weeks 12-13)
 

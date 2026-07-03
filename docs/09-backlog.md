@@ -540,7 +540,7 @@
 ### Stories
 
 **S07.1 - Create/edit/list campaigns**
-- status: ready
+- status: done
 - depends_on: [S02.5, S02.6]
 - covers_requirements: [RF-36, RF-39]
 - parallel_with: [S07.5]
@@ -552,11 +552,11 @@
   - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY user **when** they POST or PUT a campaign **then** the request is rejected with 403 and an `ACCESS_DENIED` audit entry is written.
   - **Given** campaigns exist in two campuses **when** a user of campus A lists campaigns **then** only campus A campaigns are returned, with pagination and optional `status` filter.
   - **Given** a campaign in the caller's campus **when** a COORDINATOR updates its fields or status via PUT **then** the changes persist, `updated_at` advances, and an audit UPDATE entry records old and new values.
-  - **Given** an invalid `campaign_type`, `status`, or a missing required field **when** the request is validated **then** the API responds 422 `VALIDATION_ERROR` without touching the database.
+  - **Given** an invalid `campaign_type`, `status`, or a missing required field **when** the request is validated **then** the API responds 400 `validation_error` without touching the database.
   - **Given** a campaign id belonging to another campus **when** it is fetched or updated **then** the API responds 404 (no cross-campus existence disclosure).
 
 **S07.2 - Assign team members to campaigns**
-- status: ready
+- status: done
 - depends_on: [S07.1, S03.1]
 - covers_requirements: [RF-38, RF-39]
 - parallel_with: [S07.3]
@@ -565,13 +565,13 @@
 - As a coordinator, I can record which persons participate in a campaign and their role in it.
 - Acceptance criteria:
   - **Given** a COORDINATOR user and a person visible in their campus **when** they POST `/api/v1/campaigns/:id/team` with `person_id` and `role_in_campaign` **then** the assignment is created (201), appears in the campaign detail team list, and an audit entry is written.
-  - **Given** a person already assigned to the campaign **when** the same assignment is posted again **then** the API responds 409 `CONFLICT` (unique campaign+person) and no duplicate row exists.
-  - **Given** a `person_id` that does not exist in the caller's campus **when** the assignment is posted **then** the API responds 422 with a generic validation message (no cross-campus existence disclosure).
-  - **Given** an invalid `role_in_campaign` **when** the assignment is posted **then** the API responds 422 `VALIDATION_ERROR`.
+  - **Given** a person already assigned to the campaign **when** the same assignment is posted again **then** the API responds 409 `duplicate` (unique campaign+person) and no duplicate row exists.
+  - **Given** a `person_id` that does not exist in the caller's campus **when** the assignment is posted **then** the API responds 400 `validation_error` with a generic message (no cross-campus existence disclosure).
+  - **Given** an invalid `role_in_campaign` **when** the assignment is posted **then** the API responds 400 `validation_error`.
   - **Given** an existing assignment **when** a COORDINATOR deletes `/api/v1/campaigns/:id/team/:personId` **then** the member is removed (204), the detail team list no longer includes them, and an audit entry is written.
 
 **S07.3 - Link triage/attendance to campaigns**
-- status: ready
+- status: done
 - depends_on: [S07.1, S04.1, S04.2]
 - covers_requirements: [RF-26, RF-37]
 - parallel_with: [S07.2]
@@ -581,11 +581,11 @@
 - Acceptance criteria:
   - **Given** the existing `campaign_id` columns on `triage` and `attendance` **when** the Sprint 5 migration runs **then** both columns gain a foreign key to `campaign(id)` and an index, and existing rows (all NULL) are unaffected.
   - **Given** a campaign in the caller's campus **when** a triage or attendance is created online with `campaign_id` **then** the link is persisted and returned in detail responses.
-  - **Given** a `campaign_id` not visible in the caller's campus (or nonexistent) **when** a triage or attendance is created **then** the API responds 422 with a generic validation message and persists nothing.
+  - **Given** a `campaign_id` not visible in the caller's campus (or nonexistent) **when** a triage or attendance is created **then** the API responds 400 `validation_error` with a generic message and persists nothing.
   - **Given** a triage or attendance without a campaign **when** it is created **then** the record remains valid (walk-in flows keep working; the link is optional).
 
 **S07.4 - Campaign dashboard (metrics per campaign)**
-- status: ready
+- status: done
 - depends_on: [S07.1, S07.3, S06.1]
 - covers_requirements: [RF-43]
 - parallel_with: [S07.5]
@@ -599,7 +599,7 @@
   - **Given** the campaign detail page **when** it renders for a COORDINATOR or ADMIN **then** the dashboard section shows the metrics; **when** the device is offline **then** the section shows a clear offline message instead of stale numbers.
 
 **S07.5 - React campaign pages**
-- status: ready
+- status: done
 - depends_on: [S07.1, S07.2, S02.8]
 - covers_requirements: [RF-36, RF-38, RF-39]
 - parallel_with: [S07.1, S07.4]
@@ -608,7 +608,7 @@
 - As a user, I can browse campaigns and, as a coordinator, manage them and their teams from the browser.
 - Acceptance criteria:
   - **Given** the campaign list page **when** it loads **then** campaigns render with name, type, status, and dates, with a status filter and pagination; empty state is handled.
-  - **Given** a COORDINATOR or ADMIN **when** they submit the campaign form (create or edit) with valid data **then** the campaign is saved via the API and the user lands on the detail page; validation errors render per field in Portuguese.
+  - **Given** a COORDINATOR or ADMIN **when** they submit the campaign form (create or edit) with valid data **then** the campaign is saved via the API and the user lands on the detail page; validation and API errors render as readable Portuguese messages.
   - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY **when** they view campaign pages **then** create/edit/team controls are not rendered (read-only view).
   - **Given** the campaign detail page **when** a COORDINATOR adds or removes a team member **then** the team list updates and API errors (409 duplicate, 422 validation) surface as readable Portuguese messages.
   - **Given** a 320px viewport **when** any campaign page renders **then** the layout remains usable (mobile-first).
