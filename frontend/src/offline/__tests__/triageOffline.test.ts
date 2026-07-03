@@ -131,4 +131,21 @@ describe('saveTriageOffline', () => {
     expect(cached.requested_service_count).toBe(0);
     expect(cached.person_name).toBe('');
   });
+
+  it('carries campaign_id into the sync-queue payload when provided', async () => {
+    const withCampaign: CreateTriageInput = {
+      person_id: 'person-1',
+      main_complaint: 'Dor de cabeça',
+      campaign_id: 'camp-1',
+    };
+    await saveTriageOffline(withCampaign);
+    const queued = await db.syncQueue.toArray();
+    expect((queued[0]?.data as { campaign_id?: string }).campaign_id).toBe('camp-1');
+  });
+
+  it('omits campaign_id from the sync-queue payload when not provided', async () => {
+    await saveTriageOffline(input);
+    const queued = await db.syncQueue.toArray();
+    expect('campaign_id' in (queued[0]?.data ?? {})).toBe(false);
+  });
 });
