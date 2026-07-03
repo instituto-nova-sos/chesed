@@ -614,7 +614,7 @@
   - **Given** a 320px viewport **when** any campaign page renders **then** the layout remains usable (mobile-first).
 
 **S07.6 - Campaign link follow-ups (form selector + offline sync payload)**
-- status: in_progress
+- status: done
 - depends_on: [S07.3, S07.5, S05.2]
 - covers_requirements: [RF-26, RF-37]
 - parallel_with: []
