@@ -73,6 +73,17 @@ const AttendanceDetailPage = lazy(() =>
     default: m.AttendanceDetailPage,
   })),
 );
+const CampaignListPage = lazy(() =>
+  import('./pages/CampaignListPage').then((m) => ({ default: m.CampaignListPage })),
+);
+const CampaignFormPage = lazy(() =>
+  import('./pages/CampaignFormPage').then((m) => ({ default: m.CampaignFormPage })),
+);
+const CampaignDetailPage = lazy(() =>
+  import('./pages/CampaignDetailPage').then((m) => ({
+    default: m.CampaignDetailPage,
+  })),
+);
 const ReportsPage = lazy(() =>
   import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })),
 );
@@ -146,6 +157,10 @@ export function App() {
             <Route path="attendances" element={<AttendanceListPage />} />
             <Route path="attendances/new" element={<AttendanceCreatePage />} />
             <Route path="attendances/:id" element={<AttendanceDetailPage />} />
+            <Route path="campaigns" element={<CampaignListPage />} />
+            <Route path="campaigns/new" element={<CampaignFormPage />} />
+            <Route path="campaigns/:id" element={<CampaignDetailPage />} />
+            <Route path="campaigns/:id/edit" element={<CampaignFormPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="sync/conflicts" element={<SyncConflictsPage />} />
             <Route path="*" element={<NotFoundPage />} />

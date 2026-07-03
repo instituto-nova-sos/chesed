@@ -66,6 +66,9 @@ describe('integration: campaigns + apiClient + MSW', () => {
     expect(result.current.campaigns).toEqual([]);
   });
 
+});
+
+describe('integration: campaign API functions + MSW', () => {
   it('posts the documented create body and returns the created campaign', async () => {
     let seenBody: unknown = null;
     server.use(

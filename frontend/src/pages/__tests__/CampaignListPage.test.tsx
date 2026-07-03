@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { CampaignListItem, Pagination } from '../../types';
 
@@ -65,9 +65,10 @@ describe('CampaignListPage', () => {
   it('renders campaign rows with translated type and status', () => {
     hookState.campaigns = [campaign('Ação de Julho')];
     renderPage();
-    expect(screen.getByText('Ação de Julho')).toBeInTheDocument();
-    expect(screen.getByText(/ação social/i)).toBeInTheDocument();
-    expect(screen.getByText(/ativa/i)).toBeInTheDocument();
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Ação de Julho')).toBeInTheDocument();
+    expect(table.getByText(/ação social/i)).toBeInTheDocument();
+    expect(table.getByText(/ativa/i)).toBeInTheDocument();
   });
 
   it('hides the create button for non-coordinators', () => {
