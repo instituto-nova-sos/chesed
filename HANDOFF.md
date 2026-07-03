@@ -2808,6 +2808,42 @@ coverage gate + PWA build. `make validate-backlog`/`make status`: S07.1–S07.5
   design (status lifecycle covers it).
 - E2E smoke does not yet include a campaign slice (existing 3 specs unchanged).
 
+### Critical-review remediation (autonomous gate, cycle 1 → 2)
+
+The independent reviewer's cycle 1 returned **REQUEST_CHANGES** — the gate
+catching what every green suite missed:
+- **B1 (BLOCKER, real regression)**: the S07.3 column wiring updated the shared
+  Scan lists in `attendance_repository.go` but not the two `RETURNING` clauses
+  in `Transition`/`UpdateNotes` (13 columns vs 14 destinations) — every
+  attendance transition and notes update 500'd, with **zero covering tests at
+  any layer**. Fixed under TDD: real-Postgres integration tests for both
+  endpoints (`integration/attendance_test.go`) + pgxmock column-contract tests
+  pinning `campaign_id` in the RETURNING regex, then the one-line-each fix.
+- **B2**: MSW coverage added for `getCampaign`/`updateCampaign`/`addTeamMember`
+  (incl. 409 → ApiError) — Integration Test Mandate restored.
+- **M1**: the docs/11 error-code corrections (422→400 `validation_error`,
+  `conflict`→`duplicate`) were sitting uncommitted; committed with an
+  error-code table and RFC3339 example fixes (N5).
+- **M2 (data loss)**: campaign edit wiped `coordinator_id` (form dropped it,
+  PUT is full-replace) — the form now echoes it through the payload.
+- **M3**: team picker was capped at the first 20 persons — `SearchableSelect`
+  gained an optional `onSearchTextChange` prop wired to the debounced
+  server-side person search.
+- Minors: harness role sets mirrored to production (N1), stale-response guard
+  in `useCampaign` (N2), client-side end-before-start validation (N3), picker
+  selection preserved on failed add (N4).
+
+Cycle 2 re-review (independent agent) verified every fix in code — including
+re-running the contract tests **at the RED commit in a throwaway worktree** to
+prove genuine RED — and returned **APPROVE** (0 blocker / 0 major / 0 minor /
+2 suggestions). Verdict file: `tasks/review-feat/sprint5-campaigns-teams.md`.
+
+**Lesson recorded**: bulk column renames/additions applied by script must
+enumerate ALL SQL sites including `RETURNING` clauses, and any endpoint whose
+persistence contract changes needs integration coverage in the same branch —
+the transition/notes endpoints had none, which is how a green suite shipped a
+broken write path.
+
 ### Push boundary respected
 All commits local on `feat/sprint5-campaigns-teams`. No `git push` / `gh pr`.
 
