@@ -271,7 +271,7 @@ func (r *AttendanceRepository) Transition(ctx context.Context, t domain.Attendan
 		UPDATE attendance
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2 AND status = $3
-		RETURNING id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		RETURNING id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		          status, attendance_date, observations, recommendations,
 		          created_at, updated_at, created_by`
 
@@ -310,7 +310,7 @@ func (r *AttendanceRepository) UpdateNotes(ctx context.Context, id, campusID uui
 		UPDATE attendance
 		SET observations = $1, recommendations = $2, updated_at = NOW()
 		WHERE id = $3 AND campus_id = $4
-		RETURNING id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		RETURNING id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		          status, attendance_date, observations, recommendations,
 		          created_at, updated_at, created_by`
 

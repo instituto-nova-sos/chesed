@@ -60,12 +60,12 @@ function CampaignInfo({ campaign }: { campaign: CampaignDetail }) {
 }
 
 interface AddMemberFormProps {
-  onAdd: (personId: string, role: string) => Promise<void>;
+  onAdd: (personId: string, role: string) => Promise<boolean>;
   submitting: boolean;
 }
 
 function AddMemberForm({ onAdd, submitting }: AddMemberFormProps) {
-  const { persons } = usePersons();
+  const { persons, search } = usePersons();
   const [personId, setPersonId] = useState('');
   const [role, setRole] = useState('VOLUNTEER');
 
@@ -76,6 +76,7 @@ function AddMemberForm({ onAdd, submitting }: AddMemberFormProps) {
         options={persons.map((p) => ({ value: p.id, label: p.full_name }))}
         value={personId}
         onChange={setPersonId}
+        onSearchTextChange={search}
       />
       <div>
         <label htmlFor="team-role" className="block text-sm font-medium text-gray-700">
@@ -97,7 +98,11 @@ function AddMemberForm({ onAdd, submitting }: AddMemberFormProps) {
       <Button
         type="button"
         disabled={!personId || submitting}
-        onClick={() => void onAdd(personId, role).then(() => setPersonId(''))}
+        onClick={() =>
+          void onAdd(personId, role).then((ok) => {
+            if (ok) setPersonId('');
+          })
+        }
       >
         Adicionar
       </Button>
@@ -117,13 +122,15 @@ function useTeamActions({ addMember, removeMember }: TeamMutations) {
   const [teamSubmitting, setTeamSubmitting] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  async function handleAdd(personId: string, role: string) {
+  async function handleAdd(personId: string, role: string): Promise<boolean> {
     setTeamError(null);
     setTeamSubmitting(true);
     try {
       await addMember({ person_id: personId, role_in_campaign: role });
+      return true;
     } catch (err: unknown) {
       setTeamError(teamErrorMessage(err));
+      return false;
     } finally {
       setTeamSubmitting(false);
     }

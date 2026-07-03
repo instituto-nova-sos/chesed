@@ -200,6 +200,9 @@ describe('integration: campaign detail/update/team + MSW (review B2)', () => {
     });
   });
 
+});
+
+describe('integration: campaign team membership + MSW (review B2)', () => {
   it('adds a team member and maps the 409 duplicate to an ApiError', async () => {
     let calls = 0;
     server.use(

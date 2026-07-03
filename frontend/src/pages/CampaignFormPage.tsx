@@ -28,6 +28,7 @@ interface FormValues {
   location_name: string;
   location_address: string;
   status: string;
+  coordinator_id: string;
 }
 
 const EMPTY_FORM: FormValues = {
@@ -39,6 +40,7 @@ const EMPTY_FORM: FormValues = {
   location_name: '',
   location_address: '',
   status: 'PLANNED',
+  coordinator_id: '',
 };
 
 function toFormValues(c: Campaign): FormValues {
@@ -51,6 +53,7 @@ function toFormValues(c: Campaign): FormValues {
     location_name: c.location_name ?? '',
     location_address: c.location_address ?? '',
     status: c.status,
+    coordinator_id: c.coordinator_id ?? '',
   };
 }
 
@@ -63,6 +66,9 @@ function toPayload(data: FormValues): Omit<UpdateCampaignInput, 'status'> {
     description: data.description || undefined,
     location_name: data.location_name || undefined,
     location_address: data.location_address || undefined,
+    // The form has no coordinator selector yet; echo the loaded value so a
+    // full-replace PUT cannot silently wipe it (review M2).
+    coordinator_id: data.coordinator_id || undefined,
   };
 }
 
@@ -94,7 +100,14 @@ function CampaignFields({ form, isEdit }: { form: UseFormReturn<FormValues>; isE
           id="campaign-end-date"
           label="Data de término"
           type="date"
-          registration={register('end_date')}
+          error={formState.errors.end_date?.message}
+          registration={register('end_date', {
+            validate: (value, values) =>
+              !value ||
+              !values.start_date ||
+              value >= values.start_date ||
+              'Data de término anterior à data de início',
+          })}
         />
       </div>
       <Input id="campaign-location-name" label="Local" registration={register('location_name')} />

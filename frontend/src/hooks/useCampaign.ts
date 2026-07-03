@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getCampaign,
   addTeamMember as apiAddTeamMember,
@@ -11,20 +11,28 @@ export function useCampaign(id: string | undefined) {
   const [isLoading, setIsLoading] = useState(Boolean(id));
   const [error, setError] = useState<string | null>(null);
 
+  // Guards a stale in-flight response from overwriting a newer one when the
+  // id changes quickly (review N2).
+  const requestSeq = useRef(0);
+
   // State transitions live inside promise continuations only, so the effect
   // never sets state synchronously (react-hooks/set-state-in-effect).
   const reload = useCallback((): Promise<void> => {
     if (!id) return Promise.resolve();
+    requestSeq.current += 1;
+    const seq = requestSeq.current;
     return getCampaign(id)
       .then((detail) => {
+        if (seq !== requestSeq.current) return;
         setCampaign(detail);
         setError(null);
       })
       .catch((err: unknown) => {
+        if (seq !== requestSeq.current) return;
         setError(err instanceof Error ? err.message : 'Falha ao carregar campanha');
       })
       .finally(() => {
-        setIsLoading(false);
+        if (seq === requestSeq.current) setIsLoading(false);
       });
   }, [id]);
 

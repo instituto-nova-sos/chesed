@@ -15,6 +15,9 @@ interface SearchableSelectProps {
   placeholder?: string;
   allowCustom?: boolean;
   customPlaceholder?: string;
+  /** Notifies the parent of the raw search text so it can drive a
+   *  server-side search (options are still filtered client-side). */
+  onSearchTextChange?: (text: string) => void;
 }
 
 function normalize(text: string): string {
@@ -33,6 +36,7 @@ export function SearchableSelect({
   placeholder = 'Buscar...',
   allowCustom = false,
   customPlaceholder = 'Digite manualmente...',
+  onSearchTextChange,
 }: SearchableSelectProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,7 +80,7 @@ export function SearchableSelect({
   useEffect(() => {
     if (!isOpen || !listRef.current) return;
     const item = listRef.current.children[highlightedIndex] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: 'nearest' });
+    item?.scrollIntoView?.({ block: 'nearest' });
   }, [highlightedIndex, isOpen]);
 
   const selectOption = useCallback(
@@ -181,6 +185,7 @@ export function SearchableSelect({
         }}
         onChange={(e) => {
           setSearchText(e.target.value);
+          onSearchTextChange?.(e.target.value);
           setHighlightedIndex(0);
           if (!isOpen) setIsOpen(true);
         }}
