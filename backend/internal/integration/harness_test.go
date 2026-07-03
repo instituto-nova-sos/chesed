@@ -154,15 +154,22 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
-	professionalUp := middleware.RequireRole(auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes in
+	// cmd/server/main.go — keep the harness faithful to production.
+	triageRoles := middleware.RequireRole(auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	attendanceRoles := middleware.RequireRole(auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
 
 	r := chi.NewRouter()
 	r.Route("/api/v1/sync", func(r chi.Router) {
 		r.Post("/push", syncH.Push)
 		r.Get("/pull", syncH.Pull)
 	})
-	r.With(professionalUp).Post("/api/v1/triages", triageH.Create)
-	r.With(professionalUp).Post("/api/v1/attendances", attendanceH.Create)
+	r.With(triageRoles).Post("/api/v1/triages", triageH.Create)
+	r.Route("/api/v1/attendances", func(r chi.Router) {
+		r.With(attendanceRoles).Post("/", attendanceH.Create)
+		r.With(attendanceRoles).Post("/{id}/transitions", attendanceH.Transition)
+		r.With(attendanceRoles).Patch("/{id}/notes", attendanceH.UpdateNotes)
+	})
 	r.With(coordinatorUp).Get("/api/v1/reports/campaigns/{id}", reportH.CampaignMetrics)
 	r.Route("/api/v1/campaigns", func(r chi.Router) {
 		r.With(coordinatorUp).Post("/", campaignH.Create)

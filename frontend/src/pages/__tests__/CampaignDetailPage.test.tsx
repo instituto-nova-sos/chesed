@@ -36,12 +36,13 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ hasMinRole: () => authState.minRole }),
 }));
 
+const personsSearch = vi.fn();
 vi.mock('../../hooks/usePersons', () => ({
   usePersons: () => ({
     persons: [],
     isLoading: false,
     error: null,
-    search: vi.fn(),
+    search: personsSearch,
     pagination: { page: 1, per_page: 20, total: 0, total_pages: 0 },
   }),
 }));
@@ -147,5 +148,22 @@ describe('CampaignDetailPage', () => {
     };
     renderPage();
     expect(screen.queryByText(/indicadores/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('CampaignDetailPage — review remediation', () => {
+  beforeEach(() => {
+    detailState.campaign = detail();
+    detailState.isLoading = false;
+    detailState.error = null;
+    authState.minRole = true;
+    personsSearch.mockReset();
+  });
+
+  it('wires the team picker to the server-side person search (M3)', async () => {
+    renderPage();
+    const pickerInput = screen.getByPlaceholderText(/buscar/i);
+    await userEvent.type(pickerInput, 'Mar');
+    expect(personsSearch).toHaveBeenCalledWith('Mar');
   });
 });
