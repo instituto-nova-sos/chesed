@@ -328,6 +328,34 @@ Mobile device
 
 ---
 
+### T13: Malicious File Upload (Sprint 6 — document/consent surface)
+
+**Scenario**: An authenticated user uploads a crafted file (malware, polyglot,
+oversized payload, or a spoofed content type) through the document upload
+endpoints, aiming to store hostile content, exhaust storage, or have the file
+executed/rendered by another user's browser on download.
+
+| Aspect | Detail |
+|--------|--------|
+| Target | `POST /persons/:id/documents`, `POST /attendances/:id/documents`, object storage |
+| Impact | Medium-High — stored malware distribution, storage exhaustion, XSS via rendered files |
+| Likelihood | Low-Medium (authenticated, role-gated surface) |
+| Risk | **Medium** |
+
+**Mitigations**:
+- Content-type whitelist (`application/pdf`, `image/jpeg`, `image/png`) verified
+  by **magic bytes** server-side; the client Content-Type header is never trusted (docs/19)
+- 10MB size limit enforced with `http.MaxBytesReader` before parsing
+- Stored under UUID-based object keys; original filename kept only as metadata
+  (no path traversal / no filename-driven execution)
+- Files live in object storage, never on the application filesystem; downloads
+  only via time-limited presigned URLs (15 min) — the API never streams bytes
+- Uploads are role-gated (Secretary+/Professional+), campus-scoped, and audited
+- Virus scanning is documented as a future control (docs/13); risk accepted for
+  Phase 2 given the authenticated, low-volume surface
+
+---
+
 ## Risk Summary Matrix
 
 | Threat | Likelihood | Impact | Risk | Primary Mitigation |
@@ -344,6 +372,7 @@ Mobile device
 | T10: Keycloak compromise | Low | Critical | **Medium** | Network isolation + secrets management |
 | T11: Supply chain attack | Low | High | **Medium** | Lock files + image scanning + minimal deps |
 | T12: DDoS / availability | Low | High | **Low-Medium** | Cloudflare + offline-first PWA |
+| T13: Malicious file upload | Low-Medium | Medium-High | **Medium** | Magic-byte whitelist + size limit + presigned-only access |
 
 ---
 

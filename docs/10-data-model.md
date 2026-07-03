@@ -28,8 +28,8 @@ The following tables are created in Phase 1 database migrations:
 The following tables are added in Phase 2 migrations:
 - `campaign` — Social action events *(Sprint 5 — implemented)*
 - `campaign_team` — Team member assignments *(Sprint 5 — implemented)*
-- `document` — File attachments
-- `consent` — LGPD consent records with signature
+- `document` — File attachments *(Sprint 6 — migration 000025)*
+- `consent` — LGPD consent records with signature *(Sprint 6 — migration 000024)*
 - `donation` — Financial and in-kind contributions
 
 > **Sprint 5 note**: the Phase 1 migrations created `triage.campaign_id` and
@@ -395,31 +395,53 @@ CREATE INDEX idx_transition_attendance ON attendance_transition(attendance_id);
 
 ### document
 
-File attachments.
+File attachments. Implemented by migration `000025_create_document` (Sprint 6).
+
+> Sprint 6 note: the original Phase-2 draft of this table lacked `campus_id`,
+> `is_active`, and `created_at`/`updated_at`, violating the design principles
+> at the top of this document and the CLAUDE.md guardrails (campus scoping on
+> all operational tables, timestamps on all tables). The DDL below is the
+> corrected, implemented shape. `file_path` stores the object-storage key
+> (`documents/{campus_id}/{person_id}/{uuid}{ext}`), never a filesystem path;
+> downloads are served via presigned URLs (docs/19).
 
 ```sql
 CREATE TABLE document (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     person_id       UUID NOT NULL REFERENCES person(id),
     attendance_id   UUID REFERENCES attendance(id),
+    campus_id       UUID NOT NULL REFERENCES campus(id),
     document_type   VARCHAR(30) NOT NULL
                     CHECK (document_type IN ('ID', 'PROOF_OF_RESIDENCE', 'MEDICAL_RECORD', 'EXAM', 'CONSENT', 'PHOTO', 'OTHER')),
     file_name       VARCHAR(255) NOT NULL,
     file_path       VARCHAR(500) NOT NULL,
     file_size       INTEGER,
     mime_type       VARCHAR(100),
+    description     TEXT,
     uploaded_by     UUID NOT NULL,
     uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    description     TEXT
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_document_person ON document(person_id);
 CREATE INDEX idx_document_attendance ON document(attendance_id);
+CREATE INDEX idx_document_campus ON document(campus_id);
 ```
 
 ### consent
 
-LGPD consent records.
+LGPD consent records. Implemented by migration `000024_create_consent` (Sprint 6).
+
+> Sprint 6 notes: `created_at`/`updated_at` added for convention compliance
+> (`granted_at` remains the domain-meaningful grant timestamp). The active
+> index is a **partial UNIQUE** index so the SQL layer enforces "at most one
+> active consent per person and type" — a duplicate active grant surfaces as
+> a 23505 and maps to HTTP 409 `duplicate`. Re-granting after a revocation is
+> allowed (a new row; the revoked row stays for the audit trail, docs/13).
+> `sync_id`/`synced_at` are reserved for a future offline slice; consent
+> capture is **online-only** in Sprint 6 (docs/12).
 
 ```sql
 CREATE TABLE consent (
@@ -437,12 +459,15 @@ CREATE TABLE consent (
     revoked_reason      TEXT,
     campus_id           UUID NOT NULL REFERENCES campus(id),
     sync_id             UUID,
-    synced_at           TIMESTAMPTZ
+    synced_at           TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_consent_person ON consent(person_id);
 CREATE INDEX idx_consent_type ON consent(consent_type);
-CREATE INDEX idx_consent_active ON consent(person_id, consent_type) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX uq_consent_active_person_type
+    ON consent(person_id, consent_type) WHERE is_active = TRUE;
 ```
 
 ### donation

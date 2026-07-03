@@ -629,27 +629,158 @@ Campaign error responses:
 
 ---
 
-## Consent Endpoints (Phase 2)
-
-**(Phase 2)** — These endpoints are implemented in Phase 2.
+## Consent Endpoints (Phase 2 — Sprint 6)
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/consents` | Yes | All | Create consent record |
-| GET | `/persons/:id/consents` | Yes | Secretary+ | List person's consents |
+| GET | `/persons/:id/consents` | Yes | Secretary+ | List person's consents (active + revoked) |
 | PATCH | `/consents/:id/revoke` | Yes | Admin | Revoke consent |
+
+#### POST /consents
+
+Request body fields:
+- `person_id` (uuid, required) — must be visible in the caller's campus; a
+  nonexistent or foreign-campus reference returns `400 validation_error` with a
+  generic message (no cross-campus existence disclosure).
+- `consent_type` (string, required) — one of `DATA_PROCESSING`, `IMAGE_USAGE`,
+  `HEALTH_DATA`, `MINOR_GUARDIAN`.
+- `purpose` (string, required) — the LGPD Art. 7/8 purpose shown to the person
+  at collection time (RF-58a).
+- `consent_version` (string, optional) — defaults to `"1.0"`.
+- `granted_by_person_id` (uuid, optional) — guardian who granted on behalf of a
+  minor (`MINOR_GUARDIAN`); same campus-scoped validation as `person_id`.
+- `signature_data` (string, optional) — base64 PNG data URL captured by the
+  signature pad (RF-57).
+
+```json
+// Request
+{
+  "person_id": "uuid",
+  "consent_type": "DATA_PROCESSING",
+  "purpose": "Cadastro e acompanhamento de atendimentos",
+  "consent_version": "1.0",
+  "signature_data": "data:image/png;base64,iVBOR..."
+}
+
+// Response 201
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "consent_type": "DATA_PROCESSING",
+  "consent_version": "1.0",
+  "purpose": "Cadastro e acompanhamento de atendimentos",
+  "granted_at": "2026-07-03T14:30:00Z",
+  "granted_by_person_id": null,
+  "signature_data": "data:image/png;base64,iVBOR...",
+  "is_active": true,
+  "revoked_at": null,
+  "revoked_reason": null
+}
+```
+
+Error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `validation_error` | Missing/invalid field, unknown `consent_type`, or unresolvable person reference (generic message) |
+| 409 | `duplicate` | An active consent of the same type already exists for the person (`uq_consent_active_person_type`) |
+
+#### GET /persons/:id/consents
+
+Returns every consent of the person (active and revoked), ordered by
+`granted_at` descending — the consent registry required by RF-58b. Responds
+`404 not_found` when the person is not visible in the caller's campus.
+
+```json
+// Response 200
+{ "data": [ { "id": "uuid", "consent_type": "IMAGE_USAGE", "is_active": false,
+  "revoked_at": "2026-07-01T10:00:00Z", "revoked_reason": "Pedido do titular",
+  "consent_version": "1.0", "purpose": "...", "granted_at": "2026-05-02T09:00:00Z" } ] }
+```
+
+#### PATCH /consents/:id/revoke
+
+Request body fields:
+- `revoked_reason` (string, required) — recorded in the registry and audit log.
+
+Sets `is_active = false`, `revoked_at = now()`, keeps the row (audit trail per
+docs/13; anonymization automation is Sprint 10). Responds `200` with the updated
+consent. Errors:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `validation_error` | Missing reason, or the consent is already revoked |
+| 403 | `forbidden` | Caller is not ADMIN (denial audited as `ACCESS_DENIED`) |
+| 404 | `not_found` | Consent nonexistent or outside the caller's campus |
 
 ---
 
-## Document Endpoints (Phase 2)
-
-**(Phase 2)** — These endpoints are implemented in Phase 2.
+## Document Endpoints (Phase 2 — Sprint 6)
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
-| POST | `/persons/:id/documents` | Yes | Secretary+ | Upload document |
+| POST | `/persons/:id/documents` | Yes | Secretary+ | Upload document to a person |
 | GET | `/persons/:id/documents` | Yes | Professional+ | List person's documents |
+| POST | `/attendances/:id/documents` | Yes | Professional+ | Upload document/exam to an attendance (RF-30) |
+| GET | `/attendances/:id/documents` | Yes | Professional+ | List attendance's documents |
 | GET | `/documents/:id/download` | Yes | Professional+ | Get presigned download URL |
+
+#### POST /persons/:id/documents · POST /attendances/:id/documents
+
+`Content-Type: multipart/form-data` with fields:
+- `document` (file, required) — allowed content types `application/pdf`,
+  `image/jpeg`, `image/png`, verified by **magic bytes** (the client-sent
+  Content-Type header is not trusted); maximum **10MB** (docs/19).
+- `document_type` (string, required) — one of `ID`, `PROOF_OF_RESIDENCE`,
+  `MEDICAL_RECORD`, `EXAM`, `CONSENT`, `PHOTO`, `OTHER`.
+- `description` (string, optional).
+
+The file is stored in object storage under a UUID-based key
+(`documents/{campus_id}/{person_id}/{uuid}{ext}`); the original filename is
+kept only as metadata (`file_name`). An attendance upload links the document to
+the attendance's person and sets `attendance_id`.
+
+```json
+// Response 201
+{
+  "id": "uuid",
+  "person_id": "uuid",
+  "attendance_id": null,
+  "document_type": "PROOF_OF_RESIDENCE",
+  "file_name": "comprovante.pdf",
+  "file_size": 182734,
+  "mime_type": "application/pdf",
+  "description": null,
+  "uploaded_at": "2026-07-03T14:30:00Z"
+}
+```
+
+Error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `validation_error` | Missing file/field, disallowed or spoofed content type (magic bytes), file over 10MB, or unknown `document_type` |
+| 403 | `forbidden` | Role below the required minimum (denial audited) |
+| 404 | `not_found` | Person/attendance nonexistent or outside the caller's campus |
+
+#### GET /persons/:id/documents · GET /attendances/:id/documents
+
+Returns the entity's documents ordered by `uploaded_at` descending, same
+response item shape as the 201 above (no download URL — see below). `404` when
+the parent entity is not visible in the caller's campus.
+
+#### GET /documents/:id/download
+
+Returns a **time-limited presigned URL** (15 minutes) to the object-storage
+key; the API never streams file bytes itself and files are never served from
+the application filesystem (docs/19).
+
+```json
+// Response 200
+{ "url": "https://storage.example.com/chesed-docs/documents/...?X-Amz-...", "expires_at": "2026-07-03T14:45:00Z" }
+```
+
+| HTTP | Error | When |
+|------|-------|------|
+| 404 | `not_found` | Document nonexistent or outside the caller's campus |
 
 ---
 

@@ -617,16 +617,128 @@
 
 ## E08: Document and Consent Management (Phase 2)
 
-**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete (met)
+**Target**: Sprint 6
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Sprint 6 kickoff: stories detailed per the phase-boundary rule. Documents and
+> consents are an **online-only surface** (no offline queue entry, no service
+> worker caching — consent signatures and document contents are CRITICAL PII
+> per `docs/13-security-and-compliance.md`; the UI disables these actions
+> offline with a clear message). Files live in S3-compatible object storage
+> (MinIO in dev/e2e, S3/R2 in prod — `docs/14-deployment-strategy.md`), never
+> on the application filesystem; downloads use time-limited presigned URLs and
+> uploads follow the `docs/19-secure-development-standard.md` table (whitelist,
+> magic bytes, 10MB, UUID keys). Specs: DDL in `docs/10-data-model.md`
+> (migrations 000024 consent / 000025 document), contracts in
+> `docs/11-api-design.md`, permissions in `docs/16-iam-and-access-control.md`,
+> threat delta T13 in `docs/18-threat-model.md`. Consent revocation here is the
+> basic registry operation; anonymization automation is Sprint 10 (roadmap 10.1).
 
-**S08.1** - Object storage integration (S3/MinIO)
-**S08.2** - Upload documents to person or attendance
-**S08.3** - Create consent with digital signature capture
-**S08.4** - Revoke consent
-**S08.5** - React document upload component
-**S08.6** - React consent form with signature pad
+### Stories
+
+**S08.1 - Object storage integration (S3/MinIO)**
+- status: in_progress
+- depends_on: []
+- covers_requirements: [RF-06, RF-30, RNF-04]
+- parallel_with: [S08.3]
+- size: M
+- offline: Not applicable — server-side infrastructure enabler.
+- As the system, I store and serve binary files through S3-compatible object storage so documents never live on the application server.
+- Acceptance criteria:
+  - **Given** the storage configuration (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) **when** the API boots **then** the storage client is constructed and the bucket exists (created idempotently if missing).
+  - **Given** a stored object key **when** a presigned GET URL is generated **then** the URL serves the exact stored bytes and expires after the configured TTL.
+  - **Given** the dev and e2e docker-compose stacks **when** they start **then** a MinIO service is available and the API container is configured against it.
+  - **Given** the storage integration test suite **when** it runs with Docker **then** Put/PresignGet round-trip against a real MinIO container.
+
+**S08.2 - Upload documents to person or attendance**
+- status: ready
+- depends_on: [S08.1, S02.5, S02.6]
+- covers_requirements: [RF-06, RF-30]
+- parallel_with: [S08.3]
+- size: L
+- offline: Online-only; upload endpoints reject nothing offline-specific (the client simply cannot reach them).
+- As a secretary (person) or professional (attendance), I can attach documents to records in my campus.
+- Acceptance criteria:
+  - **Given** a SECRETARY+ user and a person in their campus **when** they POST multipart to `/persons/:id/documents` with an allowed file, a `document_type`, and optional description **then** the file is stored under `documents/{campus_id}/{person_id}/{uuid}{ext}`, a document row persists (campus-scoped), the response is 201, and an audit CREATE entry is written.
+  - **Given** a PROFESSIONAL+ user and an attendance in their campus **when** they POST multipart to `/attendances/:id/documents` **then** the document links to the attendance and its person, with the same storage and audit behavior.
+  - **Given** a file whose magic bytes do not match an allowed type (pdf/jpeg/png), or over 10MB, or an unknown `document_type` **when** it is uploaded **then** the API responds 400 `validation_error`, nothing is stored, and no row persists.
+  - **Given** a person or attendance of another campus **when** an upload or list is attempted **then** the API responds 404 (no cross-campus existence disclosure).
+  - **Given** a VOLUNTEER user **when** they call any document endpoint **then** the API responds 403 and audits `ACCESS_DENIED`.
+  - **Given** documents exist **when** a PROFESSIONAL+ user lists them or requests `/documents/:id/download` **then** the list returns metadata (no URLs) and the download endpoint returns a presigned URL that serves the original bytes and expires (~15 min).
+
+**S08.3 - Create consent with purpose, version, and registry**
+- status: ready
+- depends_on: [S03.1, S02.5, S02.6]
+- covers_requirements: [RF-07, RF-08, RF-58a, RF-58b, RF-58c]
+- parallel_with: [S08.1, S08.2]
+- size: M
+- offline: Online-only writes; no service worker caching of consent data (CRITICAL PII).
+- As any authenticated user, I can register a person's consent with type, purpose, version, and optional guardian and signature.
+- Acceptance criteria:
+  - **Given** any authenticated role and a person in the caller's campus **when** they POST `/consents` with a valid `consent_type` and non-empty `purpose` **then** the consent persists with `consent_version` (default "1.0"), `granted_at`, optional `granted_by_person_id` and `signature_data`, the response is 201, and an audit CREATE entry is written.
+  - **Given** an active consent of the same type for the same person **when** a second grant is posted **then** the API responds 409 `duplicate` and the SQL layer enforces it (`uq_consent_active_person_type`).
+  - **Given** a `person_id` (or `granted_by_person_id`) nonexistent or of another campus **when** the consent is posted **then** the API responds 400 `validation_error` with a generic message and persists nothing.
+  - **Given** a missing `purpose` or unknown `consent_type` **when** the request is validated **then** the API responds 400 `validation_error` without touching the database.
+  - **Given** consents exist (active and revoked) **when** a SECRETARY+ user lists `/persons/:id/consents` **then** all rows return ordered by `granted_at` desc; a VOLUNTEER gets 403.
+
+**S08.4 - Revoke consent**
+- status: ready
+- depends_on: [S08.3]
+- covers_requirements: [RF-58]
+- parallel_with: []
+- size: S
+- offline: Online-only.
+- As an admin, I can revoke a consent recording the reason, preserving the registry trail.
+- Acceptance criteria:
+  - **Given** an ADMIN and an active consent in their campus **when** they PATCH `/consents/:id/revoke` with a `revoked_reason` **then** `is_active` becomes false, `revoked_at` is set, the row is preserved, the response is 200, and an audit UPDATE entry records old and new values.
+  - **Given** a non-ADMIN role **when** revoke is called **then** the API responds 403 and audits `ACCESS_DENIED`.
+  - **Given** an already-revoked consent or a missing reason **when** revoke is called **then** the API responds 400 `validation_error` and nothing changes.
+  - **Given** a consent of another campus **when** revoke is called **then** the API responds 404.
+  - **Given** a revoked consent **when** a new consent of the same type is posted **then** it is accepted (re-grant creates a new row).
+
+**S08.5 - React document upload component**
+- status: ready
+- depends_on: [S08.2, S02.8]
+- covers_requirements: [RF-06, RF-30]
+- parallel_with: [S08.6]
+- size: M
+- offline: The documents section renders a clear pt-BR offline message and disables upload/download when offline; nothing is cached.
+- As a secretary or professional, I can upload and download a person's documents from the browser.
+- Acceptance criteria:
+  - **Given** the person detail page **when** it renders for a PROFESSIONAL+ user **then** a "Documentos" section lists the person's documents (type label pt-BR, name, date) with a download action that opens the presigned URL.
+  - **Given** a SECRETARY+ user **when** they open the upload modal, pick an allowed file (≤10MB) and a type, and submit **then** the document is uploaded via multipart, the list refreshes, and API errors surface as readable pt-BR messages.
+  - **Given** a client-side disallowed file type or oversize file **when** it is selected **then** the modal blocks the submit with a pt-BR validation message (server still revalidates).
+  - **Given** a VOLUNTEER user **then** the documents section is not rendered; **given** a SECRETARY user **then** the list is hidden but upload is available per the IAM matrix (docs/16).
+  - **Given** a 320px viewport **when** the section and modal render **then** they remain usable (mobile-first).
+
+**S08.6 - React consent form with signature pad**
+- status: ready
+- depends_on: [S08.3, S02.8]
+- covers_requirements: [RF-07, RF-57, RF-58a]
+- parallel_with: [S08.5]
+- size: L
+- offline: The consent form is blocked offline with a clear pt-BR message (capture requires connectivity; no queue entry).
+- As a user, I can capture a person's consent on a mobile device with a touch signature.
+- Acceptance criteria:
+  - **Given** the consent form **when** it renders **then** it requires a consent type and shows the purpose text (editable, prefilled per type) before signature, per LGPD Art. 8 (RF-58a).
+  - **Given** the signature canvas **when** the person draws with touch or mouse **then** the strokes render, "Limpar" resets, and the drawing exports as a base64 PNG into `signature_data` on submit.
+  - **Given** a submit without type, purpose, or signature **then** client-side validation blocks with pt-BR messages.
+  - **Given** a valid submit **when** the API returns 201 **then** the user returns to the person's consent list showing the new record; a 409 renders "já existe um consentimento ativo deste tipo".
+  - **Given** a 320px viewport **when** the form renders **then** the canvas and controls remain usable (mobile-first).
+
+**S08.7 - React consent history view**
+- status: ready
+- depends_on: [S08.6, S08.4]
+- covers_requirements: [RF-58, RF-58b]
+- parallel_with: [S08.5]
+- size: S
+- offline: Online-only read; offline shows a clear pt-BR message instead of stale consent data.
+- As a secretary+, I can see a person's consent registry; as an admin, I can revoke from it.
+- Acceptance criteria:
+  - **Given** the person detail page **when** it renders for a SECRETARY+ user **then** a "Consentimentos" section lists all consents (type label pt-BR, version, granted date, active/revoked badge, revocation reason when present) ordered by grant date desc.
+  - **Given** an ADMIN **when** they revoke from the list providing a reason **then** the list refreshes showing the revoked badge; non-ADMIN roles see no revoke control.
+  - **Given** a VOLUNTEER **then** the consent section is not rendered.
+  - **Given** a 320px viewport **when** the section renders **then** it remains usable.
 
 ---
 
