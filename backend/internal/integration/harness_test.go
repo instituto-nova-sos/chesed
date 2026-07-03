@@ -140,7 +140,7 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 	campaignRepo := repository.NewCampaignRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
-	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
+	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)
