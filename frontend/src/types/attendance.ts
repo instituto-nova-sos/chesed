@@ -10,6 +10,7 @@ export interface Attendance {
   id: string;
   person_id: string;
   triage_id?: string;
+  campaign_id?: string;
   campus_id: string;
   service_type_id: string;
   professional_id: string;
@@ -53,6 +54,7 @@ export interface AttendanceListResponse {
 export interface CreateAttendanceInput {
   person_id: string;
   triage_id?: string;
+  campaign_id?: string;
   service_type_id: string;
   professional_id: string;
   attendance_date?: string;

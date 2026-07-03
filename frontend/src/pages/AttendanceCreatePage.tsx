@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { createAttendanceWithOfflineFallback } from '../offline/attendanceOffline';
 import { getPerson } from '../api/persons';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
+import { useLinkableCampaigns } from '../hooks/useCampaigns';
 import { useAuthStore } from '../store/authStore';
 import { Button } from '../components/ui/Button';
 import { Alert } from '../components/ui/Alert';
@@ -15,6 +16,7 @@ interface FormValues {
   service_type_id: string;
   observations: string;
   recommendations: string;
+  campaign_id: string;
 }
 
 export function AttendanceCreatePage() {
@@ -29,9 +31,15 @@ export function AttendanceCreatePage() {
   const [loadingContext, setLoadingContext] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const campaigns = useLinkableCampaigns();
 
   const { register, handleSubmit, formState } = useForm<FormValues>({
-    defaultValues: { service_type_id: '', observations: '', recommendations: '' },
+    defaultValues: {
+      service_type_id: '',
+      observations: '',
+      recommendations: '',
+      campaign_id: '',
+    },
   });
 
   useEffect(() => {
@@ -85,6 +93,9 @@ export function AttendanceCreatePage() {
         observations: values.observations || undefined,
         recommendations: values.recommendations || undefined,
       };
+      // Assigned conditionally (not `|| undefined`) so the key is absent from
+      // the sync-queue payload and the wire body when no campaign is linked.
+      if (values.campaign_id) input.campaign_id = values.campaign_id;
       const serviceTypeName = serviceTypes.find(
         (st) => st.id === values.service_type_id,
       )?.name;
@@ -128,11 +139,20 @@ export function AttendanceCreatePage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl space-y-4">
         <Select
+          id="attendance-service-type"
           label="Tipo de Serviço *"
           options={serviceOptions}
           placeholder="Selecione um serviço"
           {...register('service_type_id', { required: 'Selecione um tipo de serviço' })}
           error={formState.errors.service_type_id?.message}
+        />
+
+        <Select
+          id="attendance-campaign"
+          label="Campanha (opcional)"
+          options={campaigns.map((c) => ({ value: c.id, label: c.name }))}
+          placeholder="Sem campanha"
+          {...register('campaign_id')}
         />
 
         <div>
