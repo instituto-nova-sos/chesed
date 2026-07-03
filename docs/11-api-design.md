@@ -515,20 +515,21 @@ disclosure.
   "coordinator_id": "uuid (optional)"
 }
 
-// Response 201
+// Response 201 (dates serialize as RFC3339 timestamps; the response is a
+// superset of this example — it also carries campus_id and updated_at)
 {
   "id": "uuid",
   "name": "March Social Action",
   "campaign_type": "SOCIAL_ACTION",
   "status": "PLANNED",
-  "start_date": "2026-07-10",
-  "end_date": "2026-07-12",
+  "start_date": "2026-07-10T00:00:00Z",
+  "end_date": "2026-07-12T00:00:00Z",
   "created_at": "2026-07-01T10:30:00Z"
 }
 ```
 `campaign_type` ∈ `SOCIAL_ACTION | EDUCATIONAL | HEALTH | COMMUNITY | OTHER`.
 `end_date`, when present, must be ≥ `start_date`. `coordinator_id` must reference
-a person in the caller's campus (422 otherwise, generic message).
+a person in the caller's campus (400 `validation_error` otherwise, generic message).
 
 #### GET /campaigns?status=ACTIVE&page=1&per_page=20
 ```json
@@ -540,8 +541,8 @@ a person in the caller's campus (422 otherwise, generic message).
       "name": "March Social Action",
       "campaign_type": "SOCIAL_ACTION",
       "status": "ACTIVE",
-      "start_date": "2026-07-10",
-      "end_date": "2026-07-12",
+      "start_date": "2026-07-10T00:00:00Z",
+      "end_date": "2026-07-12T00:00:00Z",
       "location_name": "Community Center - Jabaquara"
     }
   ],
@@ -559,8 +560,8 @@ Optional filters: `status`, `campaign_type`.
   "description": "Community outreach at Jabaquara",
   "campaign_type": "SOCIAL_ACTION",
   "status": "ACTIVE",
-  "start_date": "2026-07-10",
-  "end_date": "2026-07-12",
+  "start_date": "2026-07-10T00:00:00Z",
+  "end_date": "2026-07-12T00:00:00Z",
   "location_name": "Community Center - Jabaquara",
   "location_address": "Rua Example, 123",
   "coordinator_id": "uuid",
@@ -580,7 +581,7 @@ Optional filters: `status`, `campaign_type`.
 #### PUT /campaigns/:id
 Accepts the same body as POST plus `status`
 (`PLANNED | ACTIVE | COMPLETED | CANCELLED`). Responds 200 with the updated
-detail (without `team`). Invalid enum values or dates respond 422.
+detail (without `team`). Invalid enum values or dates respond 400 `validation_error`.
 
 #### POST /campaigns/:id/team
 ```json
@@ -596,11 +597,22 @@ detail (without `team`). Invalid enum values or dates respond 422.
 }
 ```
 `role_in_campaign` ∈ `COORDINATOR | PROFESSIONAL | VOLUNTEER | SUPPORT`.
-Duplicate campaign+person responds 409 `conflict`. A `person_id` not visible in
-the caller's campus responds 422 (generic message).
+Duplicate campaign+person responds 409 `duplicate`. A `person_id` not visible in
+the caller's campus responds 400 `validation_error` (generic message).
 
 #### DELETE /campaigns/:id/team/:personId
 Responds 204 on success, 404 if the assignment does not exist.
+
+Campaign error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `invalid_request` | Malformed JSON body |
+| 400 | `invalid_id` | Malformed campaign/person id in the path |
+| 400 | `validation_error` | Missing/invalid fields, inverted dates, or a reference not resolvable in the caller's campus (generic — no cross-campus disclosure) |
+| 400 | `invalid_status` / `invalid_campaign_type` | Unknown list filter value |
+| 403 | `forbidden` | Auth token lacks resolvable `campus_id` |
+| 404 | `not_found` | Campaign (or assignment) not visible in the caller's campus |
+| 409 | `duplicate` | Person already assigned to the campaign |
 
 ---
 
