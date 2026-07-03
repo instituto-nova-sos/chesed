@@ -2721,6 +2721,98 @@ chore). No `git push` / `gh pr` run. Suggested command printed for a human:
 
 ---
 
+## Session 34: Sprint 5 — Campaigns and Teams (Phase 2 kickoff) (2026-07-01/02)
+
+### Context
+First Phase 2 sprint. Sprints 1-4 were DONE and every E04/E05/E06 story `done`;
+the only Sprint 4 remainder is 4.10 (staging deploy — operator step). Executed
+the whole sprint in one session on branch `feat/sprint5-campaigns-teams`,
+documentation-first, TDD (RED→GREEN commit pairs per story group). Parallel
+scoping subagents were unavailable for most of the session (persistent API 529
+overload on spawn), so investigation ran inline; the critical-review gate still
+used an independent reviewer subagent once the API recovered.
+
+### Phase kickoff (documentation-first)
+- `docs/09-backlog.md`: E07 detailed per the phase-boundary rule — S07.1–S07.5
+  annotated (status/depends_on/covers_requirements/parallel_with/size/offline)
+  with GWT criteria; epic note fixes the offline policy (campaigns = online-only
+  writes; list GET is SW-cached read-only reference data per docs/12).
+- `docs/11-api-design.md`: full campaign request/response contracts (create,
+  list, detail+team, update, team add/remove) + campaign metrics report payload;
+  error codes aligned to the house convention (400 `validation_error`,
+  409 `duplicate`, 404 no cross-campus disclosure).
+- `docs/10-data-model.md`: Sprint 5 note — Phase 1 had created
+  `triage.campaign_id`/`attendance.campaign_id` as bare UUID columns (no FK);
+  Sprint 5 adds the table, FKs, and indexes.
+
+### Backend (S07.1–S07.4)
+- Migrations `000021_create_campaign`, `000022_create_campaign_team` (docs/10
+  DDL verbatim), `000023_add_campaign_fk` (FKs + `idx_triage_campaign`/
+  `idx_attendance_campaign` on the previously bare columns; additive, down
+  provided).
+- `domain/campaign.go` (Campaign, Detail+Team, ListItem/Result/Filter, Metrics,
+  enums) + `ErrValidation` sentinel; handler maps it to 400 `validation_error`
+  with a generic message (no foreign-campus existence disclosure, T3).
+- `repository/campaign_repository.go`: campus-scoped CRUD, uq_campaign_person
+  23505 → `ErrDuplicate`, team CRUD with person-name join.
+- `service/campaign_service.go`: PLANNED default, date-range validation,
+  coordinator/person references resolved campus-scoped (`resolveCoordinator`,
+  shared `resolveCampaignRef` + narrow `CampaignRefRepository`), audit on every
+  mutation (CREATE/UPDATE with old values/team CREATE/DELETE, swallow-and-log).
+- Triage/attendance services take `CampaignRefRepository`; create paths accept
+  optional `campaign_id` (cross-campus → `ErrValidation`, nothing persisted);
+  repositories persist/return the column everywhere (incl. sync pull, additive).
+- `GET /reports/campaigns/:id` (Coordinator+): triage count, attendances by
+  status, team size — campaign lookup enforces the campus boundary (404).
+- Routes in `main.go` (`registerCampaignRoutes`): Coordinator+ writes, all-roles
+  reads, per docs/16.
+- Tests: service unit suites (mock repos), handler suites (error contract), and
+  real-Postgres integration (`campaign_test.go`, `campaign_link_test.go`):
+  happy path with DB+audit assertions, campus boundary (list/detail/update 404),
+  RBAC denial audited (`ACCESS_DENIED`), validation 400s persist nothing, team
+  409/400/204/404 flow, FK 23503 enforcement, metrics rollup + 404 + 403.
+
+### Frontend (S07.5 + S07.4 dashboard)
+- `types/campaign.ts`, `api/campaigns.ts` (list/detail/create/update/team
+  add/remove/metrics); `apiClient` now returns `undefined` on 204.
+- Hooks: `useCampaigns` (status filter + pagination), `useCampaign` (detail +
+  team mutations that rethrow for page-level 409/400 mapping),
+  `useCampaignMetrics` (Coordinator-gated; offline → clear pt-BR message, no
+  stale numbers). All three keep state transitions inside promise continuations
+  (no sync setState in effects — zero new lint warnings).
+- Pages: `CampaignListPage` (status filter, role-gated "Nova campanha", badge
+  labels pt-BR), `CampaignFormPage` (create/edit, RHF validation), 
+  `CampaignDetailPage` (info grid + Coordinator-only metrics cards + team
+  management with SearchableSelect person picker; 409 → "já faz parte da
+  equipe"). Lazy routes + Sidebar "Campanhas" entry.
+- `Input`/`Select` gained `htmlFor`/`id` label association (accessibility +
+  testability; additive).
+- Service worker: `/campaigns` list GET added to the NetworkFirst reference
+  cache (docs/12 — campaigns are pre-cached read-only offline).
+- Tests: MSW integration (list query-string, create body, 204 removal, 404
+  metrics ApiError) + unit suites for the hook and all three pages (role
+  gating, empty/error states, pt-BR labels, team remove flow).
+
+### Validation
+Backend: build + `go test -short ./...` + golangci-lint 0 + integration suites
+green against real Postgres (testcontainers). Frontend: typecheck + lint
+0 errors/49 warnings (**baseline unchanged** — all 7 new warnings were
+eliminated by real refactors, not suppression) + 137 unit + 18 MSW integration +
+coverage gate + PWA build. `make validate-backlog`/`make status`: S07.1–S07.5
+`done`; roadmap Sprint 5 → DONE.
+
+### Follow-ups (documented, next slice)
+- Campaign selector in triage/attendance FORMS (API-only linking this sprint)
+  and `campaign_id` in the offline sync payload (roadmap 5.3 note).
+- Campaign edit page is reachable only from detail; no delete/soft-delete by
+  design (status lifecycle covers it).
+- E2E smoke does not yet include a campaign slice (existing 3 specs unchanged).
+
+### Push boundary respected
+All commits local on `feat/sprint5-campaigns-teams`. No `git push` / `gh pr`.
+
+---
+
 ## Context for Future AI Sessions
 
 When starting a new session on this repository:
