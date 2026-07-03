@@ -55,16 +55,18 @@ type SyncService struct {
 	personRepo     SyncPersonRepository
 	triageRepo     SyncTriageRepository
 	attendanceRepo SyncAttendanceRepository
+	campaignRepo   CampaignRefRepository
 	auditSvc       *AuditService
 	validate       *validator.Validate
 }
 
 // NewSyncService constructs a SyncService.
-func NewSyncService(p SyncPersonRepository, t SyncTriageRepository, a SyncAttendanceRepository, audit *AuditService) *SyncService {
+func NewSyncService(p SyncPersonRepository, t SyncTriageRepository, a SyncAttendanceRepository, c CampaignRefRepository, audit *AuditService) *SyncService {
 	return &SyncService{
 		personRepo:     p,
 		triageRepo:     t,
 		attendanceRepo: a,
+		campaignRepo:   c,
 		auditSvc:       audit,
 		validate:       validator.New(),
 	}
@@ -213,6 +215,7 @@ type syncTriageInput struct {
 	Location       *string  `json:"location" validate:"omitempty,max=300"`
 	Notes          *string  `json:"notes" validate:"omitempty"`
 	RequestedTypes []string `json:"requested_service_type_ids" validate:"omitempty,dive,uuid"`
+	CampaignID     *string  `json:"campaign_id" validate:"omitempty,uuid"`
 }
 
 func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecord) domain.SyncPushResult {
@@ -265,6 +268,10 @@ func (s *SyncService) buildSyncTriage(ctx context.Context, rec domain.SyncPushRe
 	if errResult := s.requirePersonInCampus(ctx, rec.SyncID, personID, campusID); errResult != nil {
 		return domain.Triage{}, errResult
 	}
+	campaignID, errResult := s.resolveCampaignLink(ctx, rec.SyncID, in.CampaignID, campusID)
+	if errResult != nil {
+		return domain.Triage{}, errResult
+	}
 
 	triageDate, err := parseSyncTimestamp(in.TriageDate)
 	if err != nil {
@@ -294,6 +301,7 @@ func (s *SyncService) buildSyncTriage(ctx context.Context, rec domain.SyncPushRe
 		Notes:          in.Notes,
 		IsActive:       true,
 		RequestedTypes: requested,
+		CampaignID:     campaignID,
 	}, nil
 }
 
@@ -328,6 +336,18 @@ func (s *SyncService) requireTriageInCampus(ctx context.Context, syncID, triageI
 	return nil
 }
 
+// resolveCampaignLink validates an optional pushed campaign reference against
+// the caller's campus, reusing resolveCampaignRef so rejections stay generic
+// (threat model T3) and surface as a per-record error result (S07.6).
+func (s *SyncService) resolveCampaignLink(ctx context.Context, syncID uuid.UUID, raw *string, campusID uuid.UUID) (*uuid.UUID, *domain.SyncPushResult) {
+	id, err := resolveCampaignRef(ctx, s.campaignRepo, raw, campusID)
+	if err != nil {
+		r := errorResult(syncID, err.Error())
+		return nil, &r
+	}
+	return id, nil
+}
+
 // parseSyncTimestamp parses an optional RFC3339 timestamp, defaulting to now.
 func parseSyncTimestamp(raw *string) (time.Time, error) {
 	if raw == nil || *raw == "" {
@@ -347,6 +367,7 @@ type syncAttendanceInput struct {
 	AttendanceDate  *string `json:"attendance_date" validate:"omitempty"`
 	Observations    *string `json:"observations" validate:"omitempty"`
 	Recommendations *string `json:"recommendations" validate:"omitempty"`
+	CampaignID      *string `json:"campaign_id" validate:"omitempty,uuid"`
 }
 
 func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushRecord) domain.SyncPushResult {
@@ -387,6 +408,7 @@ type syncAttendanceRefs struct {
 	serviceTypeID  uuid.UUID
 	professionalID uuid.UUID
 	triageID       *uuid.UUID
+	campaignID     *uuid.UUID
 }
 
 func (s *SyncService) buildSyncAttendance(ctx context.Context, rec domain.SyncPushRecord, campusID uuid.UUID, claims auth.AuthClaims) (domain.Attendance, *domain.SyncPushResult) {
@@ -423,6 +445,7 @@ func (s *SyncService) buildSyncAttendance(ctx context.Context, rec domain.SyncPu
 		Observations:    in.Observations,
 		Recommendations: in.Recommendations,
 		CreatedBy:       parseUserID(claims.Subject),
+		CampaignID:      refs.campaignID,
 	}, nil
 }
 
@@ -459,11 +482,16 @@ func (s *SyncService) resolveAttendanceRefs(ctx context.Context, rec domain.Sync
 			return syncAttendanceRefs{}, errResult
 		}
 	}
+	campaignID, errResult := s.resolveCampaignLink(ctx, rec.SyncID, in.CampaignID, campusID)
+	if errResult != nil {
+		return syncAttendanceRefs{}, errResult
+	}
 	return syncAttendanceRefs{
 		personID:       personID,
 		serviceTypeID:  serviceTypeID,
 		professionalID: professionalID,
 		triageID:       triageID,
+		campaignID:     campaignID,
 	}, nil
 }
 
