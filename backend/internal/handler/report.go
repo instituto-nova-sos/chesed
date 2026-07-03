@@ -132,10 +132,28 @@ func parseReportRange(w http.ResponseWriter, r *http.Request) (time.Time, time.T
 	return start, end, true
 }
 
+// CampaignMetrics handles GET /reports/campaigns/{id}.
+func (h *ReportHandler) CampaignMetrics(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid campaign ID format")
+		return
+	}
+
+	metrics, err := h.svc.GetCampaignMetrics(r.Context(), id)
+	if err != nil {
+		h.writeReportError(w, r, err, "CampaignMetrics")
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}
+
 func (h *ReportHandler) writeReportError(w http.ResponseWriter, r *http.Request, err error, op string) {
 	switch {
 	case errors.Is(err, domain.ErrForbidden):
 		writeError(w, http.StatusForbidden, "forbidden", "missing campus context")
+	case errors.Is(err, domain.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "campaign not found")
 	case errors.Is(err, service.ErrInvalidReportRange):
 		writeError(w, http.StatusBadRequest, "invalid_range", "invalid date range")
 	default:

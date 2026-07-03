@@ -486,18 +486,133 @@ COMPLETED → FOLLOW_UP (reopen)
 
 ---
 
-## Campaign Endpoints (Phase 2)
-
-**(Phase 2)** — These endpoints are implemented in Phase 2.
+## Campaign Endpoints (Phase 2 — Sprint 5)
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/campaigns` | Yes | Coordinator+ | Create campaign |
 | GET | `/campaigns` | Yes | All | List campaigns |
-| GET | `/campaigns/:id` | Yes | All | Get campaign detail |
+| GET | `/campaigns/:id` | Yes | All | Get campaign detail (includes team) |
 | PUT | `/campaigns/:id` | Yes | Coordinator+ | Update campaign |
 | POST | `/campaigns/:id/team` | Yes | Coordinator+ | Add team member |
 | DELETE | `/campaigns/:id/team/:personId` | Yes | Coordinator+ | Remove team member |
+
+All campaign queries are campus-scoped from the caller's token. A campaign id
+outside the caller's campus responds 404 (`not_found`) with no existence
+disclosure.
+
+#### POST /campaigns
+```json
+// Request
+{
+  "name": "March Social Action",
+  "description": "Community outreach at Jabaquara",
+  "campaign_type": "SOCIAL_ACTION",
+  "start_date": "2026-07-10",
+  "end_date": "2026-07-12",
+  "location_name": "Community Center - Jabaquara",
+  "location_address": "Rua Example, 123",
+  "coordinator_id": "uuid (optional)"
+}
+
+// Response 201 (dates serialize as RFC3339 timestamps; the response is a
+// superset of this example — it also carries campus_id and updated_at)
+{
+  "id": "uuid",
+  "name": "March Social Action",
+  "campaign_type": "SOCIAL_ACTION",
+  "status": "PLANNED",
+  "start_date": "2026-07-10T00:00:00Z",
+  "end_date": "2026-07-12T00:00:00Z",
+  "created_at": "2026-07-01T10:30:00Z"
+}
+```
+`campaign_type` ∈ `SOCIAL_ACTION | EDUCATIONAL | HEALTH | COMMUNITY | OTHER`.
+`end_date`, when present, must be ≥ `start_date`. `coordinator_id` must reference
+a person in the caller's campus (400 `validation_error` otherwise, generic message).
+
+#### GET /campaigns?status=ACTIVE&page=1&per_page=20
+```json
+// Response 200
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "March Social Action",
+      "campaign_type": "SOCIAL_ACTION",
+      "status": "ACTIVE",
+      "start_date": "2026-07-10T00:00:00Z",
+      "end_date": "2026-07-12T00:00:00Z",
+      "location_name": "Community Center - Jabaquara"
+    }
+  ],
+  "pagination": { "page": 1, "per_page": 20, "total": 3, "total_pages": 1 }
+}
+```
+Optional filters: `status`, `campaign_type`.
+
+#### GET /campaigns/:id
+```json
+// Response 200
+{
+  "id": "uuid",
+  "name": "March Social Action",
+  "description": "Community outreach at Jabaquara",
+  "campaign_type": "SOCIAL_ACTION",
+  "status": "ACTIVE",
+  "start_date": "2026-07-10T00:00:00Z",
+  "end_date": "2026-07-12T00:00:00Z",
+  "location_name": "Community Center - Jabaquara",
+  "location_address": "Rua Example, 123",
+  "coordinator_id": "uuid",
+  "created_at": "2026-07-01T10:30:00Z",
+  "updated_at": "2026-07-01T10:30:00Z",
+  "team": [
+    {
+      "person_id": "uuid",
+      "person_name": "Maria Silva",
+      "role_in_campaign": "VOLUNTEER",
+      "assigned_at": "2026-07-01T11:00:00Z"
+    }
+  ]
+}
+```
+
+#### PUT /campaigns/:id
+Accepts the same body as POST plus `status`
+(`PLANNED | ACTIVE | COMPLETED | CANCELLED`). Responds 200 with the updated
+detail (without `team`). Invalid enum values or dates respond 400 `validation_error`.
+
+#### POST /campaigns/:id/team
+```json
+// Request
+{ "person_id": "uuid", "role_in_campaign": "VOLUNTEER" }
+
+// Response 201
+{
+  "person_id": "uuid",
+  "person_name": "Maria Silva",
+  "role_in_campaign": "VOLUNTEER",
+  "assigned_at": "2026-07-01T11:00:00Z"
+}
+```
+`role_in_campaign` ∈ `COORDINATOR | PROFESSIONAL | VOLUNTEER | SUPPORT`.
+Duplicate campaign+person responds 409 `duplicate`. A `person_id` not visible in
+the caller's campus responds 400 `validation_error` (generic message).
+
+#### DELETE /campaigns/:id/team/:personId
+Responds 204 on success, 404 if the assignment does not exist.
+
+Campaign error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `invalid_request` | Malformed JSON body |
+| 400 | `invalid_id` | Malformed campaign/person id in the path |
+| 400 | `validation_error` | Missing/invalid fields, inverted dates, or a reference not resolvable in the caller's campus (generic — no cross-campus disclosure) |
+| 400 | `invalid_status` / `invalid_campaign_type` | Unknown list filter value |
+| 403 | `forbidden` | Auth token lacks resolvable `campus_id` |
+| 404 | `not_found` | Campaign (or assignment) not visible in the caller's campus |
+| 409 | `duplicate` | Person already assigned to the campaign |
 
 ---
 
@@ -659,7 +774,7 @@ Error responses:
 |--------|------|------|-------|-------------|--------|
 | GET | `/reports/attendances` | Yes | Coordinator+ | Attendance summary | **Phase 1 (Sprint 4)** |
 | GET | `/reports/attendances/export` | Yes | Coordinator+ | CSV export | **Phase 1 (Sprint 4)** |
-| GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics | Phase 2 |
+| GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics | **Phase 2 (Sprint 5)** |
 | GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs | Phase 2 |
 
 #### GET /reports/attendances?start=2026-01-01&end=2026-03-31
@@ -711,6 +826,30 @@ attendance_id,attendance_date,person_name,person_document,service_type,status,pr
 
 Dates are emitted as RFC3339 UTC. `person_document` and `professional_name`
 are empty strings when not set.
+
+#### GET /reports/campaigns/:id
+
+Campus-scoped campaign metrics. A campaign id outside the caller's campus
+responds 404 (`not_found`).
+
+```json
+// Response 200
+{
+  "campaign_id": "uuid",
+  "campaign_name": "March Social Action",
+  "status": "ACTIVE",
+  "period": { "start_date": "2026-07-10", "end_date": "2026-07-12" },
+  "triage_count": 42,
+  "attendance_total": 61,
+  "attendances_by_status": {
+    "COMPLETED": 50,
+    "SCHEDULED": 4,
+    "IN_PROGRESS": 5,
+    "CANCELLED": 2
+  },
+  "team_size": 12
+}
+```
 
 ---
 

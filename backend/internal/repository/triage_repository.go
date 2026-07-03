@@ -31,13 +31,13 @@ func (r *TriageRepository) Create(ctx context.Context, triage domain.Triage) (*d
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const triageQuery = `
-		INSERT INTO triage (id, person_id, campus_id, main_complaint, assigned_team,
+		INSERT INTO triage (id, person_id, campaign_id, campus_id, main_complaint, assigned_team,
 		                    triage_date, location, triaged_by, notes, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING created_at, updated_at`
 
 	if err := tx.QueryRow(ctx, triageQuery,
-		triage.ID, triage.PersonID, triage.CampusID, triage.MainComplaint,
+		triage.ID, triage.PersonID, triage.CampaignID, triage.CampusID, triage.MainComplaint,
 		triage.AssignedTeam, triage.TriageDate, triage.Location, triage.TriagedBy,
 		triage.Notes, triage.IsActive,
 	).Scan(&triage.CreatedAt, &triage.UpdatedAt); err != nil {
@@ -79,13 +79,13 @@ func (r *TriageRepository) CreateWithSync(ctx context.Context, triage domain.Tri
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	const q = `
-		INSERT INTO triage (id, person_id, campus_id, main_complaint, assigned_team,
+		INSERT INTO triage (id, person_id, campaign_id, campus_id, main_complaint, assigned_team,
 		                    triage_date, location, triaged_by, notes, is_active, sync_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at`
 
 	if err := tx.QueryRow(ctx, q,
-		triage.ID, triage.PersonID, triage.CampusID, triage.MainComplaint,
+		triage.ID, triage.PersonID, triage.CampaignID, triage.CampusID, triage.MainComplaint,
 		triage.AssignedTeam, triage.TriageDate, triage.Location, triage.TriagedBy,
 		triage.Notes, triage.IsActive, syncID,
 	).Scan(&triage.CreatedAt, &triage.UpdatedAt); err != nil {
@@ -107,7 +107,7 @@ func (r *TriageRepository) CreateWithSync(ctx context.Context, triage domain.Tri
 // existence for idempotency lookups.
 func (r *TriageRepository) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Triage, error) {
 	const q = `
-		SELECT id, person_id, campus_id, main_complaint, assigned_team,
+		SELECT id, person_id, campaign_id, campus_id, main_complaint, assigned_team,
 		       triage_date, location, triaged_by, notes, is_active,
 		       created_at, updated_at
 		FROM triage
@@ -115,7 +115,7 @@ func (r *TriageRepository) FindBySyncID(ctx context.Context, syncID, campusID uu
 
 	var t domain.Triage
 	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
-		&t.ID, &t.PersonID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
+		&t.ID, &t.PersonID, &t.CampaignID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
 		&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
 		&t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
@@ -131,7 +131,7 @@ func (r *TriageRepository) FindBySyncID(ctx context.Context, syncID, campusID uu
 // updated_at, bounded by limit.
 func (r *TriageRepository) ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Triage, error) {
 	const q = `
-		SELECT id, person_id, campus_id, main_complaint, assigned_team,
+		SELECT id, person_id, campaign_id, campus_id, main_complaint, assigned_team,
 		       triage_date, location, triaged_by, notes, is_active,
 		       created_at, updated_at
 		FROM triage
@@ -149,7 +149,7 @@ func (r *TriageRepository) ListUpdatedSince(ctx context.Context, campusID uuid.U
 	for rows.Next() {
 		var t domain.Triage
 		if err := rows.Scan(
-			&t.ID, &t.PersonID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
+			&t.ID, &t.PersonID, &t.CampaignID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
 			&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
 			&t.CreatedAt, &t.UpdatedAt,
 		); err != nil {
@@ -166,7 +166,7 @@ func (r *TriageRepository) ListUpdatedSince(ctx context.Context, campusID uuid.U
 // FindByID returns a triage by ID, scoped to campus, with its requested services.
 func (r *TriageRepository) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Triage, error) {
 	const q = `
-		SELECT id, person_id, campus_id, main_complaint, assigned_team,
+		SELECT id, person_id, campaign_id, campus_id, main_complaint, assigned_team,
 		       triage_date, location, triaged_by, notes, is_active,
 		       created_at, updated_at
 		FROM triage
@@ -174,7 +174,7 @@ func (r *TriageRepository) FindByID(ctx context.Context, id, campusID uuid.UUID)
 
 	var t domain.Triage
 	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
-		&t.ID, &t.PersonID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
+		&t.ID, &t.PersonID, &t.CampaignID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
 		&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
 		&t.CreatedAt, &t.UpdatedAt,
 	); err != nil {

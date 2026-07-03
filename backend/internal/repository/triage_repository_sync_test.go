@@ -35,11 +35,11 @@ func TestTriageRepository_FindBySyncID(t *testing.T) {
 		mock.ExpectQuery(`SELECT .*FROM triage.*WHERE sync_id = \$1 AND campus_id = \$2`).
 			WithArgs(syncID, campusID).
 			WillReturnRows(pgxmock.NewRows([]string{
-				"id", "person_id", "campus_id", "main_complaint", "assigned_team",
+				"id", "person_id", "campaign_id", "campus_id", "main_complaint", "assigned_team",
 				"triage_date", "location", "triaged_by", "notes", "is_active",
 				"created_at", "updated_at",
 			}).AddRow(
-				triageID, personID, campusID, "Headache", nil,
+				triageID, personID, nil, campusID, "Headache", nil,
 				now, nil, personID, nil, true,
 				now, now,
 			))
@@ -79,7 +79,7 @@ func TestTriageRepository_CreateWithSync(t *testing.T) {
 		mock.ExpectBegin()
 		mock.ExpectQuery(`INSERT INTO triage.*sync_id.*RETURNING created_at, updated_at`).
 			WithArgs(
-				triageID, personID, campusID, "Headache", (*uuid.UUID)(nil),
+				triageID, personID, (*uuid.UUID)(nil), campusID, "Headache", (*uuid.UUID)(nil),
 				now, (*string)(nil), triagedBy, (*string)(nil), true, syncID,
 			).
 			WillReturnRows(pgxmock.NewRows([]string{"created_at", "updated_at"}).AddRow(now, now))
@@ -117,11 +117,11 @@ func TestTriageRepository_ListUpdatedSince(t *testing.T) {
 		mock.ExpectQuery(`SELECT .*FROM triage.*WHERE campus_id = \$1 AND updated_at > \$2.*ORDER BY updated_at ASC.*LIMIT \$3`).
 			WithArgs(campusID, since, 100).
 			WillReturnRows(pgxmock.NewRows([]string{
-				"id", "person_id", "campus_id", "main_complaint", "assigned_team",
+				"id", "person_id", "campaign_id", "campus_id", "main_complaint", "assigned_team",
 				"triage_date", "location", "triaged_by", "notes", "is_active",
 				"created_at", "updated_at",
 			}).AddRow(
-				triageID, personID, campusID, "Headache", nil,
+				triageID, personID, nil, campusID, "Headache", nil,
 				updatedAt, nil, personID, nil, true,
 				updatedAt, updatedAt,
 			))

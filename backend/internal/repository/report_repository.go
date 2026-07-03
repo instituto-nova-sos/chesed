@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -192,4 +195,72 @@ func (r *ReportRepository) StreamAttendancesForCSV(
 		}
 	}
 	return rows.Err()
+}
+
+// BuildCampaignMetrics aggregates per-campaign counters. The campaign lookup
+// itself enforces the campus boundary: a campaign outside the caller's campus
+// yields ErrNotFound with no existence disclosure.
+func (r *ReportRepository) BuildCampaignMetrics(ctx context.Context, campaignID, campusID uuid.UUID) (*domain.CampaignMetrics, error) {
+	m := &domain.CampaignMetrics{AttendancesByStatus: map[string]int{}}
+
+	const campaignQuery = `
+		SELECT id, name, status, start_date, end_date
+		FROM campaign
+		WHERE id = $1 AND campus_id = $2`
+	if err := r.pool.QueryRow(ctx, campaignQuery, campaignID, campusID).Scan(
+		&m.CampaignID, &m.CampaignName, &m.Status, &m.Period.StartDate, &m.Period.EndDate,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("reportRepository.BuildCampaignMetrics: campaign: %w", err)
+	}
+
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM triage WHERE campaign_id = $1 AND campus_id = $2`,
+		campaignID, campusID,
+	).Scan(&m.TriageCount); err != nil {
+		return nil, fmt.Errorf("reportRepository.BuildCampaignMetrics: triages: %w", err)
+	}
+
+	if err := r.fetchCampaignAttendances(ctx, campaignID, campusID, m); err != nil {
+		return nil, err
+	}
+
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM campaign_team WHERE campaign_id = $1`,
+		campaignID,
+	).Scan(&m.TeamSize); err != nil {
+		return nil, fmt.Errorf("reportRepository.BuildCampaignMetrics: team: %w", err)
+	}
+
+	return m, nil
+}
+
+func (r *ReportRepository) fetchCampaignAttendances(ctx context.Context, campaignID, campusID uuid.UUID, m *domain.CampaignMetrics) error {
+	rows, err := r.pool.Query(ctx,
+		`SELECT status, COUNT(*)::int
+		 FROM attendance
+		 WHERE campaign_id = $1 AND campus_id = $2
+		 GROUP BY status`,
+		campaignID, campusID,
+	)
+	if err != nil {
+		return fmt.Errorf("reportRepository.BuildCampaignMetrics: attendances: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return fmt.Errorf("reportRepository.BuildCampaignMetrics: scan: %w", err)
+		}
+		m.AttendancesByStatus[status] = count
+		m.AttendanceTotal += count
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reportRepository.BuildCampaignMetrics: rows: %w", err)
+	}
+	return nil
 }

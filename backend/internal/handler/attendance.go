@@ -39,6 +39,10 @@ func (h *AttendanceHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "forbidden", "missing campus context")
 			return
 		}
+		if errors.Is(err, domain.ErrValidation) {
+			writeError(w, http.StatusBadRequest, "validation_error", "invalid reference or field values")
+			return
+		}
 		slog.ErrorContext(r.Context(), "attendanceHandler.Create: failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create attendance")
 		return

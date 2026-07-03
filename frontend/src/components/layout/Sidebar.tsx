@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { path: '/persons', label: 'Pessoas', icon: '👤' },
   { path: '/triages', label: 'Triagens', icon: '📋' },
   { path: '/attendances', label: 'Atendimentos', icon: '🩺' },
+  { path: '/campaigns', label: 'Campanhas', icon: '📣' },
   { path: '/reports', label: 'Relatórios', icon: '📈' },
   { path: '/campuses', label: 'Campus', icon: '🏢' },
 ];

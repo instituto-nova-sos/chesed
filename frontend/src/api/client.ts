@@ -31,6 +31,10 @@ export async function apiClient<T>(path: string, options?: RequestInit): Promise
     throw new ApiError(response.status, body);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 

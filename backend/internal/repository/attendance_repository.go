@@ -25,14 +25,14 @@ func NewAttendanceRepository(pool Querier) *AttendanceRepository {
 // Create inserts an attendance.
 func (r *AttendanceRepository) Create(ctx context.Context, a domain.Attendance) (*domain.Attendance, error) {
 	const q = `
-		INSERT INTO attendance (id, person_id, triage_id, campus_id, service_type_id,
+		INSERT INTO attendance (id, person_id, triage_id, campaign_id, campus_id, service_type_id,
 		                        professional_id, status, attendance_date, observations,
 		                        recommendations, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at`
 
 	if err := r.pool.QueryRow(ctx, q,
-		a.ID, a.PersonID, a.TriageID, a.CampusID, a.ServiceTypeID,
+		a.ID, a.PersonID, a.TriageID, a.CampaignID, a.CampusID, a.ServiceTypeID,
 		a.ProfessionalID, a.Status, a.AttendanceDate, a.Observations,
 		a.Recommendations, a.CreatedBy,
 	).Scan(&a.CreatedAt, &a.UpdatedAt); err != nil {
@@ -45,14 +45,14 @@ func (r *AttendanceRepository) Create(ctx context.Context, a domain.Attendance) 
 // Idempotency is enforced at the DB layer by uq_attendance_sync_id.
 func (r *AttendanceRepository) CreateWithSync(ctx context.Context, a domain.Attendance, syncID uuid.UUID) (*domain.Attendance, error) {
 	const q = `
-		INSERT INTO attendance (id, person_id, triage_id, campus_id, service_type_id,
+		INSERT INTO attendance (id, person_id, triage_id, campaign_id, campus_id, service_type_id,
 		                        professional_id, status, attendance_date, observations,
 		                        recommendations, created_by, sync_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at, updated_at`
 
 	if err := r.pool.QueryRow(ctx, q,
-		a.ID, a.PersonID, a.TriageID, a.CampusID, a.ServiceTypeID,
+		a.ID, a.PersonID, a.TriageID, a.CampaignID, a.CampusID, a.ServiceTypeID,
 		a.ProfessionalID, a.Status, a.AttendanceDate, a.Observations,
 		a.Recommendations, a.CreatedBy, syncID,
 	).Scan(&a.CreatedAt, &a.UpdatedAt); err != nil {
@@ -64,7 +64,7 @@ func (r *AttendanceRepository) CreateWithSync(ctx context.Context, a domain.Atte
 // FindBySyncID returns an attendance by sync_id, scoped to campus.
 func (r *AttendanceRepository) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Attendance, error) {
 	const q = `
-		SELECT id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		SELECT id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		       status, attendance_date, observations, recommendations,
 		       created_at, updated_at, created_by
 		FROM attendance
@@ -72,7 +72,7 @@ func (r *AttendanceRepository) FindBySyncID(ctx context.Context, syncID, campusI
 
 	var a domain.Attendance
 	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
-		&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
 	); err != nil {
@@ -88,7 +88,7 @@ func (r *AttendanceRepository) FindBySyncID(ctx context.Context, syncID, campusI
 // by updated_at, bounded by limit.
 func (r *AttendanceRepository) ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Attendance, error) {
 	const q = `
-		SELECT id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		SELECT id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		       status, attendance_date, observations, recommendations,
 		       created_at, updated_at, created_by
 		FROM attendance
@@ -106,7 +106,7 @@ func (r *AttendanceRepository) ListUpdatedSince(ctx context.Context, campusID uu
 	for rows.Next() {
 		var a domain.Attendance
 		if err := rows.Scan(
-			&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+			&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 			&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 			&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
 		); err != nil {
@@ -123,7 +123,7 @@ func (r *AttendanceRepository) ListUpdatedSince(ctx context.Context, campusID uu
 // FindByID returns an attendance by ID scoped to campus.
 func (r *AttendanceRepository) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Attendance, error) {
 	const q = `
-		SELECT id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		SELECT id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		       status, attendance_date, observations, recommendations,
 		       created_at, updated_at, created_by
 		FROM attendance
@@ -131,7 +131,7 @@ func (r *AttendanceRepository) FindByID(ctx context.Context, id, campusID uuid.U
 
 	var a domain.Attendance
 	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
-		&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
 	); err != nil {
@@ -271,13 +271,13 @@ func (r *AttendanceRepository) Transition(ctx context.Context, t domain.Attendan
 		UPDATE attendance
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2 AND status = $3
-		RETURNING id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		RETURNING id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		          status, attendance_date, observations, recommendations,
 		          created_at, updated_at, created_by`
 
 	var a domain.Attendance
 	if err := tx.QueryRow(ctx, updateQuery, t.ToStatus, t.AttendanceID, t.FromStatus).Scan(
-		&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
 	); err != nil {
@@ -310,13 +310,13 @@ func (r *AttendanceRepository) UpdateNotes(ctx context.Context, id, campusID uui
 		UPDATE attendance
 		SET observations = $1, recommendations = $2, updated_at = NOW()
 		WHERE id = $3 AND campus_id = $4
-		RETURNING id, person_id, triage_id, campus_id, service_type_id, professional_id,
+		RETURNING id, person_id, triage_id, campaign_id, campus_id, service_type_id, professional_id,
 		          status, attendance_date, observations, recommendations,
 		          created_at, updated_at, created_by`
 
 	var a domain.Attendance
 	if err := r.pool.QueryRow(ctx, q, observations, recommendations, id, campusID).Scan(
-		&a.ID, &a.PersonID, &a.TriageID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
+		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
 	); err != nil {

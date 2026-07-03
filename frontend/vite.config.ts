@@ -43,7 +43,8 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: ({ url, request }) =>
-              request.method === 'GET' && /^\/api\/v1\/(service-types|campuses)/.test(url.pathname),
+              request.method === 'GET' &&
+              /^\/api\/v1\/(service-types|campuses|campaigns)/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'chesed-reference-get',

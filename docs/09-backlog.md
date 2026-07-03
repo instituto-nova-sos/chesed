@@ -523,15 +523,95 @@
 
 ## E07: Campaign and Event Management (Phase 2)
 
-**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete (met — Sprints 1-4 done)
+**Target**: Sprint 5
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Phase 2 kickoff (Sprint 5): stories detailed per the phase-boundary rule.
+> Campaign management is an **online-only write surface** (create/edit require
+> connectivity); campaign lists are read-only reference data offline, served by
+> the service worker's NetworkFirst cache like `/service-types` and `/campuses`
+> (`docs/12-offline-sync-strategy.md`). Offline-created triages/attendances do
+> not carry campaign links in this sprint; extending the sync payload with
+> `campaign_id` is a documented follow-up. Specs: table DDL in
+> `docs/10-data-model.md` (campaign, campaign_team — the `campaign_id` columns
+> on triage/attendance already exist from Phase 1, without FK), endpoints in
+> `docs/11-api-design.md`, permissions in `docs/16-iam-and-access-control.md`.
 
-**S07.1** - Create/edit/list campaigns
-**S07.2** - Assign team members to campaigns
-**S07.3** - Link triage/attendance to campaigns
-**S07.4** - Campaign dashboard (metrics per campaign)
-**S07.5** - React campaign pages
+### Stories
+
+**S07.1 - Create/edit/list campaigns**
+- status: done
+- depends_on: [S02.5, S02.6]
+- covers_requirements: [RF-36, RF-39]
+- parallel_with: [S07.5]
+- size: M
+- offline: Online-only writes; the campaign list GET is cached by the service worker as read-only reference data for offline viewing.
+- As a coordinator, I can register and manage campaigns (social actions) with type, dates, location, and responsible coordinator.
+- Acceptance criteria:
+  - **Given** a COORDINATOR or ADMIN user **when** they POST `/api/v1/campaigns` with a valid name, type, and start date **then** the campaign is created in the caller's campus with status `PLANNED`, the response is 201 with the created record, and an audit CREATE entry is written.
+  - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY user **when** they POST or PUT a campaign **then** the request is rejected with 403 and an `ACCESS_DENIED` audit entry is written.
+  - **Given** campaigns exist in two campuses **when** a user of campus A lists campaigns **then** only campus A campaigns are returned, with pagination and optional `status` filter.
+  - **Given** a campaign in the caller's campus **when** a COORDINATOR updates its fields or status via PUT **then** the changes persist, `updated_at` advances, and an audit UPDATE entry records old and new values.
+  - **Given** an invalid `campaign_type`, `status`, or a missing required field **when** the request is validated **then** the API responds 400 `validation_error` without touching the database.
+  - **Given** a campaign id belonging to another campus **when** it is fetched or updated **then** the API responds 404 (no cross-campus existence disclosure).
+
+**S07.2 - Assign team members to campaigns**
+- status: done
+- depends_on: [S07.1, S03.1]
+- covers_requirements: [RF-38, RF-39]
+- parallel_with: [S07.3]
+- size: M
+- offline: Online-only; team management requires connectivity.
+- As a coordinator, I can record which persons participate in a campaign and their role in it.
+- Acceptance criteria:
+  - **Given** a COORDINATOR user and a person visible in their campus **when** they POST `/api/v1/campaigns/:id/team` with `person_id` and `role_in_campaign` **then** the assignment is created (201), appears in the campaign detail team list, and an audit entry is written.
+  - **Given** a person already assigned to the campaign **when** the same assignment is posted again **then** the API responds 409 `duplicate` (unique campaign+person) and no duplicate row exists.
+  - **Given** a `person_id` that does not exist in the caller's campus **when** the assignment is posted **then** the API responds 400 `validation_error` with a generic message (no cross-campus existence disclosure).
+  - **Given** an invalid `role_in_campaign` **when** the assignment is posted **then** the API responds 400 `validation_error`.
+  - **Given** an existing assignment **when** a COORDINATOR deletes `/api/v1/campaigns/:id/team/:personId` **then** the member is removed (204), the detail team list no longer includes them, and an audit entry is written.
+
+**S07.3 - Link triage/attendance to campaigns**
+- status: done
+- depends_on: [S07.1, S04.1, S04.2]
+- covers_requirements: [RF-26, RF-37]
+- parallel_with: [S07.2]
+- size: S
+- offline: Not extended to the offline sync payload in this sprint (follow-up); online create paths only.
+- As a professional, I can record which campaign a triage or attendance belongs to.
+- Acceptance criteria:
+  - **Given** the existing `campaign_id` columns on `triage` and `attendance` **when** the Sprint 5 migration runs **then** both columns gain a foreign key to `campaign(id)` and an index, and existing rows (all NULL) are unaffected.
+  - **Given** a campaign in the caller's campus **when** a triage or attendance is created online with `campaign_id` **then** the link is persisted and returned in detail responses.
+  - **Given** a `campaign_id` not visible in the caller's campus (or nonexistent) **when** a triage or attendance is created **then** the API responds 400 `validation_error` with a generic message and persists nothing.
+  - **Given** a triage or attendance without a campaign **when** it is created **then** the record remains valid (walk-in flows keep working; the link is optional).
+
+**S07.4 - Campaign dashboard (metrics per campaign)**
+- status: done
+- depends_on: [S07.1, S07.3, S06.1]
+- covers_requirements: [RF-43]
+- parallel_with: [S07.5]
+- size: M
+- offline: Online-only read surface, same policy as E06 reports.
+- As a coordinator, I can see per-campaign metrics: triages, attendances by status, and team size.
+- Acceptance criteria:
+  - **Given** a campaign in the caller's campus with linked triages and attendances **when** a COORDINATOR calls `GET /api/v1/reports/campaigns/:id` **then** the response contains the triage count, attendance counts grouped by status, and the team member count, all scoped to the caller's campus.
+  - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY user **when** they call the campaign metrics endpoint **then** the API responds 403.
+  - **Given** a campaign id belonging to another campus **when** metrics are requested **then** the API responds 404.
+  - **Given** the campaign detail page **when** it renders for a COORDINATOR or ADMIN **then** the dashboard section shows the metrics; **when** the device is offline **then** the section shows a clear offline message instead of stale numbers.
+
+**S07.5 - React campaign pages**
+- status: done
+- depends_on: [S07.1, S07.2, S02.8]
+- covers_requirements: [RF-36, RF-38, RF-39]
+- parallel_with: [S07.1, S07.4]
+- size: L
+- offline: List page renders from the service worker cache when offline; create/edit/team actions are disabled offline with a clear message.
+- As a user, I can browse campaigns and, as a coordinator, manage them and their teams from the browser.
+- Acceptance criteria:
+  - **Given** the campaign list page **when** it loads **then** campaigns render with name, type, status, and dates, with a status filter and pagination; empty state is handled.
+  - **Given** a COORDINATOR or ADMIN **when** they submit the campaign form (create or edit) with valid data **then** the campaign is saved via the API and the user lands on the detail page; validation and API errors render as readable Portuguese messages.
+  - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY **when** they view campaign pages **then** create/edit/team controls are not rendered (read-only view).
+  - **Given** the campaign detail page **when** a COORDINATOR adds or removes a team member **then** the team list updates and API errors (409 duplicate, 422 validation) surface as readable Portuguese messages.
+  - **Given** a 320px viewport **when** any campaign page renders **then** the layout remains usable (mobile-first).
 
 ---
 

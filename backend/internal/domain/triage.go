@@ -10,6 +10,7 @@ import (
 type Triage struct {
 	ID             uuid.UUID   `json:"id"`
 	PersonID       uuid.UUID   `json:"person_id"`
+	CampaignID     *uuid.UUID  `json:"campaign_id,omitempty"`
 	CampusID       uuid.UUID   `json:"campus_id"`
 	MainComplaint  string      `json:"main_complaint"`
 	AssignedTeam   *uuid.UUID  `json:"assigned_team,omitempty"`

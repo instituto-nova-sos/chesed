@@ -44,3 +44,15 @@ export type {
   AttendanceReport,
   AttendanceReportParams,
 } from './report';
+
+export type {
+  Campaign,
+  CampaignTeamMember,
+  CampaignDetail,
+  CampaignListItem,
+  CampaignListResponse,
+  CampaignInput,
+  UpdateCampaignInput,
+  AddTeamMemberInput,
+  CampaignMetrics,
+} from './campaign';

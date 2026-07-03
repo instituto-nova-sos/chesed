@@ -25,6 +25,7 @@ type AttendanceRepository interface {
 type CreateAttendanceInput struct {
 	PersonID        string  `json:"person_id" validate:"required,uuid"`
 	TriageID        *string `json:"triage_id" validate:"omitempty,uuid"`
+	CampaignID      *string `json:"campaign_id" validate:"omitempty,uuid"`
 	ServiceTypeID   string  `json:"service_type_id" validate:"required,uuid"`
 	ProfessionalID  string  `json:"professional_id" validate:"required,uuid"`
 	AttendanceDate  *string `json:"attendance_date" validate:"omitempty"`
@@ -46,13 +47,14 @@ type TransitionAttendanceInput struct {
 
 // AttendanceService handles attendance business logic.
 type AttendanceService struct {
-	repo     AttendanceRepository
-	auditSvc *AuditService
+	repo         AttendanceRepository
+	campaignRepo CampaignRefRepository
+	auditSvc     *AuditService
 }
 
 // NewAttendanceService creates a new AttendanceService.
-func NewAttendanceService(repo AttendanceRepository, auditSvc *AuditService) *AttendanceService {
-	return &AttendanceService{repo: repo, auditSvc: auditSvc}
+func NewAttendanceService(repo AttendanceRepository, campaignRepo CampaignRefRepository, auditSvc *AuditService) *AttendanceService {
+	return &AttendanceService{repo: repo, campaignRepo: campaignRepo, auditSvc: auditSvc}
 }
 
 // CreateAttendance creates a new attendance in SCHEDULED status.
@@ -70,6 +72,12 @@ func (s *AttendanceService) CreateAttendance(ctx context.Context, input CreateAt
 	if err != nil {
 		return nil, err
 	}
+
+	campaignID, err := resolveCampaignRef(ctx, s.campaignRepo, input.CampaignID, claims.CampusID)
+	if err != nil {
+		return nil, fmt.Errorf("attendanceService.CreateAttendance: %w", err)
+	}
+	att.CampaignID = campaignID
 
 	created, err := s.repo.Create(ctx, att)
 	if err != nil {
