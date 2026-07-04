@@ -359,6 +359,125 @@ func TestSyncPush_CrossCampusPersonReferenceRejected(t *testing.T) {
 	assert.Equal(t, 0, count, "no triage row may be persisted for a cross-campus reference")
 }
 
+// TestSyncPush_TriageWithCampaignLinkPersisted proves the S07.6 contract: an
+// offline-created triage may carry an optional campaign_id, and the link is
+// persisted campus-scoped through the real HTTP → service → Postgres path.
+func TestSyncPush_TriageWithCampaignLinkPersisted(t *testing.T) {
+	h := freshHarness(t)
+	ctx := context.Background()
+
+	personID := seedPerson(t, h, h.campusID, "Sync Campaign Person", "30230340460")
+	campaignID := seedCampaign(t, h, h.campusID, "Sync Campaign")
+
+	syncID := uuid.New()
+	payload := domain.SyncPushRequest{Records: []domain.SyncPushRecord{{
+		EntityType: domain.SyncEntityTriage,
+		SyncID:     syncID,
+		Data: map[string]any{
+			"person_id":      personID.String(),
+			"main_complaint": "linked to campaign",
+			"campaign_id":    campaignID.String(),
+		},
+	}}}
+
+	rec := h.doRequest(h.authedRequest(postJSON(t, "/api/v1/sync/push", payload)))
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	var resp domain.SyncPushResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusCreated, resp.Results[0].Status, "message=%s", resp.Results[0].Message)
+
+	var dbCampaignID *uuid.UUID
+	err := h.pool.QueryRow(ctx,
+		`SELECT campaign_id FROM triage WHERE sync_id = $1`, syncID,
+	).Scan(&dbCampaignID)
+	require.NoError(t, err, "expected one triage row keyed by sync_id")
+	require.NotNil(t, dbCampaignID, "campaign_id must be persisted from the sync payload")
+	assert.Equal(t, campaignID, *dbCampaignID)
+}
+
+// TestSyncPush_AttendanceWithCampaignLinkPersisted is the attendance
+// counterpart of the triage campaign-link test above.
+func TestSyncPush_AttendanceWithCampaignLinkPersisted(t *testing.T) {
+	h := freshHarness(t)
+	ctx := context.Background()
+
+	personID := seedPerson(t, h, h.campusID, "Sync Att Person", "30230340461")
+	professionalID := seedPerson(t, h, h.campusID, "Sync Att Pro", "30230340462")
+	campaignID := seedCampaign(t, h, h.campusID, "Sync Att Campaign")
+	var serviceTypeID uuid.UUID
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT id FROM service_type LIMIT 1`).Scan(&serviceTypeID))
+
+	syncID := uuid.New()
+	payload := domain.SyncPushRequest{Records: []domain.SyncPushRecord{{
+		EntityType: domain.SyncEntityAttendance,
+		SyncID:     syncID,
+		Data: map[string]any{
+			"person_id":       personID.String(),
+			"service_type_id": serviceTypeID.String(),
+			"professional_id": professionalID.String(),
+			"status":          "SCHEDULED",
+			"campaign_id":     campaignID.String(),
+		},
+	}}}
+
+	rec := h.doRequest(h.authedRequest(postJSON(t, "/api/v1/sync/push", payload)))
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	var resp domain.SyncPushResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusCreated, resp.Results[0].Status, "message=%s", resp.Results[0].Message)
+
+	var dbCampaignID *uuid.UUID
+	err := h.pool.QueryRow(ctx,
+		`SELECT campaign_id FROM attendance WHERE sync_id = $1`, syncID,
+	).Scan(&dbCampaignID)
+	require.NoError(t, err, "expected one attendance row keyed by sync_id")
+	require.NotNil(t, dbCampaignID, "campaign_id must be persisted from the sync payload")
+	assert.Equal(t, campaignID, *dbCampaignID)
+}
+
+// TestSyncPush_CrossCampusCampaignReferenceRejected extends the T3 reference
+// guard to campaign links: a pushed triage referencing a campaign of another
+// campus fails as a per-record error and persists nothing.
+func TestSyncPush_CrossCampusCampaignReferenceRejected(t *testing.T) {
+	h := freshHarness(t)
+	ctx := context.Background()
+
+	personID := seedPerson(t, h, h.campusID, "Sync Guard Person", "30230340463")
+	secondCampus := seedSecondCampus(t, h)
+	foreignCampaign := seedCampaign(t, h, secondCampus, "Foreign Sync Campaign")
+
+	syncID := uuid.New()
+	payload := domain.SyncPushRequest{Records: []domain.SyncPushRecord{{
+		EntityType: domain.SyncEntityTriage,
+		SyncID:     syncID,
+		Data: map[string]any{
+			"person_id":      personID.String(),
+			"main_complaint": "cross-campus campaign attempt",
+			"campaign_id":    foreignCampaign.String(),
+		},
+	}}}
+
+	rec := h.doRequest(h.authedRequest(postJSON(t, "/api/v1/sync/push", payload)))
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	var resp domain.SyncPushResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, domain.SyncStatusError, resp.Results[0].Status,
+		"cross-campus campaign reference must be rejected")
+
+	var count int
+	err := h.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM triage WHERE sync_id = $1`, syncID,
+	).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no triage row may be persisted for a cross-campus campaign reference")
+}
+
 // --- helpers ----------------------------------------------------------------
 
 func postJSON(t *testing.T, path string, payload any) *http.Request {

@@ -121,6 +121,10 @@ class OfflineDB extends Dexie {
 | Service Types | No (reference data) | No | Yes (pre-cached) |
 | Campaigns | No | No | Yes (pre-cached) |
 
+Offline-created triages and attendances may carry an optional `campaign_id`
+(picked from the pre-cached campaign list); it rides inside the sync queue
+`data` payload and is validated campus-scoped, per record, on push (S07.6).
+
 ### Pre-caching Strategy
 
 When the app first connects (or when explicitly triggered):

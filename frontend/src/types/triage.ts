@@ -4,6 +4,7 @@ export interface Triage {
   id: string;
   person_id: string;
   campus_id: string;
+  campaign_id?: string;
   main_complaint: string;
   assigned_team?: string;
   triage_date: string;
@@ -32,6 +33,7 @@ export interface TriageListResponse {
 
 export interface CreateTriageInput {
   person_id: string;
+  campaign_id?: string;
   main_complaint: string;
   assigned_team?: string;
   triage_date?: string;
@@ -40,4 +42,6 @@ export interface CreateTriageInput {
   requested_service_types?: string[];
 }
 
-export type UpdateTriageInput = Omit<CreateTriageInput, 'person_id'>;
+// The campaign link is set at creation only; the backend update input does
+// not accept campaign_id, so the update type excludes it.
+export type UpdateTriageInput = Omit<CreateTriageInput, 'person_id' | 'campaign_id'>;

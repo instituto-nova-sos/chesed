@@ -57,3 +57,30 @@ export function useCampaigns(initialParams: ListCampaignsParams = {}) {
 
   return { campaigns, pagination, isLoading, error, goToPage, filterByStatus };
 }
+
+const LINKABLE_CAMPAIGN_STATUSES = new Set(['PLANNED', 'ACTIVE']);
+
+// Loads the campus campaigns a triage/attendance can be linked to. Campaigns
+// are campus-scoped and few, so a single page covers them; the link is
+// optional context, so a fetch failure degrades to an empty list instead of
+// surfacing an error that would block the create form.
+export function useLinkableCampaigns(): CampaignListItem[] {
+  const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCampaigns({ per_page: 100 })
+      .then((res) => {
+        if (cancelled) return;
+        setCampaigns(res.data.filter((c) => LINKABLE_CAMPAIGN_STATUSES.has(c.status)));
+      })
+      .catch(() => {
+        // Selector simply stays empty; creating without a campaign is valid.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return campaigns;
+}

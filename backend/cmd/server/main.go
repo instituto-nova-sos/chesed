@@ -118,7 +118,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
-		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
+		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)),
 		userSvc:        userSvc,
 		auditSvc:       auditSvc,
 		agreementRepo:  agreementRepo,

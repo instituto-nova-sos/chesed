@@ -123,4 +123,22 @@ describe('saveAttendanceOffline', () => {
     expect(cached.service_type).toBe('Psicologia');
     expect(cached.status).toBe('SCHEDULED');
   });
+
+  it('carries campaign_id into the sync-queue payload when provided', async () => {
+    const withCampaign: CreateAttendanceInput = {
+      person_id: 'person-1',
+      service_type_id: 'svc-1',
+      professional_id: 'prof-1',
+      campaign_id: 'camp-1',
+    };
+    await saveAttendanceOffline(withCampaign);
+    const queued = await db.syncQueue.toArray();
+    expect((queued[0]?.data as { campaign_id?: string }).campaign_id).toBe('camp-1');
+  });
+
+  it('omits campaign_id from the sync-queue payload when not provided', async () => {
+    await saveAttendanceOffline(input);
+    const queued = await db.syncQueue.toArray();
+    expect('campaign_id' in (queued[0]?.data ?? {})).toBe(false);
+  });
 });

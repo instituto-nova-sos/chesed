@@ -532,7 +532,7 @@
 > the service worker's NetworkFirst cache like `/service-types` and `/campuses`
 > (`docs/12-offline-sync-strategy.md`). Offline-created triages/attendances do
 > not carry campaign links in this sprint; extending the sync payload with
-> `campaign_id` is a documented follow-up. Specs: table DDL in
+> `campaign_id` is covered by the follow-up story S07.6. Specs: table DDL in
 > `docs/10-data-model.md` (campaign, campaign_team — the `campaign_id` columns
 > on triage/attendance already exist from Phase 1, without FK), endpoints in
 > `docs/11-api-design.md`, permissions in `docs/16-iam-and-access-control.md`.
@@ -612,6 +612,21 @@
   - **Given** a VOLUNTEER, PROFESSIONAL, or SECRETARY **when** they view campaign pages **then** create/edit/team controls are not rendered (read-only view).
   - **Given** the campaign detail page **when** a COORDINATOR adds or removes a team member **then** the team list updates and API errors (409 duplicate, 422 validation) surface as readable Portuguese messages.
   - **Given** a 320px viewport **when** any campaign page renders **then** the layout remains usable (mobile-first).
+
+**S07.6 - Campaign link follow-ups (form selector + offline sync payload)**
+- status: done
+- depends_on: [S07.3, S07.5, S05.2]
+- covers_requirements: [RF-26, RF-37]
+- parallel_with: []
+- size: S
+- offline: Offline-created triages/attendances carry the optional `campaign_id` inside the sync queue payload; the push endpoint validates it campus-scoped per record.
+- As a professional, I can pick the campaign a triage or attendance belongs to directly in the form, online or offline.
+- Acceptance criteria:
+  - **Given** the triage or attendance create form **when** it renders **then** an optional "Campanha" selector lists the caller's campus campaigns, and submitting without a campaign keeps working (walk-in flow unchanged).
+  - **Given** a campaign selected in the form **when** the triage or attendance is created online **then** the persisted record carries the `campaign_id` and detail responses return it.
+  - **Given** the device is offline **when** a triage or attendance is created with a campaign **then** the queued sync record includes `campaign_id`, and after the queue drains the server record carries the link.
+  - **Given** a sync push record whose `campaign_id` is nonexistent or belongs to another campus **when** it is processed **then** that record fails with a per-record `error` result and nothing is persisted for it.
+  - **Given** the E2E smoke tier **when** it runs **then** a campaign slice covers: create campaign online → visible in the list → row present in Postgres.
 
 ---
 

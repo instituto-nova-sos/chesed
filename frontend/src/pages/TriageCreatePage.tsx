@@ -4,10 +4,12 @@ import { useForm } from 'react-hook-form';
 import { createTriageWithOfflineFallback } from '../offline/triageOffline';
 import { getPerson } from '../api/persons';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
+import { useLinkableCampaigns } from '../hooks/useCampaigns';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Alert } from '../components/ui/Alert';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
+import { Select } from '../components/ui/Select';
 import type { CreateTriageInput, PersonDetail } from '../types';
 
 interface FormValues {
@@ -15,6 +17,7 @@ interface FormValues {
   location: string;
   notes: string;
   requested_service_types: string[];
+  campaign_id: string;
 }
 
 export function TriageCreatePage() {
@@ -27,10 +30,17 @@ export function TriageCreatePage() {
   const [loadingContext, setLoadingContext] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const campaigns = useLinkableCampaigns();
 
   const { register, handleSubmit, watch, setValue, formState } =
     useForm<FormValues>({
-      defaultValues: { main_complaint: '', location: '', notes: '', requested_service_types: [] },
+      defaultValues: {
+        main_complaint: '',
+        location: '',
+        notes: '',
+        requested_service_types: [],
+        campaign_id: '',
+      },
     });
   const selected = watch('requested_service_types');
 
@@ -89,6 +99,9 @@ export function TriageCreatePage() {
         notes: values.notes || undefined,
         requested_service_types: values.requested_service_types,
       };
+      // Assigned conditionally (not `|| undefined`) so the key is absent from
+      // the sync-queue payload and the wire body when no campaign is linked.
+      if (values.campaign_id) input.campaign_id = values.campaign_id;
       const created = await createTriageWithOfflineFallback(input, person?.full_name);
       // Offline-created records live in the local list until they sync, so we
       // return to the list rather than a detail page the server can't serve yet.
@@ -115,10 +128,11 @@ export function TriageCreatePage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label htmlFor="triage-main-complaint" className="block text-sm font-medium text-gray-700">
             Queixa Principal *
           </label>
           <textarea
+            id="triage-main-complaint"
             {...register('main_complaint', { required: 'Queixa é obrigatória', maxLength: 2000 })}
             rows={4}
             className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -160,6 +174,14 @@ export function TriageCreatePage() {
             )}
           </div>
         </div>
+
+        <Select
+          id="triage-campaign"
+          label="Campanha (opcional)"
+          options={campaigns.map((c) => ({ value: c.id, label: c.name }))}
+          placeholder="Sem campanha"
+          {...register('campaign_id')}
+        />
 
         <div>
           <label className="block text-sm font-medium text-gray-700">Observações</label>

@@ -107,6 +107,14 @@ async function cleanupTestData(identity: E2EIdentity): Promise<void> {
       `DELETE FROM triage WHERE person_id IN (${persons})`,
       [`${identity.dataPrefix}%`],
     );
+    // Campaigns created by this test (scoped by the unique name prefix).
+    // campaign_team rows (FK to campaign and person) go first.
+    const campaigns = `SELECT id FROM campaign WHERE name LIKE $1`;
+    await client.query(
+      `DELETE FROM campaign_team WHERE campaign_id IN (${campaigns})`,
+      [`${identity.dataPrefix}%`],
+    );
+    await client.query(`DELETE FROM campaign WHERE name LIKE $1`, [`${identity.dataPrefix}%`]);
     // Persons created by this test (scoped by the unique name prefix).
     await client.query(`DELETE FROM person WHERE full_name LIKE $1`, [`${identity.dataPrefix}%`]);
     await client.query(`DELETE FROM app_user WHERE keycloak_subject_id = $1`, [identity.subject]);

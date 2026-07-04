@@ -679,6 +679,9 @@ Request body fields:
   - `entity_type` (string, required) — one of `person`, `triage`, `attendance`.
   - `sync_id` (uuid, required) — client-generated UUIDv4; idempotency key.
   - `data` (object, required) — entity payload matching that entity's create input.
+    For `triage` and `attendance` records, `data` may include an optional
+    `campaign_id` (uuid); a value that is nonexistent or not visible in the
+    caller's campus yields a per-record `error` result (nothing persisted).
   - `created_at` (RFC3339, optional) — local creation timestamp; informational.
 
 ```json
