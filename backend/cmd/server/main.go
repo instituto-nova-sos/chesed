@@ -75,6 +75,7 @@ type appDeps struct {
 	triage       *handler.TriageHandler
 	attendance   *handler.AttendanceHandler
 	campaign     *handler.CampaignHandler
+	consent      *handler.ConsentHandler
 	report       *handler.ReportHandler
 	sync         *handler.SyncHandler
 
@@ -96,6 +97,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 	campaignRepo := repository.NewCampaignRepository(pool)
+	consentRepo := repository.NewConsentRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
@@ -117,6 +119,7 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, campaignRepo, auditSvc)),
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
+		consent:        handler.NewConsentHandler(service.NewConsentService(consentRepo, personRepo, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)),
 		userSvc:        userSvc,
@@ -180,6 +183,7 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		d.registerTriageRoutes(r, allRoles)
 		d.registerAttendanceRoutes(r, allRoles)
 		d.registerCampaignRoutes(r, allRoles)
+		d.registerConsentRoutes(r, allRoles)
 		d.registerReportRoutes(r)
 		d.registerSyncRoutes(r, allRoles)
 	})
@@ -245,6 +249,19 @@ func (d appDeps) registerCampaignRoutes(r chi.Router, allRoles func(http.Handler
 		r.With(coordinatorUp).Post("/{id}/team", d.campaign.AddTeamMember)
 		r.With(coordinatorUp).Delete("/{id}/team/{personId}", d.campaign.RemoveTeamMember)
 	})
+}
+
+func (d appDeps) registerConsentRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	secretaryUp := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	adminOnly := middleware.RequireRole(d.auditSvc, "ADMIN")
+	r.Route("/consents", func(r chi.Router) {
+		r.With(allRoles).Post("/", d.consent.Create)
+		r.With(adminOnly).Patch("/{id}/revoke", d.consent.Revoke)
+	})
+	// Sibling of the mounted /persons Route group: chi matches this explicit
+	// param pattern before falling back to the /persons/* mount, so the two
+	// registrations coexist without collision.
+	r.With(secretaryUp).Get("/persons/{id}/consents", d.consent.ListByPerson)
 }
 
 func (d appDeps) registerReportRoutes(r chi.Router) {
