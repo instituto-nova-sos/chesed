@@ -211,16 +211,25 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 > attendance forms (and in the offline sync payload) is a documented follow-up
 > for the next slice.
 
-### Sprint 6: Documents and Consent (Weeks 12-13)
+### Sprint 6: Documents and Consent (Weeks 12-13) — DONE
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 6.1 | Object storage setup (S3/MinIO integration) | Phase 1 |
-| 6.2 | Document upload API (person and attendance) | 6.1 |
-| 6.3 | Consent API: create, revoke, list | Phase 1 |
-| 6.4 | React: Document upload component | 6.2 |
-| 6.5 | React: Consent form with signature capture | 6.3 |
-| 6.6 | React: Consent history view | 6.5 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 6.1 | Object storage setup (S3/MinIO integration) | Phase 1 | Done (S08.1) |
+| 6.2 | Document upload API (person and attendance) | 6.1 | Done (S08.2) |
+| 6.3 | Consent API: create, revoke, list | Phase 1 | Done (S08.3/S08.4) |
+| 6.4 | React: Document upload component | 6.2 | Done (S08.5) |
+| 6.5 | React: Consent form with signature capture | 6.3 | Done (S08.6) |
+| 6.6 | React: Consent history view | 6.5 | Done (S08.7) |
+
+> **Sprint 6 notes**: files live in S3-compatible object storage (MinIO in
+> dev/e2e, S3/R2 in prod) with magic-byte validation and presigned-URL-only
+> downloads (threat T13); consent revocation here is the basic registry
+> operation — anonymization automation remains Sprint 10 (10.1). The Sprint 5
+> follow-ups (5.3 note) were closed separately by story S07.6 on branch
+> `feat/sprint5-followups-campaign-link` (campaign selector in triage and
+> attendance forms, `campaign_id` in the offline sync payload, campaign E2E
+> smoke slice).
 
 ### Sprint 7: Donations and Extended Profiles (Weeks 14-15)
 
