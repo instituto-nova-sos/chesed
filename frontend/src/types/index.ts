@@ -56,3 +56,17 @@ export type {
   AddTeamMemberInput,
   CampaignMetrics,
 } from './campaign';
+
+export type {
+  DocumentType,
+  PersonDocument,
+  PersonDocumentListResponse,
+  DocumentDownload,
+} from './document';
+
+export type {
+  ConsentType,
+  Consent,
+  CreateConsentInput,
+  ConsentListResponse,
+} from './consent';

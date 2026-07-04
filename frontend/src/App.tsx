@@ -84,6 +84,9 @@ const CampaignDetailPage = lazy(() =>
     default: m.CampaignDetailPage,
   })),
 );
+const ConsentFormPage = lazy(() =>
+  import('./pages/ConsentFormPage').then((m) => ({ default: m.ConsentFormPage })),
+);
 const ReportsPage = lazy(() =>
   import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })),
 );
@@ -148,6 +151,7 @@ export function App() {
             <Route path="persons/new" element={<PersonCreatePage />} />
             <Route path="persons/:id" element={<PersonDetailPage />} />
             <Route path="persons/:id/edit" element={<PersonEditPage />} />
+            <Route path="persons/:personId/consents/new" element={<ConsentFormPage />} />
             <Route path="campuses" element={<CampusListPage />} />
             <Route path="campuses/new" element={<CampusFormPage />} />
             <Route path="campuses/:id/edit" element={<CampusFormPage />} />
