@@ -138,26 +138,32 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 
 	campaignRepo := repository.NewCampaignRepository(pool)
+	consentRepo := repository.NewConsentRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
+	consentSvc := service.NewConsentService(consentRepo, personRepo, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)
 	reportSvc := service.NewReportService(repository.NewReportRepository(pool))
 
 	syncH := handler.NewSyncHandler(syncSvc)
 	campaignH := handler.NewCampaignHandler(campaignSvc)
+	consentH := handler.NewConsentHandler(consentSvc)
 	triageH := handler.NewTriageHandler(triageSvc)
 	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
 	reportH := handler.NewReportHandler(reportSvc)
 
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
-	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes in
-	// cmd/server/main.go — keep the harness faithful to production.
+	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes/
+	// registerConsentRoutes in cmd/server/main.go — keep the harness
+	// faithful to production.
 	triageRoles := middleware.RequireRole(auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	attendanceRoles := middleware.RequireRole(auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	secretaryUp := middleware.RequireRole(auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	adminOnly := middleware.RequireRole(auditSvc, "ADMIN")
 
 	r := chi.NewRouter()
 	r.Route("/api/v1/sync", func(r chi.Router) {
@@ -179,6 +185,11 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 		r.With(coordinatorUp).Post("/{id}/team", campaignH.AddTeamMember)
 		r.With(coordinatorUp).Delete("/{id}/team/{personId}", campaignH.RemoveTeamMember)
 	})
+	r.Route("/api/v1/consents", func(r chi.Router) {
+		r.With(allRoles).Post("/", consentH.Create)
+		r.With(adminOnly).Patch("/{id}/revoke", consentH.Revoke)
+	})
+	r.With(secretaryUp).Get("/api/v1/persons/{id}/consents", consentH.ListByPerson)
 	// A route guarded by RequireRole so integration tests can assert that a
 	// 403 denial is written to audit_log (security Finding 4). ADMIN-only.
 	r.With(middleware.RequireRole(auditSvc, "ADMIN")).
