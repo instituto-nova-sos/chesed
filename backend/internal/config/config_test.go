@@ -112,6 +112,10 @@ func TestLoad(t *testing.T) {
 			} {
 				t.Setenv(key, "")
 			}
+			// S3 credentials are required with no source-code default; give
+			// the non-S3 cases a valid baseline so they assert their own field.
+			t.Setenv("S3_ACCESS_KEY", "test-access")
+			t.Setenv("S3_SECRET_KEY", "test-secret")
 
 			for key, value := range tt.envVars {
 				t.Setenv(key, value)
@@ -134,19 +138,36 @@ func TestLoadS3(t *testing.T) {
 	tests := []struct {
 		name    string
 		envVars map[string]string
+		wantErr bool
 		check   func(t *testing.T, cfg Config)
 	}{
 		{
-			name:    "dev-safe defaults applied when unset",
-			envVars: map[string]string{},
+			// Endpoint and bucket are non-secret and may default; the
+			// credentials must come from the environment (docs/19: no
+			// secrets in source, not even development ones).
+			name: "non-secret defaults applied, credentials from env",
+			envVars: map[string]string{
+				"S3_ACCESS_KEY": "env-access",
+				"S3_SECRET_KEY": "env-secret",
+			},
 			check: func(t *testing.T, cfg Config) {
 				t.Helper()
 				assert.Equal(t, "localhost:9000", cfg.S3Endpoint)
 				assert.Equal(t, "chesed-docs", cfg.S3Bucket)
-				assert.Equal(t, "chesed", cfg.S3AccessKey)
-				assert.Equal(t, "chesed-dev-secret", cfg.S3SecretKey)
+				assert.Equal(t, "env-access", cfg.S3AccessKey)
+				assert.Equal(t, "env-secret", cfg.S3SecretKey)
 				assert.False(t, cfg.S3UseSSL)
 			},
+		},
+		{
+			name:    "missing credentials fail fast",
+			envVars: map[string]string{},
+			wantErr: true,
+		},
+		{
+			name:    "missing secret key fails fast",
+			envVars: map[string]string{"S3_ACCESS_KEY": "env-access"},
+			wantErr: true,
 		},
 		{
 			name: "overridden from environment",
@@ -186,6 +207,10 @@ func TestLoadS3(t *testing.T) {
 			}
 
 			cfg, err := Load()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			tt.check(t, cfg)
 		})

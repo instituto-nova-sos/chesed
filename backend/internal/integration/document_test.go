@@ -258,6 +258,34 @@ func TestDocumentRBAC(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, "body=%s", rec.Body.String())
 }
 
+// TestDocumentList_CrossCampusNotFound proves the campus boundary on both
+// list GETs: a person or attendance of another campus yields 404 with no
+// existence disclosure (review remediation — mandate gap).
+func TestDocumentList_CrossCampusNotFound(t *testing.T) {
+	store := startDocumentStorage(t)
+	h := freshHarnessWithStorage(t, store)
+	ctx := context.Background()
+
+	personID := seedPerson(t, h, h.campusID, "Doc List Person", "40230340478")
+	professionalID := seedPerson(t, h, h.campusID, "Doc List Pro", "40230340479")
+	var serviceTypeID uuid.UUID
+	require.NoError(t, h.pool.QueryRow(ctx, `SELECT id FROM service_type LIMIT 1`).Scan(&serviceTypeID))
+	attendanceID := createAttendanceViaAPI(t, h, personID, professionalID, serviceTypeID)
+
+	secondCampus := seedSecondCampus(t, h)
+	asForeignCampus := func(c *auth.AuthClaims) { c.CampusID = secondCampus }
+
+	rec := h.doRequest(h.authedRequest(
+		getRequest(t, "/api/v1/persons/"+personID.String()+"/documents"),
+		asProfessional, asForeignCampus))
+	require.Equal(t, http.StatusNotFound, rec.Code, "person documents list must be campus-scoped; body=%s", rec.Body.String())
+
+	rec = h.doRequest(h.authedRequest(
+		getRequest(t, "/api/v1/attendances/"+attendanceID.String()+"/documents"),
+		asProfessional, asForeignCampus))
+	require.Equal(t, http.StatusNotFound, rec.Code, "attendance documents list must be campus-scoped; body=%s", rec.Body.String())
+}
+
 // TestDocumentDownload_CrossCampusNotFound proves the campus boundary on the
 // download endpoint.
 func TestDocumentDownload_CrossCampusNotFound(t *testing.T) {

@@ -335,3 +335,20 @@ func TestConsentRevoke_RBACAndCampusBoundary(t *testing.T) {
 	).Scan(&dbActive))
 	assert.True(t, dbActive)
 }
+
+// TestConsentList_CrossCampusNotFound proves the campus boundary on the
+// consent registry GET: a person of another campus yields 404 with no
+// existence disclosure (review remediation — mandate gap).
+func TestConsentList_CrossCampusNotFound(t *testing.T) {
+	h := freshHarness(t)
+
+	personID := seedPerson(t, h, h.campusID, "Consent List Person", "50230340480")
+	secondCampus := seedSecondCampus(t, h)
+
+	rec := h.doRequest(h.authedRequest(
+		getRequest(t, "/api/v1/persons/"+personID.String()+"/consents"),
+		asSecretary,
+		func(c *auth.AuthClaims) { c.CampusID = secondCampus }))
+	require.Equal(t, http.StatusNotFound, rec.Code,
+		"consent registry must be campus-scoped; body=%s", rec.Body.String())
+}
