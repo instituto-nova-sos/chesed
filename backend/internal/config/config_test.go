@@ -105,17 +105,7 @@ func TestLoad(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, key := range []string{
-				"SERVER_PORT", "DATABASE_URL", "KEYCLOAK_URL",
-				"KEYCLOAK_REALM", "KEYCLOAK_CLIENT_ID", "LOG_LEVEL",
-				"OIDC_SKIP_ISSUER_CHECK",
-			} {
-				t.Setenv(key, "")
-			}
-			// S3 credentials are required with no source-code default; give
-			// the non-S3 cases a valid baseline so they assert their own field.
-			t.Setenv("S3_ACCESS_KEY", "test-access")
-			t.Setenv("S3_SECRET_KEY", "test-secret")
+			clearBaseConfigEnv(t)
 
 			for key, value := range tt.envVars {
 				t.Setenv(key, value)
@@ -132,6 +122,22 @@ func TestLoad(t *testing.T) {
 			}
 		})
 	}
+}
+
+// clearBaseConfigEnv resets the non-S3 configuration variables and sets a
+// valid S3 credential baseline — the credentials are required with no
+// source-code default, so non-S3 cases must not fail on them.
+func clearBaseConfigEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"SERVER_PORT", "DATABASE_URL", "KEYCLOAK_URL",
+		"KEYCLOAK_REALM", "KEYCLOAK_CLIENT_ID", "LOG_LEVEL",
+		"OIDC_SKIP_ISSUER_CHECK",
+	} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
 }
 
 func TestLoadS3(t *testing.T) {

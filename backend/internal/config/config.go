@@ -33,12 +33,14 @@ func Load() (Config, error) {
 		KeycloakClientID:    os.Getenv("KEYCLOAK_CLIENT_ID"),
 		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
 		OIDCSkipIssuerCheck: os.Getenv("OIDC_SKIP_ISSUER_CHECK") == "true",
-		// Defaults match the docker-compose minio service; production
-		// overrides all four via environment (docs/14-deployment-strategy.md).
+		// Endpoint/bucket defaults match the docker-compose minio service.
+		// The credentials have NO source-code default (docs/19 secret
+		// management rule 1): required-field validation fails the boot when
+		// they are absent — the compose stacks inject them via environment.
 		S3Endpoint:  getEnvOrDefault("S3_ENDPOINT", "localhost:9000"),
 		S3Bucket:    getEnvOrDefault("S3_BUCKET", "chesed-docs"),
-		S3AccessKey: getEnvOrDefault("S3_ACCESS_KEY", "chesed"),
-		S3SecretKey: getEnvOrDefault("S3_SECRET_KEY", "chesed-dev-secret"),
+		S3AccessKey: os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey: os.Getenv("S3_SECRET_KEY"),
 		S3UseSSL:    os.Getenv("S3_USE_SSL") == "true",
 	}
 
