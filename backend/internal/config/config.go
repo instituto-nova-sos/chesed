@@ -16,6 +16,11 @@ type Config struct {
 	KeycloakClientID    string `validate:"required"`
 	LogLevel            string
 	OIDCSkipIssuerCheck bool
+	S3Endpoint          string `validate:"required"`
+	S3Bucket            string `validate:"required"`
+	S3AccessKey         string `validate:"required"`
+	S3SecretKey         string `validate:"required"`
+	S3UseSSL            bool
 }
 
 // Load reads configuration from environment variables and validates required fields.
@@ -28,6 +33,13 @@ func Load() (Config, error) {
 		KeycloakClientID:    os.Getenv("KEYCLOAK_CLIENT_ID"),
 		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
 		OIDCSkipIssuerCheck: os.Getenv("OIDC_SKIP_ISSUER_CHECK") == "true",
+		// Defaults match the docker-compose minio service; production
+		// overrides all four via environment (docs/14-deployment-strategy.md).
+		S3Endpoint:  getEnvOrDefault("S3_ENDPOINT", "localhost:9000"),
+		S3Bucket:    getEnvOrDefault("S3_BUCKET", "chesed-docs"),
+		S3AccessKey: getEnvOrDefault("S3_ACCESS_KEY", "chesed"),
+		S3SecretKey: getEnvOrDefault("S3_SECRET_KEY", "chesed-dev-secret"),
+		S3UseSSL:    os.Getenv("S3_USE_SSL") == "true",
 	}
 
 	validate := validator.New()
