@@ -129,3 +129,65 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadS3(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		check   func(t *testing.T, cfg Config)
+	}{
+		{
+			name:    "dev-safe defaults applied when unset",
+			envVars: map[string]string{},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Equal(t, "localhost:9000", cfg.S3Endpoint)
+				assert.Equal(t, "chesed-docs", cfg.S3Bucket)
+				assert.Equal(t, "chesed", cfg.S3AccessKey)
+				assert.Equal(t, "chesed-dev-secret", cfg.S3SecretKey)
+				assert.False(t, cfg.S3UseSSL)
+			},
+		},
+		{
+			name: "overridden from environment",
+			envVars: map[string]string{
+				"S3_ENDPOINT":   "s3.example.com:443",
+				"S3_BUCKET":     "prod-docs",
+				"S3_ACCESS_KEY": "prod-access",
+				"S3_SECRET_KEY": "prod-secret",
+				"S3_USE_SSL":    "true",
+			},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Equal(t, "s3.example.com:443", cfg.S3Endpoint)
+				assert.Equal(t, "prod-docs", cfg.S3Bucket)
+				assert.Equal(t, "prod-access", cfg.S3AccessKey)
+				assert.Equal(t, "prod-secret", cfg.S3SecretKey)
+				assert.True(t, cfg.S3UseSSL)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range []string{
+				"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY",
+				"S3_SECRET_KEY", "S3_USE_SSL",
+			} {
+				t.Setenv(key, "")
+			}
+			t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+			t.Setenv("KEYCLOAK_URL", "http://localhost:8180")
+			t.Setenv("KEYCLOAK_REALM", "chesed")
+			t.Setenv("KEYCLOAK_CLIENT_ID", "chesed-pwa")
+
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			tt.check(t, cfg)
+		})
+	}
+}
