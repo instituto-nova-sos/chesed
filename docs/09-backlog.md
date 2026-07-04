@@ -637,7 +637,7 @@
 ### Stories
 
 **S08.1 - Object storage integration (S3/MinIO)**
-- status: in_progress
+- status: done
 - depends_on: []
 - covers_requirements: [RF-06, RF-30, RNF-04]
 - parallel_with: [S08.3]
@@ -651,7 +651,7 @@
   - **Given** the storage integration test suite **when** it runs with Docker **then** Put/PresignGet round-trip against a real MinIO container.
 
 **S08.2 - Upload documents to person or attendance**
-- status: ready
+- status: done
 - depends_on: [S08.1, S02.5, S02.6]
 - covers_requirements: [RF-06, RF-30]
 - parallel_with: [S08.3]
@@ -667,7 +667,7 @@
   - **Given** documents exist **when** a PROFESSIONAL+ user lists them or requests `/documents/:id/download` **then** the list returns metadata (no URLs) and the download endpoint returns a presigned URL that serves the original bytes and expires (~15 min).
 
 **S08.3 - Create consent with purpose, version, and registry**
-- status: ready
+- status: done
 - depends_on: [S03.1, S02.5, S02.6]
 - covers_requirements: [RF-07, RF-08, RF-58a, RF-58b, RF-58c]
 - parallel_with: [S08.1, S08.2]
@@ -682,7 +682,7 @@
   - **Given** consents exist (active and revoked) **when** a SECRETARY+ user lists `/persons/:id/consents` **then** all rows return ordered by `granted_at` desc; a VOLUNTEER gets 403.
 
 **S08.4 - Revoke consent**
-- status: ready
+- status: done
 - depends_on: [S08.3]
 - covers_requirements: [RF-58]
 - parallel_with: []
@@ -697,7 +697,7 @@
   - **Given** a revoked consent **when** a new consent of the same type is posted **then** it is accepted (re-grant creates a new row).
 
 **S08.5 - React document upload component**
-- status: ready
+- status: done
 - depends_on: [S08.2, S02.8]
 - covers_requirements: [RF-06, RF-30]
 - parallel_with: [S08.6]
@@ -712,7 +712,7 @@
   - **Given** a 320px viewport **when** the section and modal render **then** they remain usable (mobile-first).
 
 **S08.6 - React consent form with signature pad**
-- status: ready
+- status: done
 - depends_on: [S08.3, S02.8]
 - covers_requirements: [RF-07, RF-57, RF-58a]
 - parallel_with: [S08.5]
@@ -727,7 +727,7 @@
   - **Given** a 320px viewport **when** the form renders **then** the canvas and controls remain usable (mobile-first).
 
 **S08.7 - React consent history view**
-- status: ready
+- status: done
 - depends_on: [S08.6, S08.4]
 - covers_requirements: [RF-58, RF-58b]
 - parallel_with: [S08.5]
