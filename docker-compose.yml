@@ -1,6 +1,6 @@
 # Chesed Development Environment
-# Services: PostgreSQL 16, Keycloak 26, Go API, React dev server, Mailpit (SMTP)
-# Ports: db=5432, keycloak=8180, api=8080, frontend=5173, mailpit=8025
+# Services: PostgreSQL 16, Keycloak 26, Go API, React dev server, Mailpit (SMTP), MinIO (S3)
+# Ports: db=5432, keycloak=8180, api=8080, frontend=5173, mailpit=8025, minio=9000/9001
 # Start: docker compose up
 # Post-start: cd backend && make migrate-up && ./keycloak/init-realm.sh
 
@@ -51,6 +51,25 @@ services:
     networks:
       - chesed-net
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: chesed
+      MINIO_ROOT_PASSWORD: chesed-dev-secret
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chesed-net
+
   api:
     build:
       context: ./backend
@@ -65,10 +84,17 @@ services:
       KEYCLOAK_CLIENT_ID: chesed-pwa
       OIDC_SKIP_ISSUER_CHECK: "true"
       LOG_LEVEL: debug
+      S3_ENDPOINT: minio:9000
+      S3_BUCKET: chesed-docs
+      S3_ACCESS_KEY: chesed
+      S3_SECRET_KEY: chesed-dev-secret
+      S3_USE_SSL: "false"
     volumes:
       - ./backend:/app
     depends_on:
       db:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - chesed-net
@@ -99,3 +125,4 @@ networks:
 
 volumes:
   pgdata:
+  miniodata:

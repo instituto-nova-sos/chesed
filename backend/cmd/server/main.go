@@ -17,6 +17,7 @@ import (
 	"github.com/instituto-nova-sos/chesed/internal/middleware"
 	"github.com/instituto-nova-sos/chesed/internal/repository"
 	"github.com/instituto-nova-sos/chesed/internal/service"
+	"github.com/instituto-nova-sos/chesed/internal/storage"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -49,7 +50,18 @@ func run() error {
 		return fmt.Errorf("main.run: oidc: %w", err)
 	}
 
-	router := setupRouter(pool, authMW)
+	store, err := storage.NewMinioStorage(ctx, storage.Config{
+		Endpoint:  cfg.S3Endpoint,
+		Bucket:    cfg.S3Bucket,
+		AccessKey: cfg.S3AccessKey,
+		SecretKey: cfg.S3SecretKey,
+		UseSSL:    cfg.S3UseSSL,
+	})
+	if err != nil {
+		return fmt.Errorf("main.run: storage: %w", err)
+	}
+
+	router := setupRouter(pool, authMW, store)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
@@ -75,6 +87,8 @@ type appDeps struct {
 	triage       *handler.TriageHandler
 	attendance   *handler.AttendanceHandler
 	campaign     *handler.CampaignHandler
+	consent      *handler.ConsentHandler
+	document     *handler.DocumentHandler
 	report       *handler.ReportHandler
 	sync         *handler.SyncHandler
 
@@ -85,7 +99,7 @@ type appDeps struct {
 }
 
 // buildDeps wires repositories → services → handlers.
-func buildDeps(pool *pgxpool.Pool) appDeps {
+func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 	auditRepo := repository.NewAuditRepository(pool)
 	userRepo := repository.NewUserRepository(pool)
 	serviceTypeRepo := repository.NewServiceTypeRepository(pool)
@@ -96,6 +110,8 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 	campaignRepo := repository.NewCampaignRepository(pool)
+	consentRepo := repository.NewConsentRepository(pool)
+	documentRepo := repository.NewDocumentRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
@@ -117,6 +133,8 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, campaignRepo, auditSvc)),
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
+		consent:        handler.NewConsentHandler(service.NewConsentService(consentRepo, personRepo, auditSvc)),
+		document:       handler.NewDocumentHandler(service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)),
 		userSvc:        userSvc,
@@ -126,8 +144,8 @@ func buildDeps(pool *pgxpool.Pool) appDeps {
 	}
 }
 
-func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler) *chi.Mux {
-	d := buildDeps(pool)
+func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler, store service.ObjectStorage) *chi.Mux {
+	d := buildDeps(pool, store)
 
 	r := chi.NewRouter()
 	r.Use(middleware.SecurityHeaders)
@@ -180,6 +198,8 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		d.registerTriageRoutes(r, allRoles)
 		d.registerAttendanceRoutes(r, allRoles)
 		d.registerCampaignRoutes(r, allRoles)
+		d.registerConsentRoutes(r, allRoles)
+		d.registerDocumentRoutes(r)
 		d.registerReportRoutes(r)
 		d.registerSyncRoutes(r, allRoles)
 	})
@@ -245,6 +265,34 @@ func (d appDeps) registerCampaignRoutes(r chi.Router, allRoles func(http.Handler
 		r.With(coordinatorUp).Post("/{id}/team", d.campaign.AddTeamMember)
 		r.With(coordinatorUp).Delete("/{id}/team/{personId}", d.campaign.RemoveTeamMember)
 	})
+}
+
+func (d appDeps) registerConsentRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
+	secretaryUp := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	adminOnly := middleware.RequireRole(d.auditSvc, "ADMIN")
+	r.Route("/consents", func(r chi.Router) {
+		r.With(allRoles).Post("/", d.consent.Create)
+		r.With(adminOnly).Patch("/{id}/revoke", d.consent.Revoke)
+	})
+	// Sibling of the mounted /persons Route group: chi matches this explicit
+	// param pattern before falling back to the /persons/* mount, so the two
+	// registrations coexist without collision.
+	r.With(secretaryUp).Get("/persons/{id}/consents", d.consent.ListByPerson)
+}
+
+// registerDocumentRoutes mounts the document endpoints per docs/16: person
+// uploads are Secretary+, attendance uploads and every read are Professional+.
+func (d appDeps) registerDocumentRoutes(r chi.Router) {
+	secretaryUp := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	professionalUp := middleware.RequireRole(d.auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	// Siblings of the mounted /persons and /attendances Route groups: chi
+	// matches these explicit param patterns before the group mounts (same
+	// approach as /persons/{id}/consents above).
+	r.With(secretaryUp).Post("/persons/{id}/documents", d.document.UploadForPerson)
+	r.With(professionalUp).Get("/persons/{id}/documents", d.document.ListByPerson)
+	r.With(professionalUp).Post("/attendances/{id}/documents", d.document.UploadForAttendance)
+	r.With(professionalUp).Get("/attendances/{id}/documents", d.document.ListByAttendance)
+	r.With(professionalUp).Get("/documents/{id}/download", d.document.Download)
 }
 
 func (d appDeps) registerReportRoutes(r chi.Router) {

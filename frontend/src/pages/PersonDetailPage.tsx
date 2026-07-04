@@ -10,6 +10,8 @@ import { Button } from '../components/ui/Button';
 import { PersonInfo } from '../components/person/PersonInfo';
 import { RoleBadgeList } from '../components/person/RoleBadgeList';
 import { AgreementStatusCard } from '../components/person/AgreementStatusCard';
+import { PersonDocumentsSection } from '../components/documents/PersonDocumentsSection';
+import { PersonConsentsSection } from '../components/consents/PersonConsentsSection';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 
 export function PersonDetailPage() {
@@ -75,6 +77,10 @@ export function PersonDetailPage() {
         personId={person.id}
         hasVolunteerRole={person.roles.some((r) => r.role_type === 'VOLUNTEER' && r.is_active)}
       />
+
+      <PersonDocumentsSection personId={person.id} />
+
+      <PersonConsentsSection personId={person.id} />
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-medium text-gray-900">

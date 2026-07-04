@@ -288,6 +288,11 @@ Roles are extracted from the `realm_access.roles` array in the JWT access token.
 | Create consent | Yes | Yes | Yes | Yes | Yes |
 | View consents | No | Campus | Own assigned | Campus | All |
 | Revoke consent | No | No | No | No | Yes |
+| **Document** |
+| Upload document to person | No | Yes | Yes | Yes | Yes |
+| Upload document to attendance | No | No | Yes | Yes | Yes |
+| View person/attendance documents | No | No | Yes | Yes | Yes |
+| Download document (presigned URL) | No | No | Yes | Yes | Yes |
 
 ### Volunteer Agreement Access Restriction
 

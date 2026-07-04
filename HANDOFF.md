@@ -2849,6 +2849,83 @@ All commits local on `feat/sprint5-campaigns-teams`. No `git push` / `gh pr`.
 
 ---
 
+## Session 35: Sprint 6 — Documents & Consent + Sprint 5 follow-ups (2026-07-03/04)
+
+### Context
+Executed the current sprint fully parallelized per the work plan, on two
+branches, each taken through the autonomous pipeline to READY-FOR-PR:
+
+- **`feat/sprint5-followups-campaign-link`** — story S07.6 (the three Sprint 5
+  follow-ups).
+- **`feat/sprint6-documents-consent`** — Epic E08 (S08.1–S08.7), first sprint
+  of the documents/consent surface.
+
+Parallelization model: write-capable implementation subagents on disjoint file
+sets (wave 1: storage, consent API, documents UI, consent UI; wave 2: document
+API), with the orchestrator owning shared files (main.go/harness wiring,
+App.tsx, PersonDetailPage, types barrel), commit sequencing (RED→GREEN per
+story group), and final validation. Repeated API instability (529/stalls) hit
+several agents mid-run; resuming them via their transcripts preserved all
+context and worked every time. The S08.2 agent died before writing anything
+(session limit) and was re-implemented inline.
+
+### Branch A — S07.6 campaign link follow-ups (READY-FOR-PR, APPROVE)
+- Backend: `syncTriageInput`/`syncAttendanceInput` accept optional
+  `campaign_id`, resolved campus-scoped through the reused `resolveCampaignRef`
+  (per-record generic error, T3); wired `campaignRepo` into the sync service.
+- Frontend: "Campanha (opcional)" Select on triage/attendance create pages via
+  the new `useLinkableCampaigns` hook (PLANNED+ACTIVE, degrades to empty);
+  `campaign_id` assigned conditionally so the key is absent when unlinked and
+  flows into the offline queue `data` untouched (no Dexie bump, no drainer edit).
+- E2E: `campaign-smoke.spec.ts` (@smoke) — create → list → Postgres assert;
+  fixtures cleanup extended to campaign/campaign_team.
+- Verdict: APPROVE cycle 1 (0/0/5 minors); smoke 4/4.
+
+### Branch B — Sprint 6 / E08 (READY-FOR-PR, APPROVE cycle 2)
+- Docs-first kickoff: S08.1–S08.7 GWT in the backlog (S08.7 added for roadmap
+  6.6), corrected `document` DDL (campus_id/is_active/timestamps — guardrail
+  compliance), consent active index tightened to partial UNIQUE, full docs/11
+  contracts (attendance-documents endpoint closes the RF-30 gap), IAM document
+  rows, threat T13.
+- S08.1: `ObjectStorage` interface in the service package; MinIO impl
+  (minio-go v7) with idempotent bucket bootstrap; S3 config; MinIO services in
+  dev and e2e compose stacks. Real-MinIO integration tests.
+- S08.3/4: consent API (create all roles / list Secretary+ / revoke ADMIN),
+  migration 000024 with `uq_consent_active_person_type`, audit CREATE/UPDATE,
+  re-grant after revoke; structural column/Scan parity (consentColumns +
+  scanConsent — the Sprint 5 B1 lesson applied by design).
+- S08.2 (inline): document API — multipart with magic-byte sniff (client
+  Content-Type ignored), 10MB via MaxBytesReader, UUID object keys, storage
+  put before metadata insert (orphan logged), presigned-URL-only downloads
+  (15 min); migration 000025; storage threaded fail-fast from run().
+- S08.5/6/7: documents section + upload modal on person detail (role-gated per
+  docs/16), hand-rolled `SignaturePadCanvas` (pointer events, DPR-aware, zero
+  deps) exporting base64 PNG into `signature_data`, consent form with per-type
+  LGPD purpose presets + guardian picker for MINOR_GUARDIAN, consent registry
+  with admin-only revoke dialog. Online-only; no SW caching of consent/document
+  data (CRITICAL PII).
+- Review cycle 1 → REQUEST_CHANGES (MAJOR-1: hardcoded S3 credential defaults
+  in config.go, violating docs/19 secret rule 1; + missing campus-boundary
+  coverage on the three list GETs). Remediated under TDD (RED proven in a
+  throwaway worktree by the reviewer); cycle 2 → APPROVE (0 blocker/0 major).
+- Validation: backend build/lint/unit + full integration (real Postgres +
+  MinIO); frontend tsc + 184 unit + 36 MSW + coverage + PWA build; lint 0
+  errors/49 warnings (baseline held); `make deliver` READY-FOR-PR (one
+  testcontainer start flake under daemon load; retry clean).
+
+### Follow-ups (documented, non-blocking — reviewer MINORs)
+- `signature_data` rides the consent list payload (consider excluding from
+  list responses); consider a leaner TS nullable-type mirror; docs/16 matrix
+  wording for document rows; `sync_service.go` file length (pre-existing);
+  offline campaign selector depends on SW cache warmed by a first online visit.
+
+### Push boundary respected
+All commits local on both branches. Suggested (human-run):
+`git push -u origin feat/sprint5-followups-campaign-link` and
+`git push -u origin feat/sprint6-documents-consent`.
+
+---
+
 ## Context for Future AI Sessions
 
 When starting a new session on this repository:

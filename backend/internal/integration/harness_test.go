@@ -21,7 +21,9 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -58,7 +60,7 @@ type testHarness struct {
 // newHarness boots a fresh Postgres container, applies all migrations,
 // seeds the default campus from migration 000011, and returns a fully
 // wired chi router with the sync routes mounted.
-func newHarness(t *testing.T) *testHarness {
+func newHarness(t *testing.T, store service.ObjectStorage) *testHarness {
 	t.Helper()
 	ctx := context.Background()
 
@@ -87,7 +89,7 @@ func newHarness(t *testing.T) *testHarness {
 
 	campusID := seedDefaultCampus(t, pool)
 
-	router := buildRouter(pool)
+	router := buildRouter(pool, store)
 
 	return &testHarness{
 		t:        t,
@@ -131,33 +133,42 @@ func seedDefaultCampus(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 // buildRouter mounts only the routes under test. We skip auth middleware
 // because integration tests inject AuthClaims directly via context; the
 // OIDC handshake is exercised by the Session 9 manual verification flow.
-func buildRouter(pool *pgxpool.Pool) chi.Router {
+func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	auditRepo := repository.NewAuditRepository(pool)
 	personRepo := repository.NewPersonRepository(pool)
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 
 	campaignRepo := repository.NewCampaignRepository(pool)
+	consentRepo := repository.NewConsentRepository(pool)
+	documentRepo := repository.NewDocumentRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
+	consentSvc := service.NewConsentService(consentRepo, personRepo, auditSvc)
+	documentSvc := service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)
 	reportSvc := service.NewReportService(repository.NewReportRepository(pool))
 
 	syncH := handler.NewSyncHandler(syncSvc)
 	campaignH := handler.NewCampaignHandler(campaignSvc)
+	consentH := handler.NewConsentHandler(consentSvc)
+	documentH := handler.NewDocumentHandler(documentSvc)
 	triageH := handler.NewTriageHandler(triageSvc)
 	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
 	reportH := handler.NewReportHandler(reportSvc)
 
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
-	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes in
-	// cmd/server/main.go — keep the harness faithful to production.
+	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes/
+	// registerConsentRoutes in cmd/server/main.go — keep the harness
+	// faithful to production.
 	triageRoles := middleware.RequireRole(auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	attendanceRoles := middleware.RequireRole(auditSvc, "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	secretaryUp := middleware.RequireRole(auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	adminOnly := middleware.RequireRole(auditSvc, "ADMIN")
 
 	r := chi.NewRouter()
 	r.Route("/api/v1/sync", func(r chi.Router) {
@@ -179,6 +190,17 @@ func buildRouter(pool *pgxpool.Pool) chi.Router {
 		r.With(coordinatorUp).Post("/{id}/team", campaignH.AddTeamMember)
 		r.With(coordinatorUp).Delete("/{id}/team/{personId}", campaignH.RemoveTeamMember)
 	})
+	r.Route("/api/v1/consents", func(r chi.Router) {
+		r.With(allRoles).Post("/", consentH.Create)
+		r.With(adminOnly).Patch("/{id}/revoke", consentH.Revoke)
+	})
+	r.With(secretaryUp).Get("/api/v1/persons/{id}/consents", consentH.ListByPerson)
+	// Document routes mirror registerDocumentRoutes in cmd/server/main.go.
+	r.With(secretaryUp).Post("/api/v1/persons/{id}/documents", documentH.UploadForPerson)
+	r.With(attendanceRoles).Get("/api/v1/persons/{id}/documents", documentH.ListByPerson)
+	r.With(attendanceRoles).Post("/api/v1/attendances/{id}/documents", documentH.UploadForAttendance)
+	r.With(attendanceRoles).Get("/api/v1/attendances/{id}/documents", documentH.ListByAttendance)
+	r.With(attendanceRoles).Get("/api/v1/documents/{id}/download", documentH.Download)
 	// A route guarded by RequireRole so integration tests can assert that a
 	// 403 denial is written to audit_log (security Finding 4). ADMIN-only.
 	r.With(middleware.RequireRole(auditSvc, "ADMIN")).
@@ -227,9 +249,28 @@ func withinSeconds(actual time.Time, seconds int) bool {
 // directly to avoid forgetting Close().
 func freshHarness(t *testing.T) *testHarness {
 	t.Helper()
-	h := newHarness(t)
+	return freshHarnessWithStorage(t, unconfiguredStorage{})
+}
+
+// freshHarnessWithStorage boots the harness against a real ObjectStorage —
+// used by the document tests, which exercise the storage boundary.
+func freshHarnessWithStorage(t *testing.T, store service.ObjectStorage) *testHarness {
+	t.Helper()
+	h := newHarness(t, store)
 	t.Cleanup(h.Close)
 	return h
+}
+
+// unconfiguredStorage backs harnesses whose tests never touch document
+// uploads; any accidental use fails loudly instead of silently passing.
+type unconfiguredStorage struct{}
+
+func (unconfiguredStorage) Put(context.Context, string, string, int64, io.Reader) error {
+	return errors.New("object storage not configured in this harness")
+}
+
+func (unconfiguredStorage) PresignGet(context.Context, string, time.Duration) (string, error) {
+	return "", errors.New("object storage not configured in this harness")
 }
 
 // fmtSyncURL is a tiny escape hatch for tests that need to assemble URL
