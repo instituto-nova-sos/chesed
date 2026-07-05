@@ -87,6 +87,17 @@ const CampaignDetailPage = lazy(() =>
 const ConsentFormPage = lazy(() =>
   import('./pages/ConsentFormPage').then((m) => ({ default: m.ConsentFormPage })),
 );
+const DonationListPage = lazy(() =>
+  import('./pages/DonationListPage').then((m) => ({ default: m.DonationListPage })),
+);
+const DonationFormPage = lazy(() =>
+  import('./pages/DonationFormPage').then((m) => ({ default: m.DonationFormPage })),
+);
+const DonationDetailPage = lazy(() =>
+  import('./pages/DonationDetailPage').then((m) => ({
+    default: m.DonationDetailPage,
+  })),
+);
 const ReportsPage = lazy(() =>
   import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })),
 );
@@ -165,6 +176,10 @@ export function App() {
             <Route path="campaigns/new" element={<CampaignFormPage />} />
             <Route path="campaigns/:id" element={<CampaignDetailPage />} />
             <Route path="campaigns/:id/edit" element={<CampaignFormPage />} />
+            <Route path="donations" element={<DonationListPage />} />
+            <Route path="donations/new" element={<DonationFormPage />} />
+            <Route path="donations/:id" element={<DonationDetailPage />} />
+            <Route path="donations/:id/edit" element={<DonationFormPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="sync/conflicts" element={<SyncConflictsPage />} />
             <Route path="*" element={<NotFoundPage />} />

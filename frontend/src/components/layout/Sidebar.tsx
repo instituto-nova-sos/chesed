@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: '/triages', label: 'Triagens', icon: '📋' },
   { path: '/attendances', label: 'Atendimentos', icon: '🩺' },
   { path: '/campaigns', label: 'Campanhas', icon: '📣' },
+  { path: '/donations', label: 'Doações', icon: '🎁' },
   { path: '/reports', label: 'Relatórios', icon: '📈' },
   { path: '/campuses', label: 'Campus', icon: '🏢' },
 ];

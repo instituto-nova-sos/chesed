@@ -70,3 +70,12 @@ export type {
   CreateConsentInput,
   ConsentListResponse,
 } from './consent';
+
+export type {
+  Donation,
+  DonationDetail,
+  DonationListItem,
+  DonationListResponse,
+  DonationInput,
+  UpdateDonationInput,
+} from './donation';

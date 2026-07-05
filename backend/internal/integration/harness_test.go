@@ -140,12 +140,14 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 
 	campaignRepo := repository.NewCampaignRepository(pool)
+	donationRepo := repository.NewDonationRepository(pool)
 	consentRepo := repository.NewConsentRepository(pool)
 	documentRepo := repository.NewDocumentRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
+	donationSvc := service.NewDonationService(donationRepo, personRepo, campaignRepo, auditSvc)
 	consentSvc := service.NewConsentService(consentRepo, personRepo, auditSvc)
 	documentSvc := service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
@@ -154,6 +156,7 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 
 	syncH := handler.NewSyncHandler(syncSvc)
 	campaignH := handler.NewCampaignHandler(campaignSvc)
+	donationH := handler.NewDonationHandler(donationSvc)
 	consentH := handler.NewConsentHandler(consentSvc)
 	documentH := handler.NewDocumentHandler(documentSvc)
 	triageH := handler.NewTriageHandler(triageSvc)
@@ -189,6 +192,14 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 		r.With(coordinatorUp).Put("/{id}", campaignH.Update)
 		r.With(coordinatorUp).Post("/{id}/team", campaignH.AddTeamMember)
 		r.With(coordinatorUp).Delete("/{id}/team/{personId}", campaignH.RemoveTeamMember)
+	})
+	// Donation routes mirror registerDonationRoutes in cmd/server/main.go:
+	// writes are Secretary+, reads are Coordinator+.
+	r.Route("/api/v1/donations", func(r chi.Router) {
+		r.With(secretaryUp).Post("/", donationH.Create)
+		r.With(coordinatorUp).Get("/", donationH.List)
+		r.With(coordinatorUp).Get("/{id}", donationH.Get)
+		r.With(secretaryUp).Put("/{id}", donationH.Update)
 	})
 	r.Route("/api/v1/consents", func(r chi.Router) {
 		r.With(allRoles).Post("/", consentH.Create)
