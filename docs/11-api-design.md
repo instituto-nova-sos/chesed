@@ -616,16 +616,103 @@ Campaign error responses:
 
 ---
 
-## Donation Endpoints (Phase 2)
+## Donation Endpoints (Phase 2 — Sprint 7)
 
-**(Phase 2)** — These endpoints are implemented in Phase 2.
+**(Phase 2)** — Implemented in Sprint 7 (E09), except the receipt PDF (Phase 3, S11.5).
 
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | POST | `/donations` | Yes | Secretary+ | Create donation |
+| PUT | `/donations/:id` | Yes | Secretary+ | Edit donation |
 | GET | `/donations` | Yes | Coordinator+ | List donations |
 | GET | `/donations/:id` | Yes | Coordinator+ | Get donation detail |
-| GET | `/donations/:id/receipt` | Yes | Coordinator+ | Download receipt PDF |
+| GET | `/donations/:id/receipt` | Yes | Coordinator+ | Download receipt PDF **(Phase 3 — S11.5)** |
+
+All donation queries and mutations are scoped to the caller's campus (from the
+token `campus_id` claim). Every mutation writes an `audit_log` entry
+(module `donation`).
+
+#### POST /donations
+
+Request body fields:
+- `donation_type` (string, required) — one of `FINANCIAL`, `GOODS`, `SERVICES`.
+- `amount` (number, required **only** when `donation_type` is `FINANCIAL`, must be
+  `> 0`) — the monetary value; ignored/optional for `GOODS`/`SERVICES`.
+- `currency` (string, optional) — ISO 4217 code; defaults to `"BRL"`.
+- `item_description` (string, required **only** when `donation_type` is `GOODS` or
+  `SERVICES`) — description of the donated goods/services.
+- `donor_person_id` (uuid, optional) — the donor; must be visible in the caller's
+  campus. A nonexistent or foreign-campus reference returns `400 validation_error`
+  with a generic message (no cross-campus existence disclosure, T3). Omit for
+  anonymous donations.
+- `campaign_id` (uuid, optional) — the campaign to attribute the donation to; same
+  campus-scoped validation and generic rejection as `donor_person_id` (RF-56).
+- `donation_date` (string `YYYY-MM-DD`, optional) — defaults to the current date.
+- `notes` (string, optional).
+
+`receipt_number` and `receipt_issued_at` are **not** accepted in Phase 2 (receipt
+issuance is Phase 3, S11.5); they are stored as `NULL`. `registered_by` is set from
+the caller's token, never from the body.
+
+Returns `201` with the created donation. Errors: `400 validation_error` (bad type,
+missing conditional field, unresolvable donor/campaign), `403` (below Secretary),
+`409 conflict` (duplicate `receipt_number`, reserved for Phase 3).
+
+```json
+{
+  "id": "uuid",
+  "donor_person_id": "uuid|null",
+  "campaign_id": "uuid|null",
+  "campus_id": "uuid",
+  "donation_type": "FINANCIAL",
+  "amount": 150.00,
+  "currency": "BRL",
+  "item_description": null,
+  "donation_date": "2026-07-05",
+  "receipt_number": null,
+  "receipt_issued_at": null,
+  "notes": null,
+  "created_at": "timestamptz",
+  "updated_at": "timestamptz"
+}
+```
+
+#### PUT /donations/:id
+
+Same body as `POST /donations`. Updates the mutable fields
+(`donation_type`, `amount`, `currency`, `item_description`, `donor_person_id`,
+`campaign_id`, `donation_date`, `notes`). `campus_id`, `registered_by`, and
+`created_at` are immutable. Returns `200` with the updated donation; `404` if the
+donation is not in the caller's campus.
+
+#### GET /donations
+
+Query params: `page` (default 1), `per_page` (default 20), `donation_type`
+(filter, validated against the enum), `campaign_id` (filter, uuid). Returns a
+paginated list of donation summaries scoped to the caller's campus, each carrying
+the resolved donor and campaign names for display.
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "donation_type": "FINANCIAL",
+      "amount": 150.00,
+      "currency": "BRL",
+      "donation_date": "2026-07-05",
+      "donor_name": "Maria Silva|null",
+      "campaign_name": "Campanha do Agasalho|null"
+    }
+  ],
+  "pagination": { "page": 1, "per_page": 20, "total": 1, "total_pages": 1 }
+}
+```
+
+#### GET /donations/:id
+
+Returns the full donation (all fields above) plus resolved `donor_name` and
+`campaign_name`. Returns `404` if the donation is not in the caller's campus.
 
 ---
 

@@ -88,6 +88,7 @@ type appDeps struct {
 	attendance   *handler.AttendanceHandler
 	campaign     *handler.CampaignHandler
 	consent      *handler.ConsentHandler
+	donation     *handler.DonationHandler
 	document     *handler.DocumentHandler
 	report       *handler.ReportHandler
 	sync         *handler.SyncHandler
@@ -110,6 +111,7 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 	triageRepo := repository.NewTriageRepository(pool)
 	attendanceRepo := repository.NewAttendanceRepository(pool)
 	campaignRepo := repository.NewCampaignRepository(pool)
+	donationRepo := repository.NewDonationRepository(pool)
 	consentRepo := repository.NewConsentRepository(pool)
 	documentRepo := repository.NewDocumentRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
@@ -134,6 +136,7 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
 		consent:        handler.NewConsentHandler(service.NewConsentService(consentRepo, personRepo, auditSvc)),
+		donation:       handler.NewDonationHandler(service.NewDonationService(donationRepo, personRepo, campaignRepo, auditSvc)),
 		document:       handler.NewDocumentHandler(service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)),
@@ -199,6 +202,7 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		d.registerAttendanceRoutes(r, allRoles)
 		d.registerCampaignRoutes(r, allRoles)
 		d.registerConsentRoutes(r, allRoles)
+		d.registerDonationRoutes(r)
 		d.registerDocumentRoutes(r)
 		d.registerReportRoutes(r)
 		d.registerSyncRoutes(r, allRoles)
@@ -278,6 +282,19 @@ func (d appDeps) registerConsentRoutes(r chi.Router, allRoles func(http.Handler)
 	// param pattern before falling back to the /persons/* mount, so the two
 	// registrations coexist without collision.
 	r.With(secretaryUp).Get("/persons/{id}/consents", d.consent.ListByPerson)
+}
+
+// registerDonationRoutes mounts the donation endpoints per docs/11-api-design.md:
+// writes (create/edit) are Secretary+; reads (list/detail) are Coordinator+.
+func (d appDeps) registerDonationRoutes(r chi.Router) {
+	secretaryUp := middleware.RequireRole(d.auditSvc, "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
+	coordinatorUp := middleware.RequireRole(d.auditSvc, "COORDINATOR", "ADMIN")
+	r.Route("/donations", func(r chi.Router) {
+		r.With(secretaryUp).Post("/", d.donation.Create)
+		r.With(coordinatorUp).Get("/", d.donation.List)
+		r.With(coordinatorUp).Get("/{id}", d.donation.Get)
+		r.With(secretaryUp).Put("/{id}", d.donation.Update)
+	})
 }
 
 // registerDocumentRoutes mounts the document endpoints per docs/16: person

@@ -759,13 +759,69 @@
 
 ## E09: Donation Tracking (Phase 2)
 
-**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete (met — Sprints 1-4 done)
+**Target**: Sprint 7
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Phase 2 kickoff (Sprint 7): stories detailed per the phase-boundary rule.
+> Donation registration is an **online-only write surface** (create/edit require
+> connectivity). Donation lists are a coordinator-only read surface; there is no
+> offline substrate for donations in this sprint (they are back-office records,
+> not field-captured). Specs: table DDL in `docs/10-data-model.md` (donation —
+> FKs to person/campaign/campus already resolvable, all parent tables exist),
+> endpoints in `docs/11-api-design.md`, permissions in
+> `docs/16-iam-and-access-control.md`. Receipt/proof generation (RF-55) is
+> **Phase 3 (S11.5)** and out of scope here; the `receipt_number` /
+> `receipt_issued_at` columns exist on the table but are left NULL this sprint.
 
-**S09.1** - Create/edit/list donations
-**S09.2** - Link donations to campaigns
-**S09.3** - React donation form and list
+### Stories
+
+**S09.1 - Create/edit/list donations**
+- status: done
+- depends_on: [S02.5, S02.6]
+- covers_requirements: [RF-54]
+- parallel_with: [S09.3]
+- size: M
+- offline: Online-only write surface. Donation create/edit require connectivity; the form shows a "requires connection" state when offline rather than queueing (unlike triage/attendance, donations are not field-captured).
+- As a secretary, I can register, edit, and list financial and in-kind donations for my campus.
+- Acceptance criteria:
+  - **Given** an authenticated secretary (or higher) **when** they `POST /api/v1/donations` with a valid body **then** the API returns `201` with the created donation, campus-stamped from the caller's token and `registered_by` set to the caller.
+  - **Given** a `donation_type` of `FINANCIAL` **when** `amount` is missing or not greater than zero **then** the API returns `400` validation_error and persists no row.
+  - **Given** a `donation_type` of `GOODS` or `SERVICES` **when** `item_description` is empty **then** the API returns `400` validation_error and persists no row.
+  - **Given** a `donation_type` outside {FINANCIAL, GOODS, SERVICES} **when** the request is made **then** the API returns `400` validation_error.
+  - **Given** an authenticated coordinator (or higher) **when** they `GET /api/v1/donations` **then** the API returns a paginated list scoped to their campus, filterable by `donation_type` and `campaign_id`.
+  - **Given** a coordinator in campus A **when** they `GET /api/v1/donations` or `GET /api/v1/donations/{id}` for a campus B donation **then** no campus B donation is returned (list excludes it; detail returns `404`).
+  - **Given** a secretary **when** they `PUT /api/v1/donations/{id}` with valid changes **then** the API returns `200`, persists the mutable fields, and leaves `campus_id`, `registered_by`, and `created_at` unchanged.
+  - **Given** a user below the secretary access profile **when** they `POST` a donation **then** the API returns `403` and logs the attempt (`ACCESS_DENIED`).
+  - **Given** any donation create, edit **when** it succeeds **then** an audit_log entry (`CREATE`/`UPDATE`, module `donation`) is written.
+
+**S09.2 - Link donations to campaigns**
+- status: done
+- depends_on: [S09.1, S07.1]
+- covers_requirements: [RF-56]
+- parallel_with: []
+- size: S
+- offline: Online-only; linkage is validated server-side at write time. No offline path.
+- As a secretary, I can attribute a donation to a campaign in my campus.
+- Acceptance criteria:
+  - **Given** a donation payload with a `campaign_id` for a campaign in the caller's campus **when** the donation is created or updated **then** the API returns `201`/`200` and the stored `campaign_id` matches.
+  - **Given** a `campaign_id` referencing a campaign in another campus (or a nonexistent one) **when** the donation is created or updated **then** the API returns `400` validation_error with a generic message that does not disclose the foreign campaign's existence (threat model T3).
+  - **Given** a donation payload with no `campaign_id` **when** the donation is created **then** it is stored with `campaign_id` NULL (linkage is optional).
+  - **Given** a donation linked to a campaign **when** it is listed or fetched **then** the response carries the campaign reference for display.
+
+**S09.3 - React donation form and list**
+- status: done
+- depends_on: [S09.1, S09.2]
+- covers_requirements: [RF-54, RF-56, RNF-13]
+- parallel_with: [S09.1]
+- size: M
+- offline: Online-only. When offline, the list and form show a "connect to manage donations" state and disable submission.
+- As a secretary, I can register and browse donations on a phone.
+- Acceptance criteria:
+  - **Given** the donation form **when** the secretary selects a `donation_type` **then** the form shows `amount`/`currency` fields for FINANCIAL and an `item_description` field for GOODS/SERVICES, validating the required field for the chosen type before submit.
+  - **Given** the donation form **when** the secretary optionally selects a donor (person) and/or a campaign **then** those selectors are populated campus-scoped and the linkage is submitted with the donation.
+  - **Given** the donation list **when** it is rendered **then** it shows date, type, formatted amount (BRL), donor, and campaign, with type filtering and pagination.
+  - **Given** a user below the secretary access profile **when** they view the list **then** the "Nova doação"/"Editar" actions are hidden.
+  - **Given** the pages rendered at 320px width **when** viewed **then** the form, list, and selectors remain usable without horizontal scroll.
 
 ---
 
