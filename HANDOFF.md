@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-01 (Session 33)
+2026-07-05 (Session 36)
 
 ---
 
@@ -2923,6 +2923,73 @@ context and worked every time. The S08.2 agent died before writing anything
 All commits local on both branches. Suggested (human-run):
 `git push -u origin feat/sprint5-followups-campaign-link` and
 `git push -u origin feat/sprint6-documents-consent`.
+
+---
+
+## Session 36: Sprint 7 — Donation Tracking (E09, Phase 2) (2026-07-05)
+
+Delivered the full E09 epic on branch **`feat/sprint7-donations`**, parallelized,
+through `make deliver` to READY-FOR-PR with an independent reviewer **APPROVE**
+(0 blocker / 0 major / 0 minor, 1 non-blocking suggestion, cycle 1).
+
+### Scope
+- **S09.1** create/edit/list donations · **S09.2** campaign linkage · **S09.3** React UI.
+- The `donation` table DDL, domain, and API were already specified in the docs; the
+  **campaign feature (E07) was the template** across every layer. Receipt PDF
+  (RF-55 / `GET /donations/:id/receipt`) is **Phase 3 (S11.5)** — out of scope;
+  `receipt_number`/`receipt_issued_at` columns exist but are left NULL.
+
+### What was built
+- **Migration 000026** — `donation` table per `docs/10-data-model.md` (FKs to
+  person/campaign/campus, 4 indexes).
+- **Backend** — domain/repository/service/handler mirroring campaign. Endpoints:
+  `POST`/`PUT /donations` (Secretary+), `GET /donations` + `GET /donations/{id}`
+  (Coordinator+) — note the RBAC is the **inverse** of campaign (writes below
+  reads), per `docs/11-api-design.md`. Campus-scoped + audit-logged. Optional
+  `donor_person_id` (consent-style resolver) and `campaign_id` (reused
+  `resolveCampaignRef`) rejected generically on foreign-campus (T3).
+  `validateDonationBusinessRules`: FINANCIAL→amount>0, GOODS/SERVICES→description.
+- **Frontend** — types/api/labels/hooks + list/form/detail pages mirroring campaign.
+  Form conditionally shows amount (FINANCIAL) vs. description (GOODS/SERVICES),
+  optional donor (SearchableSelect+usePersons) and campaign (reused
+  `useLinkableCampaigns`) selectors. Create/edit gated to Secretary+.
+- **Docs** — E09 detailed in `docs/09-backlog.md` (GWT + metadata, all `done`);
+  donation endpoint bodies + PUT added to `docs/11-api-design.md`.
+- **Tests** — backend unit (split for funlen) + 6 integration scenarios (CRUD/DB,
+  campus boundary, RBAC 403, validation, campaign-link cross-campus rejection,
+  anonymous donor); frontend MSW integration; **Playwright `@smoke`** slice
+  (login → create FINANCIAL → list → Postgres assert). E2E `fixtures.ts` cleanup
+  extended to the `donation` table (FK-before-parent order).
+
+### Parallel execution model (as requested)
+Two write-capable subagents on **disjoint new-file sets** (backend A, frontend B);
+orchestrator owned all shared files (`main.go`, `harness_test.go`, `App.tsx`,
+`Sidebar.tsx`, `types/index.ts`, `__integration__/server.ts`, `e2e/fixtures.ts`),
+RED→GREEN commit sequencing (4 commits, test-first per story), and final validation.
+Independent `code-review-agent` produced the verdict file. Both agents had full
+Write/Edit/Bash (no read-only fallback needed this session).
+
+### Validation (all green)
+`make validate-backlog` OK · full `make deliver`: backend build/lint/`go test -short`
++ **full integration suite** (real Postgres, ~100s) · frontend tsc + 197 unit +
+49 MSW + coverage + PWA build (0 lint errors; pre-existing 49 warnings held) ·
+**5/5 Playwright @smoke** against the rebuilt e2e stack · critical-review gate
+**APPROVE** · DoD gate.
+
+### Follow-up (documented, non-blocking — reviewer SUGGESTION)
+- The "Doações" Sidebar link and `/donations` routes render for all roles while
+  reads gate at Coordinator+, so a below-Coordinator user lands on a 403 state.
+  Backend-authoritative (no exposure); matches the pre-existing unfiltered-Sidebar
+  pattern. Candidate for a role-aware nav pass across the app.
+
+### Push boundary respected
+All commits local on `feat/sprint7-donations`. Suggested (human-run):
+`git push -u origin feat/sprint7-donations`.
+
+### What's next
+- **E10 (Advanced Reports and Dashboards)** is the last Phase 2 epic — needs the
+  same phase-kickoff detailing (GWT in backlog) before implementation (Recharts
+  charts, dashboard metrics, report filters).
 
 ---
 
