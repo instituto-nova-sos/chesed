@@ -40,6 +40,22 @@ export const handlers = [
       pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
     }),
   ),
+  http.get(`${API_BASE}/donations`, () =>
+    HttpResponse.json({
+      data: [
+        {
+          id: '00000000-0000-0000-0000-00000000d001',
+          donation_type: 'FINANCIAL',
+          amount: 150.0,
+          currency: 'BRL',
+          donation_date: '2026-07-05',
+          donor_name: 'Default Donor',
+          campaign_name: null,
+        },
+      ],
+      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
+    }),
+  ),
   http.get(`${API_BASE}/persons`, ({ request }) => {
     const url = new URL(request.url);
     const q = url.searchParams.get('q') ?? '';
