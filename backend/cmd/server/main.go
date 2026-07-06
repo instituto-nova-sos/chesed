@@ -315,6 +315,7 @@ func (d appDeps) registerDocumentRoutes(r chi.Router) {
 func (d appDeps) registerReportRoutes(r chi.Router) {
 	reportRoles := middleware.RequireRole(d.auditSvc, "COORDINATOR", "ADMIN")
 	r.Route("/reports", func(r chi.Router) {
+		r.With(reportRoles).Get("/dashboard", d.report.Dashboard)
 		r.With(reportRoles).Get("/attendances", d.report.AttendanceSummary)
 		r.With(reportRoles).Get("/attendances/export", d.report.AttendanceExport)
 		r.With(reportRoles).Get("/campaigns/{id}", d.report.CampaignMetrics)
