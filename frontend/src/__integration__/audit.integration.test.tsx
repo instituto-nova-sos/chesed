@@ -41,7 +41,7 @@ describe('integration: audit logs + apiClient + MSW', () => {
     const page = await listAuditLogs({ start: '2026-01-01', end: '2026-12-31' });
 
     expect(page.data).toHaveLength(1);
-    expect(page.data[0].user_email).toBe('maria@example.com');
+    expect(page.data[0]?.user_email).toBe('maria@example.com');
     expect(page.pagination.total).toBe(1);
   });
 

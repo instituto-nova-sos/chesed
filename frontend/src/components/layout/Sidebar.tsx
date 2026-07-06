@@ -1,11 +1,19 @@
 import { useLocation, Link } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const NAV_ITEMS = [
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  minRole?: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: '📊' },
   { path: '/persons', label: 'Pessoas', icon: '👤' },
   { path: '/triages', label: 'Triagens', icon: '📋' },
@@ -13,11 +21,17 @@ const NAV_ITEMS = [
   { path: '/campaigns', label: 'Campanhas', icon: '📣' },
   { path: '/donations', label: 'Doações', icon: '🎁' },
   { path: '/reports', label: 'Relatórios', icon: '📈' },
+  { path: '/compliance', label: 'Conformidade', icon: '🛡️', minRole: 'COORDINATOR' },
+  { path: '/audit-logs', label: 'Auditoria', icon: '🔎', minRole: 'ADMIN' },
   { path: '/campuses', label: 'Campus', icon: '🏢' },
 ];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
+  const { hasMinRole } = useAuth();
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => !item.minRole || hasMinRole(item.minRole),
+  );
 
   return (
     <>
@@ -42,7 +56,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         <nav className="mt-4 space-y-1 px-3">
-          {NAV_ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link
