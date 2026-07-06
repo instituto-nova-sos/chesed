@@ -5,6 +5,7 @@ import type {
   DonationListResponse,
   DonationInput,
   UpdateDonationInput,
+  DocumentDownload,
 } from '../types';
 
 export interface ListDonationsParams {
@@ -40,4 +41,13 @@ export function updateDonation(id: string, input: UpdateDonationInput): Promise<
     method: 'PUT',
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * Issues (on first call) and returns a presigned URL for the donation receipt
+ * PDF. The browser navigates to the URL to download; issuance is idempotent
+ * server-side (docs/11-api-design.md, S11.5).
+ */
+export function downloadReceipt(id: string): Promise<DocumentDownload> {
+  return apiClient<DocumentDownload>(`/donations/${id}/receipt`);
 }

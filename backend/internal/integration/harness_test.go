@@ -145,16 +145,21 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	donationRepo := repository.NewDonationRepository(pool)
 	consentRepo := repository.NewConsentRepository(pool)
 	documentRepo := repository.NewDocumentRepository(pool)
+	complianceRepo := repository.NewComplianceReportRepository(pool)
+	retentionRepo := repository.NewRetentionRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
 	syncSvc := service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)
 	campaignSvc := service.NewCampaignService(campaignRepo, personRepo, auditSvc)
-	donationSvc := service.NewDonationService(donationRepo, personRepo, campaignRepo, auditSvc)
-	consentSvc := service.NewConsentService(consentRepo, personRepo, auditSvc)
+	donationSvc := service.NewDonationService(donationRepo, personRepo, campaignRepo, store, service.NewReceiptRenderer(), auditSvc)
+	consentSvc := service.NewConsentService(consentRepo, personRepo, personRepo, auditSvc)
 	documentSvc := service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)
 	triageSvc := service.NewTriageService(triageRepo, campaignRepo, auditSvc)
 	attendanceSvc := service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)
 	reportSvc := service.NewReportService(repository.NewReportRepository(pool))
+	complianceSvc := service.NewComplianceReportService(complianceRepo, auditSvc)
+	auditReadSvc := service.NewAuditReadService(auditRepo)
+	retentionSvc := service.NewRetentionService(retentionRepo, personRepo, auditSvc)
 
 	syncH := handler.NewSyncHandler(syncSvc)
 	campaignH := handler.NewCampaignHandler(campaignSvc)
@@ -164,6 +169,9 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	triageH := handler.NewTriageHandler(triageSvc)
 	attendanceH := handler.NewAttendanceHandler(attendanceSvc)
 	reportH := handler.NewReportHandler(reportSvc)
+	complianceH := handler.NewComplianceReportHandler(complianceSvc)
+	auditH := handler.NewAuditHandler(auditReadSvc)
+	adminH := handler.NewAdminHandler(retentionSvc)
 
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
@@ -189,6 +197,12 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	r.With(coordinatorUp).Get("/api/v1/reports/dashboard", reportH.Dashboard)
 	r.With(coordinatorUp).Get("/api/v1/reports/attendances", reportH.AttendanceSummary)
 	r.With(coordinatorUp).Get("/api/v1/reports/campaigns/{id}", reportH.CampaignMetrics)
+	r.With(coordinatorUp).Get("/api/v1/reports/compliance", complianceH.Report)
+	r.With(coordinatorUp).Get("/api/v1/reports/compliance/export", complianceH.Export)
+	// Audit viewer + admin retention mirror registerAuditRoutes/registerAdminRoutes
+	// in cmd/server/main.go — ADMIN only.
+	r.With(adminOnly).Get("/api/v1/audit/logs", auditH.List)
+	r.With(adminOnly).Post("/api/v1/admin/retention/run", adminH.RunRetention)
 	r.Route("/api/v1/campaigns", func(r chi.Router) {
 		r.With(coordinatorUp).Post("/", campaignH.Create)
 		r.With(allRoles).Get("/", campaignH.List)
@@ -204,6 +218,7 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 		r.With(coordinatorUp).Get("/", donationH.List)
 		r.With(coordinatorUp).Get("/{id}", donationH.Get)
 		r.With(secretaryUp).Put("/{id}", donationH.Update)
+		r.With(coordinatorUp).Get("/{id}/receipt", donationH.Receipt)
 	})
 	r.Route("/api/v1/consents", func(r chi.Router) {
 		r.With(allRoles).Post("/", consentH.Create)

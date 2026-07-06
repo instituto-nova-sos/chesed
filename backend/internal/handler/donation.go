@@ -100,6 +100,23 @@ func (h *DonationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, donation)
 }
 
+// Receipt handles GET /donations/{id}/receipt. It issues (once) and returns a
+// presigned download URL for the donation's receipt PDF.
+func (h *DonationHandler) Receipt(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid donation ID format")
+		return
+	}
+
+	download, err := h.svc.GenerateReceipt(r.Context(), id)
+	if err != nil {
+		h.writeDonationError(w, r, err, "generate receipt")
+		return
+	}
+	writeJSON(w, http.StatusOK, download)
+}
+
 // writeDonationError maps domain sentinel errors to the documented HTTP
 // contract. Validation messages stay generic so cross-campus references never
 // disclose foreign existence.

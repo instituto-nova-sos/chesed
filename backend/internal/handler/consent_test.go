@@ -63,12 +63,20 @@ func (m *mockConsentPersonRepo) FindByID(ctx context.Context, id, campusID uuid.
 	return args.Get(0).(*domain.Person), args.Error(1)
 }
 
+// Anonymize lets the mock double as the PersonAnonymizer the consent service
+// needs; the handler-layer revoke tests use non-DATA_PROCESSING consents, so it
+// is not exercised here.
+func (m *mockConsentPersonRepo) Anonymize(ctx context.Context, personID, campusID uuid.UUID) error {
+	args := m.Called(ctx, personID, campusID)
+	return args.Error(0)
+}
+
 func newConsentTestHandler() (*ConsentHandler, *mockConsentRepo, *mockConsentPersonRepo, *mockAuditRepo) {
 	repo := new(mockConsentRepo)
 	personRepo := new(mockConsentPersonRepo)
 	aRepo := new(mockAuditRepo)
 	auditSvc := service.NewAuditService(aRepo)
-	svc := service.NewConsentService(repo, personRepo, auditSvc)
+	svc := service.NewConsentService(repo, personRepo, personRepo, auditSvc)
 	return NewConsentHandler(svc), repo, personRepo, aRepo
 }
 

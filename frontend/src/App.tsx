@@ -101,6 +101,12 @@ const DonationDetailPage = lazy(() =>
 const ReportsPage = lazy(() =>
   import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })),
 );
+const CompliancePage = lazy(() =>
+  import('./pages/CompliancePage').then((m) => ({ default: m.CompliancePage })),
+);
+const AuditLogPage = lazy(() =>
+  import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
+);
 const SyncConflictsPage = lazy(() =>
   import('./pages/SyncConflictsPage').then((m) => ({ default: m.SyncConflictsPage })),
 );
@@ -181,6 +187,22 @@ export function App() {
             <Route path="donations/:id" element={<DonationDetailPage />} />
             <Route path="donations/:id/edit" element={<DonationFormPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route
+              path="compliance"
+              element={
+                <ProtectedRoute requiredRoles={['COORDINATOR', 'ADMIN']}>
+                  <CompliancePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="audit-logs"
+              element={
+                <ProtectedRoute requiredRoles={['ADMIN']}>
+                  <AuditLogPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="sync/conflicts" element={<SyncConflictsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

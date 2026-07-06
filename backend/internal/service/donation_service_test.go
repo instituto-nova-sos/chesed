@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/auth"
@@ -49,6 +50,29 @@ func (m *MockDonationRepository) Update(ctx context.Context, d domain.Donation) 
 	return args.Get(0).(*domain.Donation), args.Error(1)
 }
 
+func (m *MockDonationRepository) FindReceiptData(ctx context.Context, id, campusID uuid.UUID) (*domain.ReceiptData, error) {
+	args := m.Called(ctx, id, campusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ReceiptData), args.Error(1)
+}
+
+func (m *MockDonationRepository) MarkReceiptIssued(ctx context.Context, id, campusID uuid.UUID, number string, issuedAt time.Time) error {
+	args := m.Called(ctx, id, campusID, number, issuedAt)
+	return args.Error(0)
+}
+
+// stubReceiptRenderer is a minimal ReceiptRenderer for service tests.
+type stubReceiptRenderer struct {
+	pdf []byte
+	err error
+}
+
+func (s stubReceiptRenderer) Render(domain.ReceiptData) ([]byte, error) {
+	return s.pdf, s.err
+}
+
 // MockDonationPersonRepository implements DonationPersonRepository for testing.
 type MockDonationPersonRepository struct {
 	mock.Mock
@@ -64,13 +88,24 @@ func (m *MockDonationPersonRepository) FindByID(ctx context.Context, id, campusI
 
 // newTestDonationService wires the service with fresh mocks. MockCampaignRepository
 // (declared in campaign_service_test.go) satisfies CampaignRefRepository.
+// Storage/renderer are stubbed and only exercised by the receipt tests.
 func newTestDonationService() (*DonationService, *MockDonationRepository, *MockDonationPersonRepository, *MockCampaignRepository, *MockAuditRepository) {
+	svc, repo, personRepo, campaignRepo, _, auditRepo := newTestDonationServiceWithStorage()
+	return svc, repo, personRepo, campaignRepo, auditRepo
+}
+
+// newTestDonationServiceWithStorage additionally exposes the storage mock for
+// the receipt-issuance tests.
+func newTestDonationServiceWithStorage() (*DonationService, *MockDonationRepository, *MockDonationPersonRepository, *MockCampaignRepository, *MockObjectStorage, *MockAuditRepository) {
 	repo := new(MockDonationRepository)
 	personRepo := new(MockDonationPersonRepository)
 	campaignRepo := new(MockCampaignRepository)
+	store := new(MockObjectStorage)
 	auditRepo := new(MockAuditRepository)
 	auditSvc := NewAuditService(auditRepo)
-	return NewDonationService(repo, personRepo, campaignRepo, auditSvc), repo, personRepo, campaignRepo, auditRepo
+	renderer := stubReceiptRenderer{pdf: []byte("%PDF-1.7 stub")}
+	svc := NewDonationService(repo, personRepo, campaignRepo, store, renderer, auditSvc)
+	return svc, repo, personRepo, campaignRepo, store, auditRepo
 }
 
 func donationTestContext() (context.Context, auth.AuthClaims) {
@@ -450,5 +485,86 @@ func TestDonationService_UpdateDonation(t *testing.T) {
 		_, err := svc.UpdateDonation(ctx, id, input)
 		require.ErrorIs(t, err, domain.ErrValidation)
 		repo.AssertNotCalled(t, "Update")
+	})
+}
+
+func TestDonationService_GenerateReceipt(t *testing.T) {
+	t.Run("first issuance renders, stores, stamps, audits and presigns", func(t *testing.T) {
+		svc, repo, _, _, store, auditRepo := newTestDonationServiceWithStorage()
+		ctx, claims := donationTestContext()
+
+		id := uuid.New()
+		repo.On("FindReceiptData", mock.Anything, id, claims.CampusID).
+			Return(&domain.ReceiptData{
+				Donation:   domain.Donation{ID: id, CampusID: claims.CampusID, DonationDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+				CampusName: "Campus Central",
+			}, nil)
+		store.On("Put", mock.Anything, mock.MatchedBy(func(k string) bool {
+			return k == "receipts/"+claims.CampusID.String()+"/"+id.String()+".pdf"
+		}), "application/pdf", mock.AnythingOfType("int64"), mock.Anything).Return(nil)
+		repo.On("MarkReceiptIssued", mock.Anything, id, claims.CampusID, mock.MatchedBy(func(n string) bool {
+			return len(n) > 0 && n[:9] == "REC-2026-"
+		}), mock.AnythingOfType("time.Time")).Return(nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+		store.On("PresignGet", mock.Anything, mock.Anything, mock.Anything).Return("https://signed", nil)
+
+		dl, err := svc.GenerateReceipt(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "https://signed", dl.URL)
+		store.AssertCalled(t, "Put", mock.Anything, mock.Anything, "application/pdf", mock.Anything, mock.Anything)
+		repo.AssertCalled(t, "MarkReceiptIssued", mock.Anything, id, claims.CampusID, mock.Anything, mock.Anything)
+	})
+
+	t.Run("already issued skips generation and just presigns", func(t *testing.T) {
+		svc, repo, _, _, store, _ := newTestDonationServiceWithStorage()
+		ctx, claims := donationTestContext()
+
+		id := uuid.New()
+		existing := "REC-2026-DEADBEEF"
+		repo.On("FindReceiptData", mock.Anything, id, claims.CampusID).
+			Return(&domain.ReceiptData{
+				Donation:   domain.Donation{ID: id, CampusID: claims.CampusID, ReceiptNumber: &existing},
+				CampusName: "Campus Central",
+			}, nil)
+		store.On("PresignGet", mock.Anything, mock.Anything, mock.Anything).Return("https://signed", nil)
+
+		dl, err := svc.GenerateReceipt(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "https://signed", dl.URL)
+		store.AssertNotCalled(t, "Put", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		repo.AssertNotCalled(t, "MarkReceiptIssued", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("missing campus is forbidden", func(t *testing.T) {
+		svc, _, _, _, _, _ := newTestDonationServiceWithStorage()
+		_, err := svc.GenerateReceipt(context.Background(), uuid.New())
+		require.ErrorIs(t, err, domain.ErrForbidden)
+	})
+
+	t.Run("not found propagates", func(t *testing.T) {
+		svc, repo, _, _, _, _ := newTestDonationServiceWithStorage()
+		ctx, claims := donationTestContext()
+		id := uuid.New()
+		repo.On("FindReceiptData", mock.Anything, id, claims.CampusID).Return(nil, domain.ErrNotFound)
+		_, err := svc.GenerateReceipt(ctx, id)
+		require.ErrorIs(t, err, domain.ErrNotFound)
+	})
+
+	t.Run("duplicate on stamp is treated as already-issued and re-presigns", func(t *testing.T) {
+		// A concurrent first-call won the race and stamped the row; MarkReceiptIssued
+		// returns ErrDuplicate. The losing call must fall through to presign the
+		// (already-written) object rather than surfacing a spurious 409.
+		svc, repo, _, _, store, _ := newTestDonationServiceWithStorage()
+		ctx, claims := donationTestContext()
+		id := uuid.New()
+		repo.On("FindReceiptData", mock.Anything, id, claims.CampusID).
+			Return(&domain.ReceiptData{Donation: domain.Donation{ID: id, CampusID: claims.CampusID, DonationDate: time.Now()}}, nil)
+		store.On("Put", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		repo.On("MarkReceiptIssued", mock.Anything, id, claims.CampusID, mock.Anything, mock.Anything).Return(domain.ErrDuplicate)
+		store.On("PresignGet", mock.Anything, mock.Anything, mock.Anything).Return("https://signed", nil)
+
+		dl, err := svc.GenerateReceipt(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "https://signed", dl.URL)
 	})
 }

@@ -318,6 +318,46 @@ func (r *PersonRepository) Update(ctx context.Context, person domain.Person) (*d
 	return &person, nil
 }
 
+// Anonymize scrubs a person's PII and its address rows in place (LGPD right to
+// erasure, S11.3). The row is kept for referential integrity; full_name gets a
+// placeholder (the column is NOT NULL) and document_number a per-person sentinel
+// so a second anonymization never trips the uq_person_document NULLS-NOT-DISTINCT
+// unique index. The sentinel is 'ANON-' + the first 25 hex digits of the id (30
+// chars total) to fit document_number's VARCHAR(30) while staying unique. The
+// person UPDATE is not gated on is_active (an already-deactivated person can
+// still hold PII). search_vector is refreshed automatically by the person
+// BEFORE-UPDATE trigger. Both statements run via the request-scoped campus
+// transaction, so they commit or roll back together.
+func (r *PersonRepository) Anonymize(ctx context.Context, personID, campusID uuid.UUID) error {
+	const personQuery = `
+		UPDATE person
+		SET full_name = '[ANONYMIZED]',
+		    document_number = 'ANON-' || left(replace(id::text, '-', ''), 25),
+		    email = NULL, phone = NULL, photo_url = NULL, referral_source = NULL,
+		    birth_date = NULL, gender = NULL,
+		    anonymized_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND campus_id = $2`
+
+	tag, err := r.q(ctx).Exec(ctx, personQuery, personID, campusID)
+	if err != nil {
+		return fmt.Errorf("personRepository.Anonymize: person: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	const addressQuery = `
+		UPDATE address
+		SET street = NULL, number = NULL, complement = NULL, neighborhood = NULL,
+		    city = NULL, state = NULL, zip_code = NULL, updated_at = NOW()
+		WHERE person_id = $1`
+
+	if _, err := r.q(ctx).Exec(ctx, addressQuery, personID); err != nil {
+		return fmt.Errorf("personRepository.Anonymize: address: %w", err)
+	}
+	return nil
+}
+
 // List returns a paginated list of persons matching the filter.
 func appendAgreementCondition(sb *strings.Builder, status string) {
 	switch status {

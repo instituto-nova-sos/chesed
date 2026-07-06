@@ -20,6 +20,7 @@ type Person struct {
 	ReferralSource *string    `json:"referral_source,omitempty"`
 	Nationality    string     `json:"nationality"`
 	CampusID       uuid.UUID  `json:"campus_id"`
+	AnonymizedAt   *time.Time `json:"anonymized_at,omitempty"`
 	IsActive       bool       `json:"is_active"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
