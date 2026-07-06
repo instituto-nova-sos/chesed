@@ -16,17 +16,17 @@ import (
 
 // PersonRepository handles person persistence.
 type PersonRepository struct {
-	pool Querier
+	base
 }
 
 // NewPersonRepository creates a new PersonRepository.
 func NewPersonRepository(pool Querier) *PersonRepository {
-	return &PersonRepository{pool: pool}
+	return &PersonRepository{base: base{pool: pool}}
 }
 
 // Create inserts a person and optional address in a single transaction.
 func (r *PersonRepository) Create(ctx context.Context, person domain.Person, address *domain.Address) (*domain.Person, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.Create: begin tx: %w", err)
 	}
@@ -90,7 +90,7 @@ func insertAddress(ctx context.Context, tx pgx.Tx, personID uuid.UUID, address *
 // unique index — a concurrent push with the same sync_id raises a unique
 // violation, which the caller maps to ErrDuplicate.
 func (r *PersonRepository) CreateWithSync(ctx context.Context, person domain.Person, address *domain.Address, syncID uuid.UUID) (*domain.Person, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.CreateWithSync: begin tx: %w", err)
 	}
@@ -136,7 +136,7 @@ func (r *PersonRepository) FindBySyncID(ctx context.Context, syncID, campusID uu
 		WHERE sync_id = $1 AND campus_id = $2`
 
 	var p domain.Person
-	err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+	err := r.q(ctx).QueryRow(ctx, q, syncID, campusID).Scan(
 		&p.ID, &p.FullName, &p.BirthDate, &p.DocumentType, &p.DocumentNumber,
 		&p.Gender, &p.Email, &p.Phone, &p.PhotoURL, &p.ReferralSource,
 		&p.Nationality, &p.CampusID, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
@@ -163,7 +163,7 @@ func (r *PersonRepository) ListUpdatedSince(ctx context.Context, campusID uuid.U
 		ORDER BY updated_at ASC
 		LIMIT $3`
 
-	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	rows, err := r.q(ctx).Query(ctx, q, campusID, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.ListUpdatedSince: %w", err)
 	}
@@ -197,7 +197,7 @@ func (r *PersonRepository) FindByID(ctx context.Context, id uuid.UUID, campusID 
 		WHERE id = $1 AND campus_id = $2 AND is_active = TRUE`
 
 	var p domain.Person
-	err := r.pool.QueryRow(ctx, query, id, campusID).Scan(
+	err := r.q(ctx).QueryRow(ctx, query, id, campusID).Scan(
 		&p.ID, &p.FullName, &p.BirthDate, &p.DocumentType, &p.DocumentNumber,
 		&p.Gender, &p.Email, &p.Phone, &p.PhotoURL, &p.ReferralSource,
 		&p.Nationality, &p.CampusID, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
@@ -222,7 +222,7 @@ func (r *PersonRepository) FindByEmail(ctx context.Context, email string, campus
 		WHERE email = $1 AND campus_id = $2 AND is_active = TRUE`
 
 	var p domain.Person
-	err := r.pool.QueryRow(ctx, query, email, campusID).Scan(
+	err := r.q(ctx).QueryRow(ctx, query, email, campusID).Scan(
 		&p.ID, &p.FullName, &p.BirthDate, &p.DocumentType, &p.DocumentNumber,
 		&p.Gender, &p.Email, &p.Phone, &p.PhotoURL, &p.ReferralSource,
 		&p.Nationality, &p.CampusID, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy,
@@ -247,7 +247,7 @@ func (r *PersonRepository) FindByEmailGlobal(ctx context.Context, email string) 
 		FROM person
 		WHERE lower(email) = lower($1) AND is_active = TRUE`
 
-	rows, err := r.pool.Query(ctx, query, email)
+	rows, err := r.q(ctx).Query(ctx, query, email)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.FindByEmailGlobal: %w", err)
 	}
@@ -303,7 +303,7 @@ func (r *PersonRepository) Update(ctx context.Context, person domain.Person) (*d
 		WHERE id = $11 AND campus_id = $12 AND is_active = TRUE
 		RETURNING updated_at`
 
-	err := r.pool.QueryRow(ctx, query,
+	err := r.q(ctx).QueryRow(ctx, query,
 		person.FullName, person.BirthDate, person.DocumentType, person.DocumentNumber,
 		person.Gender, person.Email, person.Phone, person.PhotoURL, person.ReferralSource,
 		person.Nationality, person.ID, person.CampusID,
@@ -383,7 +383,7 @@ func (r *PersonRepository) List(ctx context.Context, filter domain.PersonFilter)
 	offset := (filter.Page - 1) * filter.PerPage
 	query, args := buildPersonListQuery(filter, offset)
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.q(ctx).Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.List: %w", err)
 	}
@@ -434,7 +434,7 @@ func (r *PersonRepository) CheckDuplicate(ctx context.Context, documentType, doc
 		  AND p.campus_id = $3
 		  AND p.is_active = TRUE`
 
-	rows, err := r.pool.Query(ctx, query, documentType, documentNumber, campusID)
+	rows, err := r.q(ctx).Query(ctx, query, documentType, documentNumber, campusID)
 	if err != nil {
 		return nil, fmt.Errorf("personRepository.CheckDuplicate: %w", err)
 	}
@@ -475,7 +475,7 @@ func (r *PersonRepository) UpdateAddress(ctx context.Context, personID uuid.UUID
 		              zip_code = $9, country = $10, updated_at = NOW()
 		RETURNING id, created_at, updated_at`
 
-	err := r.pool.QueryRow(ctx, query,
+	err := r.q(ctx).QueryRow(ctx, query,
 		address.ID, personID, address.Street, address.Number,
 		address.Complement, address.Neighborhood, address.City,
 		address.State, address.ZipCode, address.Country,
@@ -495,7 +495,7 @@ func (r *PersonRepository) findAddresses(ctx context.Context, personID uuid.UUID
 		WHERE person_id = $1
 		ORDER BY is_primary DESC, created_at`
 
-	rows, err := r.pool.Query(ctx, query, personID)
+	rows, err := r.q(ctx).Query(ctx, query, personID)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +528,7 @@ func (r *PersonRepository) findRoles(ctx context.Context, personID uuid.UUID) ([
 		WHERE person_id = $1
 		ORDER BY activated_at`
 
-	rows, err := r.pool.Query(ctx, query, personID)
+	rows, err := r.q(ctx).Query(ctx, query, personID)
 	if err != nil {
 		return nil, err
 	}

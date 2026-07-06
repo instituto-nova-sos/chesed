@@ -1,20 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useTriage } from '../hooks/useTriage';
+import { useCampusTimezone } from '../hooks/useCampusTimezone';
+import { formatDateTime } from '../utils/formatDateTime';
 import { listServiceTypes, type ServiceType } from '../api/serviceTypes';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Alert } from '../components/ui/Alert';
 import { Button } from '../components/ui/Button';
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function RequestedServices({ labels }: { labels: string[] }) {
   if (labels.length === 0) {
@@ -37,6 +29,7 @@ function RequestedServices({ labels }: { labels: string[] }) {
 export function TriageDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const timeZone = useCampusTimezone();
   const { triage, isLoading, error } = useTriage(id);
   const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
 
@@ -80,7 +73,9 @@ export function TriageDetailPage() {
         </div>
         <div>
           <dt className="text-xs font-medium text-gray-500">Data</dt>
-          <dd className="mt-1 text-sm text-gray-900">{formatDateTime(triage.triage_date)}</dd>
+          <dd className="mt-1 text-sm text-gray-900">
+            {formatDateTime(triage.triage_date, timeZone)}
+          </dd>
         </div>
         <div className="sm:col-span-2">
           <dt className="text-xs font-medium text-gray-500">Queixa Principal</dt>

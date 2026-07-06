@@ -178,6 +178,78 @@ func TestDonationService_CreateDonation(t *testing.T) {
 	})
 }
 
+// TestDonationService_Currency covers multi-currency support (S09.3): the
+// supported set is BRL/USD/EUR, an omitted currency defaults to BRL, and any
+// other ISO code is rejected at validation before reaching the repository.
+func TestDonationService_Currency(t *testing.T) {
+	supported := []string{"BRL", "USD", "EUR"}
+	for _, currency := range supported {
+		t.Run("supported currency "+currency+" is accepted on create", func(t *testing.T) {
+			svc, repo, _, _, auditRepo := newTestDonationService()
+			ctx, _ := donationTestContext()
+
+			input := validGoodsInput()
+			input.Currency = ptrString(currency)
+
+			repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Donation")).
+				Return(&domain.Donation{ID: uuid.New(), DonationType: "GOODS", Currency: currency}, nil)
+			auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+			_, err := svc.CreateDonation(ctx, input)
+			require.NoError(t, err)
+
+			stored := repo.Calls[0].Arguments.Get(1).(domain.Donation)
+			assert.Equal(t, currency, stored.Currency)
+		})
+	}
+
+	t.Run("unsupported currency is rejected on create", func(t *testing.T) {
+		svc, repo, _, _, _ := newTestDonationService()
+		ctx, _ := donationTestContext()
+
+		input := validGoodsInput()
+		input.Currency = ptrString("GBP")
+
+		_, err := svc.CreateDonation(ctx, input)
+		require.Error(t, err)
+		repo.AssertNotCalled(t, "Create")
+	})
+
+	t.Run("omitted currency defaults to BRL on create", func(t *testing.T) {
+		svc, repo, _, _, auditRepo := newTestDonationService()
+		ctx, _ := donationTestContext()
+
+		repo.On("Create", mock.Anything, mock.AnythingOfType("domain.Donation")).
+			Return(&domain.Donation{ID: uuid.New(), DonationType: "GOODS", Currency: "BRL"}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		_, err := svc.CreateDonation(ctx, validGoodsInput())
+		require.NoError(t, err)
+
+		stored := repo.Calls[0].Arguments.Get(1).(domain.Donation)
+		assert.Equal(t, "BRL", stored.Currency)
+	})
+
+	t.Run("unsupported currency is rejected on update", func(t *testing.T) {
+		svc, repo, _, _, _ := newTestDonationService()
+		ctx, claims := donationTestContext()
+
+		id := uuid.New()
+		repo.On("FindByID", mock.Anything, id, claims.CampusID).
+			Return(&domain.DonationDetail{Donation: domain.Donation{ID: id, DonationType: "GOODS", CampusID: claims.CampusID}}, nil).Maybe()
+
+		input := UpdateDonationInput{
+			DonationType:    "GOODS",
+			ItemDescription: ptrString("10 blankets"),
+			Currency:        ptrString("GBP"),
+		}
+
+		_, err := svc.UpdateDonation(ctx, id, input)
+		require.Error(t, err)
+		repo.AssertNotCalled(t, "Update")
+	})
+}
+
 // TestDonationService_CreateDonation_References covers the optional donor and
 // campaign linkage resolution (S09.2), which is campus-scoped and rejects
 // foreign references generically (threat model T3).

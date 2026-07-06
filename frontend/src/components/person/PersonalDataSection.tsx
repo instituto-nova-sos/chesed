@@ -6,6 +6,7 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { COUNTRIES, getDocumentTypeOptions } from '../../utils/countries';
 import { BRAZIL_STATES } from '../../utils/brazilStates';
 import { formatCPF } from '../../utils/cpfValidation';
+import { documentNumberPlaceholder } from '../../utils/documentFormat';
 
 interface PersonalDataSectionProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -222,7 +223,7 @@ export function PersonalDataSection({ form }: PersonalDataSectionProps) {
           error={errMsg(errors.document_number)}
           value={docNumber}
           onChange={handleDocNumberChange}
-          placeholder={documentType === 'CPF' ? '123.456.789-00' : ''}
+          placeholder={documentNumberPlaceholder(documentType)}
         />
       )}
 

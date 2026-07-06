@@ -908,13 +908,61 @@
 
 **Phase**: 3 | **Priority**: P2 | **Prerequisite**: Phase 2 complete
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Sprint 9 (Multi-Region and Data Segregation) delivers S11.1, S11.2, and the multi-currency /
+> timezone hardening (roadmap tasks 9.3/9.4). S11.3–S11.5 remain scheduled for Sprint 10
+> (LGPD and Compliance).
 
-**S11.1** - Multi-campus data isolation with PostgreSQL RLS
-**S11.2** - International document type support
-**S11.3** - Consent revocation with data anonymization
-**S11.4** - LGPD compliance reporting
-**S11.5** - Donation receipt PDF generation
+**S11.1 - Multi-campus data isolation with PostgreSQL RLS**
+- As a compliance owner, I need campus isolation enforced at the database layer (defense-in-depth)
+  so a repository that forgets its `campus_id` filter cannot leak another campus's data.
+- Acceptance criteria:
+  - **Given** the app connects as the non-owner role `chesed_app` and a request whose resolved
+    campus is A **when** any query runs inside the request-scoped transaction (which has
+    `SET LOCAL app.current_campus = A`) **then** only campus-A rows are visible, even for a query
+    that omits the application-level `WHERE campus_id` filter.
+  - **Given** a session with no `app.current_campus` GUC set **when** a protected table is queried
+    **then** zero rows are returned (fail-closed), never all rows.
+  - **Given** a request scoped to campus A **when** it attempts to `INSERT`/`UPDATE` a row with
+    `campus_id = B` **then** the write is rejected by the policy `WITH CHECK`.
+  - **Given** golang-migrate and seed run as the owner role `chesed` **when** migrations apply
+    **then** they bypass RLS and succeed without setting the GUC.
+  - **Given** the existing application-level `WHERE campus_id = $` filters **when** RLS is enabled
+    **then** those filters remain in place (RLS is additive, not a replacement).
+- Notes: `audit_log` is excluded from RLS this sprint (nullable `campus_id`, pre-campus writes);
+  join-inherited tables (`address`, `assisted_profile`, `campaign_team`, `attendance_transition`)
+  use `EXISTS` policies against their parent's `campus_id`.
+
+**S11.2 - International document type support**
+- As a coordinator operating in another region, I need to register people with their national
+  identity document (not only Brazilian CPF).
+- Acceptance criteria:
+  - **Given** the allowed person document types `CPF, RG, SSN, EU_ID, PASSPORT, OTHER` **when** a
+    person is created with any of them **then** the API accepts it and the database CHECK constraint
+    permits it (fixing the prior drift where `RG` was accepted by validators but rejected by the DB).
+  - **Given** `document_type = CPF` with an invalid checksum **when** the person is submitted **then**
+    the API returns `400` with a field-level error and creates no row.
+  - **Given** `document_type = SSN` with a value not matching the SSN format **when** submitted
+    **then** the API returns `400`; a well-formed SSN is accepted.
+  - **Given** `document_type` in `RG, EU_ID, PASSPORT, OTHER` **when** submitted **then** length and
+    charset are validated (no country-specific checksum required).
+
+**S11.3** - Consent revocation with data anonymization *(Sprint 10)*
+**S11.4** - LGPD compliance reporting *(Sprint 10)*
+**S11.5** - Donation receipt PDF generation *(Sprint 10)*
+
+### Sprint 9 hardening tasks (roadmap 9.3 / 9.4)
+
+**Multi-currency donations (roadmap 9.3)**
+- Acceptance criteria:
+  - **Given** the allowed currencies `BRL, USD, EUR` **when** a donation is created/updated with one
+    of them **then** it is accepted; any other currency returns `400` and the database CHECK rejects
+    it. An omitted currency defaults to `BRL`. Amounts are stored in their native currency (no FX).
+
+**Timezone handling for multi-region (roadmap 9.4)**
+- Acceptance criteria:
+  - **Given** a campus with an IANA `timezone` (default `America/Sao_Paulo`) **when** the campus is
+    fetched **then** the response includes the timezone. Timestamps remain stored as UTC
+    `timestamptz`; the frontend renders them in the campus timezone via `Intl.DateTimeFormat`.
 
 ---
 

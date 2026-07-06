@@ -7,6 +7,7 @@ export interface Campus {
   city: string | null;
   state: string | null;
   country: string;
+  timezone: string;
   is_active: boolean;
 }
 
@@ -16,6 +17,7 @@ export interface CampusInput {
   city?: string;
   state?: string;
   country: string;
+  timezone?: string;
   is_active?: boolean;
 }
 

@@ -14,12 +14,12 @@ import (
 
 // CampaignRepository handles campaign persistence.
 type CampaignRepository struct {
-	pool Querier
+	base
 }
 
 // NewCampaignRepository creates a new CampaignRepository.
 func NewCampaignRepository(pool Querier) *CampaignRepository {
-	return &CampaignRepository{pool: pool}
+	return &CampaignRepository{base: base{pool: pool}}
 }
 
 // Create inserts a campaign.
@@ -31,7 +31,7 @@ func (r *CampaignRepository) Create(ctx context.Context, c domain.Campaign) (*do
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		c.ID, c.Name, c.Description, c.CampaignType, c.StartDate, c.EndDate,
 		c.LocationName, c.LocationAddress, c.CampusID, c.CoordinatorID,
 		c.Status, c.CreatedBy,
@@ -51,7 +51,7 @@ func (r *CampaignRepository) FindByID(ctx context.Context, id, campusID uuid.UUI
 		WHERE id = $1 AND campus_id = $2`
 
 	var c domain.Campaign
-	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, id, campusID).Scan(
 		&c.ID, &c.Name, &c.Description, &c.CampaignType, &c.StartDate, &c.EndDate,
 		&c.LocationName, &c.LocationAddress, &c.CampusID, &c.CoordinatorID,
 		&c.Status, &c.CreatedAt, &c.UpdatedAt,
@@ -85,7 +85,7 @@ func (r *CampaignRepository) List(ctx context.Context, filter domain.CampaignFil
 
 	countQuery := "SELECT COUNT(*) FROM campaign WHERE " + where
 	var total int
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("campaignRepository.List: count: %w", err)
 	}
 
@@ -105,7 +105,7 @@ func (r *CampaignRepository) List(ctx context.Context, filter domain.CampaignFil
 		LIMIT $%d OFFSET $%d`, where, len(args)+1, len(args)+2)
 	args = append(args, filter.PerPage, offset)
 
-	rows, err := r.pool.Query(ctx, listQuery, args...)
+	rows, err := r.q(ctx).Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("campaignRepository.List: query: %w", err)
 	}
@@ -145,7 +145,7 @@ func (r *CampaignRepository) Update(ctx context.Context, c domain.Campaign) (*do
 		WHERE id = $10 AND campus_id = $11
 		RETURNING updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		c.Name, c.Description, c.CampaignType, c.StartDate, c.EndDate,
 		c.LocationName, c.LocationAddress, c.CoordinatorID, c.Status,
 		c.ID, c.CampusID,
@@ -172,7 +172,7 @@ func (r *CampaignRepository) AddTeamMember(ctx context.Context, campaignID, pers
 		JOIN person p ON p.id = i.person_id`
 
 	var m domain.CampaignTeamMember
-	if err := r.pool.QueryRow(ctx, q, campaignID, personID, role, assignedBy).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, campaignID, personID, role, assignedBy).Scan(
 		&m.PersonID, &m.PersonName, &m.RoleInCampaign, &m.AssignedAt,
 	); err != nil {
 		var pgErr *pgconn.PgError
@@ -186,7 +186,7 @@ func (r *CampaignRepository) AddTeamMember(ctx context.Context, campaignID, pers
 
 // RemoveTeamMember deletes a team assignment; a missing row is ErrNotFound.
 func (r *CampaignRepository) RemoveTeamMember(ctx context.Context, campaignID, personID uuid.UUID) error {
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.q(ctx).Exec(ctx,
 		`DELETE FROM campaign_team WHERE campaign_id = $1 AND person_id = $2`,
 		campaignID, personID,
 	)
@@ -208,7 +208,7 @@ func (r *CampaignRepository) ListTeam(ctx context.Context, campaignID uuid.UUID)
 		WHERE ct.campaign_id = $1
 		ORDER BY ct.assigned_at ASC`
 
-	rows, err := r.pool.Query(ctx, q, campaignID)
+	rows, err := r.q(ctx).Query(ctx, q, campaignID)
 	if err != nil {
 		return nil, fmt.Errorf("campaignRepository.ListTeam: %w", err)
 	}

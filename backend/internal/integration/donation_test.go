@@ -194,6 +194,34 @@ func TestDonation_Validation(t *testing.T) {
 	assert.Zero(t, count)
 }
 
+// TestDonation_Currency proves the BRL/USD/EUR allow-list is enforced at the API
+// layer (validator) and that accepted currencies persist (Sprint 9.3).
+func TestDonation_Currency(t *testing.T) {
+	h := freshHarness(t)
+	ctx := context.Background()
+
+	for _, cur := range []string{"BRL", "USD", "EUR"} {
+		rec := postCampaignJSON(h, "/api/v1/donations", map[string]any{
+			"donation_type": "FINANCIAL",
+			"amount":        10.0,
+			"currency":      cur,
+		}, asSecretary)
+		require.Equal(t, http.StatusCreated, rec.Code, "currency %s must be accepted: %s", cur, rec.Body.String())
+	}
+
+	rec := postCampaignJSON(h, "/api/v1/donations", map[string]any{
+		"donation_type": "FINANCIAL",
+		"amount":        10.0,
+		"currency":      "GBP",
+	}, asSecretary)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "an unlisted currency must be rejected")
+
+	var count int
+	require.NoError(t, h.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM donation WHERE currency IN ('BRL','USD','EUR')`).Scan(&count))
+	assert.Equal(t, 3, count, "the three valid-currency donations must persist")
+}
+
 // TestDonation_CampaignLink proves a same-campus campaign link persists and a
 // foreign-campus link is rejected generically without disclosure (S09.2, T3).
 func TestDonation_CampaignLink(t *testing.T) {

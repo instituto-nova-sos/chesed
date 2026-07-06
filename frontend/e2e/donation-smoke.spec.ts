@@ -27,8 +27,10 @@ test.describe('donation critical slice', () => {
     await expect(page).toHaveURL(/\/donations\/new/);
 
     // Type defaults to FINANCIAL, so the amount field is visible. Fill the
-    // required amount and a distinctive note, then submit.
+    // required amount and a distinctive note. Sprint 9.3: pick a non-default
+    // currency (USD) from the select to prove multi-currency end-to-end.
     await page.getByLabel('Valor').fill('175.50');
+    await page.getByLabel('Moeda').selectOption('USD');
     await page.getByLabel('Observações').fill(notes);
     await page.getByRole('button', { name: 'Salvar' }).click();
 
@@ -50,12 +52,17 @@ test.describe('donation critical slice', () => {
         campus_id: string;
         donation_type: string;
         amount: string;
-      }>(`SELECT campus_id, donation_type, amount FROM donation WHERE notes = $1`, [notes]);
+        currency: string;
+      }>(
+        `SELECT campus_id, donation_type, amount, currency FROM donation WHERE notes = $1`,
+        [notes],
+      );
       expect(res.rowCount, `donation row should exist in ${DATABASE_URL}`).toBe(1);
       return res.rows[0];
     });
     expect(row?.campus_id).toBe(identity.campusId);
     expect(row?.donation_type).toBe('FINANCIAL');
     expect(Number(row?.amount)).toBe(175.5);
+    expect(row?.currency).toBe('USD');
   });
 });

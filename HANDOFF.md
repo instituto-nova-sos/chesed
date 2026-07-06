@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-05 (Session 37)
+2026-07-06 (Session 38)
 
 ---
 
@@ -3077,6 +3077,92 @@ All commits local on `feat/sprint8-reports-dashboards`. Suggested (human-run):
   Integrations). Phase 3 needs the same phase-kickoff GWT detailing before work.
 - Standing follow-up (unchanged, non-blocking): role-aware Sidebar/nav pass — links
   render for all roles while endpoints gate server-side.
+
+---
+
+## Session 38: Sprint 9 — Multi-Region and Data Segregation (E11, Phase 3 kickoff) (2026-07-06)
+
+Delivered the **Sprint 9** slice of Phase 3 on branch **`feat/sprint9-multi-region`**,
+parallelized, through the full local gate chain to READY-FOR-PR. Independent
+critical review found a real **Blocker** (RLS broke pre-campus routes) that the
+e2e smoke masked; fixed autonomously under TDD (cycle 1 of the 3-cycle loop).
+
+### Scope (roadmap 9.1–9.4 / stories S11.1, S11.2 + currency/timezone hardening)
+- **9.1 PostgreSQL RLS** (defense-in-depth campus isolation) — the flagship piece.
+- **9.2 international document types** (S11.2) · **9.3 multi-currency donations** ·
+  **9.4 campus timezone**. Investigation showed 9.2–9.4 were largely finishing
+  partial scaffolding + one latent-bug fix, not greenfield.
+
+### Kickoff decisions (product-owner confirmed, phase-boundary rule)
+- **9.1**: RLS as **defense-in-depth** (keep app-level `WHERE campus_id`, add DB
+  policies), **Model A** role split (non-owner `chesed_app` runs the app; owner runs
+  migrations/seed and bypasses RLS).
+- **9.2**: enum CPF/RG/SSN/EU_ID/PASSPORT/OTHER with per-type format validation; the
+  `RG` drift (validators accepted it, DB CHECK rejected it) fixed by **adding RG to
+  the CHECK** (migration 000027).
+- **9.3**: currency constrained to **BRL/USD/EUR**, native storage, no FX.
+- **9.4**: campus IANA **timezone** column (default `America/Sao_Paulo`), storage
+  stays UTC, client-side render via `Intl.DateTimeFormat`.
+
+### What was built
+- **RLS (9.1)** — `CampusTx` middleware opens a per-request transaction and sets
+  `app.current_campus` via `set_config(..., is_local=true)`; repositories resolve
+  their `Querier` from context (`base.q(ctx)`) so every campus-scoped read/write runs
+  inside that transaction. Migration `000028_enable_rls`: policies on person/address/
+  triage/triage_requested_service/attendance/attendance_transition/assisted_profile/
+  campaign/campaign_team/consent/document/donation (direct-column + `EXISTS` for
+  join-inherited children); fail-closed on unset GUC; `audit_log` excluded. Non-owner
+  `chesed_app` role created via `init-app-role.sh` + granted in the migration.
+- **9.2** — `utils/document.go` `ValidateDocumentFormat`; migration `000027` adds RG.
+  Frontend `documentFormat.ts` + per-type placeholder.
+- **9.3** — currency `oneof=BRL USD EUR` + migration `000029` CHECK; donation form
+  currency select.
+- **9.4** — migration `000030` timezone column; `campus_timezone` surfaced on
+  `/auth/me`; frontend `formatDateTime` + `useCampusTimezone` hook.
+
+### Critical-review Blocker + autonomous fix (cycle 1)
+The independent reviewer (verdict file `tasks/review-feat/sprint9-multi-region.md`)
+correctly caught **BLOCKER-1**: `/self-register` and `/auth/me` run **outside**
+`CampusTx` (no GUC), but the app now connects as RLS-subject `chesed_app` — so the
+person INSERT was rejected by `WITH CHECK` and the onboarding cross-campus email
+lookup fail-closed to zero rows. The e2e smoke didn't catch it (ADMIN + owner-seeded
+data skips those paths). **Fix**: a `BypassRLS` middleware installs an owner
+(RLS-bypassing) connection (`ADMIN_DATABASE_URL` pool) for the pre-campus routes; a
+production-faithful integration test now drives `/self-register` + `/auth/me` as
+`chesed_app` and proves both succeed. Also documented the RLS-excluded tables
+(volunteer_agreement/person_role/app_user/service_type/campus) so the completeness
+claim is accurate (MAJOR-1), and added a startup RLS-enforcement log (S-2).
+
+### Parallel execution model (as requested, 5th time)
+Two write-capable subagents on **disjoint file sets** (backend: golang-pro — domain/
+service/migrations; frontend: frontend-developer — utils/components); orchestrator
+owned the entire RLS layer (highest risk — middleware, querier accessor, repo
+refactor, migration 000028, main.go wiring, config/compose), shared files (docs,
+type barrels, harness, e2e spec), RED→GREEN commit sequencing, and all validation +
+the autonomous fix. Tech-writer subagent updated docs 04/10/11/13/18. Independent
+`code-review-agent` produced the verdict file.
+
+### Validation (all green after remediation)
+Backend build/lint/gofmt/unit · **full integration suite** (real Postgres) incl. **6
+RLS scenarios** (cross-campus read blocked without app filter, fail-closed unset GUC,
+`WITH CHECK` write rejection, join-inherited isolation, owner bypass, **pre-campus
+BypassRLS regression**) + campus-timezone + donation-currency · frontend tsc +
+**253 unit + 53 MSW** + coverage + PWA build (0 lint errors) · **6/6 Playwright
+@smoke** against the rebuilt e2e stack (with `chesed_app` app role, ADMIN_DATABASE_URL
+owner pool) · **RLS proven live** in the stack (no GUC → 0 rows; matching GUC → 1;
+wrong GUC → 0). One real bug caught by integration during build (campus scan 10/9
+column mismatch) — fixed.
+
+### Push boundary respected
+All commits local on `feat/sprint9-multi-region`. Suggested (human-run):
+`git push -u origin feat/sprint9-multi-region`.
+
+### What's next
+- **Sprint 10 (LGPD and Compliance)**: consent revocation with data anonymization
+  (S11.3), data retention enforcement, LGPD compliance reporting (S11.4), audit-log
+  viewer, **donation receipt PDF (S11.5/RF-55)**. Then **Sprint 11** (E12 integrations,
+  hardening, deployment).
+- Standing follow-up (non-blocking): role-aware Sidebar/nav pass.
 
 ---
 

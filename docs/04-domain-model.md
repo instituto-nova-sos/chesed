@@ -17,7 +17,7 @@ Person
 ├── id (UUID)
 ├── full_name
 ├── birth_date
-├── document_type (CPF, SSN, EU_ID, OTHER)
+├── document_type (CPF, RG, SSN, EU_ID, PASSPORT, OTHER)
 ├── document_number (unique per type)
 ├── gender (M, F, OTHER, PREFER_NOT_TO_SAY)
 ├── email
@@ -42,7 +42,7 @@ Person
 
 **Design decisions:**
 - UUID as primary key for offline creation without collision
-- Document type + number allows international support
+- Document type + number allows international support: `CPF`, `RG`, `SSN`, `EU_ID`, and `PASSPORT` cover Brazilian and international identity documents (RF-02a)
 - Address is a separate struct/table for normalization
 - Campus association enables data segregation
 
@@ -172,10 +172,13 @@ Campus
 ├── city
 ├── state
 ├── country
+├── timezone (IANA, default America/Sao_Paulo)
 ├── is_active
 ├── created_at
 └── updated_at
 ```
+
+The `timezone` attribute holds the campus IANA timezone (e.g. `America/Sao_Paulo`, `America/New_York`, `Europe/Lisbon`) so times are rendered in the campus's local zone across regions. It defaults to `America/Sao_Paulo`.
 
 **MVP scope**: Each person belongs to exactly one campus. Each app_user is associated with exactly one campus (via Keycloak user attribute). Multi-campus assignment for persons and users is planned for Phase 2.
 

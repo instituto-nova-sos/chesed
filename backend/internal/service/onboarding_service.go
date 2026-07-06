@@ -15,6 +15,7 @@ import (
 type OnboardingStatus struct {
 	PersonID               *uuid.UUID `json:"person_id"`
 	CampusID               *uuid.UUID `json:"campus_id"`
+	CampusTimezone         string     `json:"campus_timezone,omitempty"`
 	NeedsProfileCompletion bool       `json:"needs_profile_completion"`
 	NeedsCampusAssignment  bool       `json:"needs_campus_assignment"`
 	NeedsAgreement         bool       `json:"needs_agreement"`
@@ -23,11 +24,19 @@ type OnboardingStatus struct {
 
 // OnboardingService resolves the onboarding state of an authenticated user.
 // It auto-links pre-created persons by email when possible and resolves campus from DB.
+// CampusTimezoneLookup resolves a campus by ID for timezone enrichment. It is a
+// narrow, consumer-defined subset of the campus repository (interface
+// segregation): onboarding only needs to read one campus.
+type CampusTimezoneLookup interface {
+	FindByID(ctx context.Context, id uuid.UUID) (*domain.Campus, error)
+}
+
 type OnboardingService struct {
 	userRepo      UserRepository
 	personRepo    PersonRepository
 	roleRepo      PersonRoleRepository
 	agreementRepo VolunteerAgreementRepository
+	campusRepo    CampusTimezoneLookup
 	auditSvc      *AuditService
 }
 
@@ -37,6 +46,7 @@ func NewOnboardingService(
 	personRepo PersonRepository,
 	roleRepo PersonRoleRepository,
 	agreementRepo VolunteerAgreementRepository,
+	campusRepo CampusTimezoneLookup,
 	auditSvc *AuditService,
 ) *OnboardingService {
 	return &OnboardingService{
@@ -44,8 +54,25 @@ func NewOnboardingService(
 		personRepo:    personRepo,
 		roleRepo:      roleRepo,
 		agreementRepo: agreementRepo,
+		campusRepo:    campusRepo,
 		auditSvc:      auditSvc,
 	}
+}
+
+// resolveCampusTimezone looks up the IANA timezone for the resolved campus so
+// the frontend can render times in the campus's zone. A lookup failure is
+// non-fatal: the field stays empty and the client falls back to the browser zone.
+func (s *OnboardingService) resolveCampusTimezone(ctx context.Context, status *OnboardingStatus) {
+	if status.CampusID == nil {
+		return
+	}
+	campus, err := s.campusRepo.FindByID(ctx, *status.CampusID)
+	if err != nil {
+		slog.WarnContext(ctx, "onboardingService: campus timezone lookup failed",
+			"error", err.Error(), "campus_id", *status.CampusID)
+		return
+	}
+	status.CampusTimezone = campus.Timezone
 }
 
 // GetStatus returns the onboarding status for the authenticated user.
@@ -60,12 +87,18 @@ func (s *OnboardingService) GetStatus(ctx context.Context, claims auth.AuthClaim
 	}
 
 	// Case: no app_user exists yet (first login, before AutoProvision)
+	var status *OnboardingStatus
 	if appUser == nil {
-		return s.handleNewUser(ctx, claims)
+		status, err = s.handleNewUser(ctx, claims)
+	} else {
+		status, err = s.handleExistingUser(ctx, claims, appUser)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// Case: app_user exists
-	return s.handleExistingUser(ctx, claims, appUser)
+	s.resolveCampusTimezone(ctx, status)
+	return status, nil
 }
 
 // handleNewUser resolves onboarding status when no app_user exists.

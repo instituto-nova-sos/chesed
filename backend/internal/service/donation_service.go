@@ -33,7 +33,7 @@ type CreateDonationInput struct {
 	CampaignID      *string  `json:"campaign_id" validate:"omitempty,uuid"`
 	DonationType    string   `json:"donation_type" validate:"required,oneof=FINANCIAL GOODS SERVICES"`
 	Amount          *float64 `json:"amount" validate:"omitempty"`
-	Currency        *string  `json:"currency" validate:"omitempty,len=3"`
+	Currency        *string  `json:"currency" validate:"omitempty,oneof=BRL USD EUR"`
 	ItemDescription *string  `json:"item_description" validate:"omitempty"`
 	DonationDate    *string  `json:"donation_date" validate:"omitempty"`
 	Notes           *string  `json:"notes" validate:"omitempty"`
@@ -45,7 +45,7 @@ type UpdateDonationInput struct {
 	CampaignID      *string  `json:"campaign_id" validate:"omitempty,uuid"`
 	DonationType    string   `json:"donation_type" validate:"required,oneof=FINANCIAL GOODS SERVICES"`
 	Amount          *float64 `json:"amount" validate:"omitempty"`
-	Currency        *string  `json:"currency" validate:"omitempty,len=3"`
+	Currency        *string  `json:"currency" validate:"omitempty,oneof=BRL USD EUR"`
 	ItemDescription *string  `json:"item_description" validate:"omitempty"`
 	DonationDate    *string  `json:"donation_date" validate:"omitempty"`
 	Notes           *string  `json:"notes" validate:"omitempty"`

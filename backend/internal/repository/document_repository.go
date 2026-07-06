@@ -12,12 +12,12 @@ import (
 
 // DocumentRepository handles document metadata persistence.
 type DocumentRepository struct {
-	pool Querier
+	base
 }
 
 // NewDocumentRepository creates a new DocumentRepository.
 func NewDocumentRepository(pool Querier) *DocumentRepository {
-	return &DocumentRepository{pool: pool}
+	return &DocumentRepository{base: base{pool: pool}}
 }
 
 // documentColumns is the canonical column list; scanDocument must stay in
@@ -47,7 +47,7 @@ func (r *DocumentRepository) Create(ctx context.Context, d domain.Document) (*do
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING uploaded_at, is_active, created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		d.ID, d.PersonID, d.AttendanceID, d.CampusID, d.DocumentType,
 		d.FileName, d.FilePath, d.FileSize, d.MimeType, d.Description, d.UploadedBy,
 	).Scan(&d.UploadedAt, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
@@ -60,7 +60,7 @@ func (r *DocumentRepository) Create(ctx context.Context, d domain.Document) (*do
 func (r *DocumentRepository) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Document, error) {
 	q := `SELECT ` + documentColumns + ` FROM document WHERE id = $1 AND campus_id = $2`
 
-	d, err := scanDocument(r.pool.QueryRow(ctx, q, id, campusID))
+	d, err := scanDocument(r.q(ctx).QueryRow(ctx, q, id, campusID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -93,7 +93,7 @@ func (r *DocumentRepository) ListByAttendance(ctx context.Context, attendanceID,
 }
 
 func (r *DocumentRepository) listDocuments(ctx context.Context, q string, args ...any) ([]domain.Document, error) {
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.q(ctx).Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("documentRepository.list: %w", err)
 	}

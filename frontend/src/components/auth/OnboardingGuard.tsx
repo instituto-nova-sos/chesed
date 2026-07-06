@@ -12,15 +12,19 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
   const { roles } = useAuth();
   const { status, loading, error } = useOnboardingStatus();
   const setCampusId = useAuthStore((s) => s.setCampusId);
+  const setCampusTimezone = useAuthStore((s) => s.setCampusTimezone);
 
   const isAdmin = roles.includes('ADMIN');
 
-  // Set campus in auth store when resolved from backend
+  // Set campus (and its timezone) in auth store when resolved from backend
   useEffect(() => {
     if (status?.campus_id) {
       setCampusId(status.campus_id);
     }
-  }, [status?.campus_id, setCampusId]);
+    if (status?.campus_timezone) {
+      setCampusTimezone(status.campus_timezone);
+    }
+  }, [status?.campus_id, status?.campus_timezone, setCampusId, setCampusTimezone]);
 
   if (loading) {
     return (

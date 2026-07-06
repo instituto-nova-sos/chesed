@@ -14,17 +14,17 @@ import (
 
 // TriageRepository handles triage persistence.
 type TriageRepository struct {
-	pool Querier
+	base
 }
 
 // NewTriageRepository creates a new TriageRepository.
 func NewTriageRepository(pool Querier) *TriageRepository {
-	return &TriageRepository{pool: pool}
+	return &TriageRepository{base: base{pool: pool}}
 }
 
 // Create inserts a triage and its requested services in a single transaction.
 func (r *TriageRepository) Create(ctx context.Context, triage domain.Triage) (*domain.Triage, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.Create: begin tx: %w", err)
 	}
@@ -72,7 +72,7 @@ func insertRequestedServices(ctx context.Context, tx pgx.Tx, triageID uuid.UUID,
 // with the requested service junction rows in a single transaction.
 // Idempotency at the DB layer is enforced by uq_triage_sync_id.
 func (r *TriageRepository) CreateWithSync(ctx context.Context, triage domain.Triage, syncID uuid.UUID) (*domain.Triage, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.CreateWithSync: begin tx: %w", err)
 	}
@@ -114,7 +114,7 @@ func (r *TriageRepository) FindBySyncID(ctx context.Context, syncID, campusID uu
 		WHERE sync_id = $1 AND campus_id = $2`
 
 	var t domain.Triage
-	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, syncID, campusID).Scan(
 		&t.ID, &t.PersonID, &t.CampaignID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
 		&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
 		&t.CreatedAt, &t.UpdatedAt,
@@ -139,7 +139,7 @@ func (r *TriageRepository) ListUpdatedSince(ctx context.Context, campusID uuid.U
 		ORDER BY updated_at ASC
 		LIMIT $3`
 
-	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	rows, err := r.q(ctx).Query(ctx, q, campusID, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.ListUpdatedSince: %w", err)
 	}
@@ -173,7 +173,7 @@ func (r *TriageRepository) FindByID(ctx context.Context, id, campusID uuid.UUID)
 		WHERE id = $1 AND campus_id = $2 AND is_active = TRUE`
 
 	var t domain.Triage
-	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, id, campusID).Scan(
 		&t.ID, &t.PersonID, &t.CampaignID, &t.CampusID, &t.MainComplaint, &t.AssignedTeam,
 		&t.TriageDate, &t.Location, &t.TriagedBy, &t.Notes, &t.IsActive,
 		&t.CreatedAt, &t.UpdatedAt,
@@ -195,7 +195,7 @@ func (r *TriageRepository) FindByID(ctx context.Context, id, campusID uuid.UUID)
 
 func (r *TriageRepository) findRequestedServices(ctx context.Context, triageID uuid.UUID) ([]uuid.UUID, error) {
 	const q = `SELECT service_type_id FROM triage_requested_service WHERE triage_id = $1 ORDER BY service_type_id`
-	rows, err := r.pool.Query(ctx, q, triageID)
+	rows, err := r.q(ctx).Query(ctx, q, triageID)
 	if err != nil {
 		return nil, fmt.Errorf("find requested services: %w", err)
 	}
@@ -237,7 +237,7 @@ func (r *TriageRepository) List(ctx context.Context, filter domain.TriageFilter)
 
 	countQuery := "SELECT COUNT(*) FROM triage t WHERE " + where
 	var total int
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("triageRepository.List: count: %w", err)
 	}
 
@@ -259,7 +259,7 @@ func (r *TriageRepository) List(ctx context.Context, filter domain.TriageFilter)
 		LIMIT $%d OFFSET $%d`, where, len(args)+1, len(args)+2)
 	args = append(args, filter.PerPage, offset)
 
-	rows, err := r.pool.Query(ctx, listQuery, args...)
+	rows, err := r.q(ctx).Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.List: query: %w", err)
 	}
@@ -291,7 +291,7 @@ func (r *TriageRepository) List(ctx context.Context, filter domain.TriageFilter)
 
 // Update applies an update to mutable fields of a triage scoped to its campus.
 func (r *TriageRepository) Update(ctx context.Context, triage domain.Triage) (*domain.Triage, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("triageRepository.Update: begin tx: %w", err)
 	}

@@ -131,6 +131,8 @@ Matching algorithm: exact match on `document_number` + `document_type`, **scoped
 }
 ```
 
+`document_type` accepts `CPF`, `RG`, `SSN`, `EU_ID`, `PASSPORT`, `OTHER`, with per-type format validation on `document_number`: CPF checksum, SSN pattern, and length + charset for RG, EU_ID, and PASSPORT. A value that fails its type's format check returns `400 validation_error`.
+
 #### GET /persons?q=joão&page=1&per_page=20&agreement_status=with_agreement
 
 **Additional query parameters:**
@@ -205,6 +207,7 @@ Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
   "person_id": "uuid-or-null",
   "needs_profile_completion": false,
   "needs_agreement": false,
+  "campus_timezone": "America/Sao_Paulo",
   "roles": ["VOLUNTEER"]
 }
 ```
@@ -214,6 +217,7 @@ Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
 | `person_id` | `uuid \| null` | Person ID if linked (may be auto-linked by email on this call) |
 | `needs_profile_completion` | `boolean` | `true` if user has no linked person — must complete `/complete-profile` |
 | `campus_id` | `uuid \| null` | Campus ID resolved from backend (app_user or person) |
+| `campus_timezone` | `string \| null` | IANA timezone of the user's campus (optional; e.g. `America/Sao_Paulo`) |
 | `needs_campus_assignment` | `boolean` | `true` if user has no campus — must select during profile completion |
 | `needs_agreement` | `boolean` | `true` if user has active VOLUNTEER role but no accepted agreement |
 | `roles` | `string[]` | Keycloak realm roles from token |
@@ -242,6 +246,7 @@ Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
       "city": "São Paulo",
       "state": "SP",
       "country": "BRA",
+      "timezone": "America/Sao_Paulo",
       "is_active": true,
       "created_at": "2026-01-01T00:00:00Z",
       "updated_at": "2026-01-01T00:00:00Z"
@@ -249,6 +254,8 @@ Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
   ]
 }
 ```
+
+The `timezone` field (IANA string) is included in all campus responses (`GET /campuses`, `/campuses/all`, `/campuses/{id}`).
 
 #### POST /campuses
 ```json
@@ -258,12 +265,15 @@ Middleware: `OIDCAuth` + `AutoProvision` (no agreement requirement).
   "region": "USA",
   "city": "New York",
   "state": "NY",
-  "country": "USA"
+  "country": "USA",
+  "timezone": "America/New_York"
 }
 
 // Response 201
-{ "id": "uuid", "name": "New York", "region": "USA", ... }
+{ "id": "uuid", "name": "New York", "region": "USA", "timezone": "America/New_York", ... }
 ```
+
+`timezone` is optional on create and update (IANA string); it defaults to `America/Sao_Paulo` when omitted.
 
 ---
 
@@ -638,7 +648,7 @@ Request body fields:
 - `donation_type` (string, required) — one of `FINANCIAL`, `GOODS`, `SERVICES`.
 - `amount` (number, required **only** when `donation_type` is `FINANCIAL`, must be
   `> 0`) — the monetary value; ignored/optional for `GOODS`/`SERVICES`.
-- `currency` (string, optional) — ISO 4217 code; defaults to `"BRL"`.
+- `currency` (string, optional) — one of `BRL`, `USD`, `EUR`; defaults to `"BRL"`. Any other value returns `400 validation_error`. Amounts are stored in the native currency (no FX conversion).
 - `item_description` (string, required **only** when `donation_type` is `GOODS` or
   `SERVICES`) — description of the donated goods/services.
 - `donor_person_id` (uuid, optional) — the donor; must be visible in the caller's

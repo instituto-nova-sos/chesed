@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/auth"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
-	"github.com/instituto-nova-sos/chesed/internal/utils"
 )
 
 // SelfRegisterInput holds validated input for self-registration.
@@ -155,10 +154,8 @@ func (s *SelfRegisterService) checkNotRegistered(ctx context.Context, subject st
 // validateRegistration validates the document, birth date, and campus, returning
 // the parsed birth date and campus ID.
 func (s *SelfRegisterService) validateRegistration(input SelfRegisterInput) (*time.Time, uuid.UUID, error) {
-	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
-		if !utils.ValidateCPF(*input.DocumentNumber) {
-			return nil, uuid.Nil, fmt.Errorf("selfRegisterService.Register: %w", domain.ErrInvalidCPF)
-		}
+	if err := validateDocument(input.DocumentType, input.DocumentNumber); err != nil {
+		return nil, uuid.Nil, fmt.Errorf("selfRegisterService.Register: %w", err)
 	}
 
 	birthDate, err := parseOptionalDate(input.BirthDate)

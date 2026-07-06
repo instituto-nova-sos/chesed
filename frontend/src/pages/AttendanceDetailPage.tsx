@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAttendance } from '../hooks/useAttendance';
+import { useCampusTimezone } from '../hooks/useCampusTimezone';
+import { formatDateTime } from '../utils/formatDateTime';
 import { transitionAttendance, updateAttendanceNotes } from '../api/attendances';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { Alert } from '../components/ui/Alert';
@@ -36,18 +38,9 @@ const ACTION_LABEL: Record<AttendanceStatus, string> = {
   CANCELLED: 'Cancelar',
 };
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export function AttendanceDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const timeZone = useCampusTimezone();
   const { attendance, isLoading, error, refetch } = useAttendance(id);
   const [transitioning, setTransitioning] = useState<AttendanceStatus | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -131,7 +124,9 @@ export function AttendanceDetailPage() {
         </div>
         <div>
           <dt className="text-xs font-medium text-gray-500">Data</dt>
-          <dd className="mt-1 text-sm text-gray-900">{formatDateTime(attendance.attendance_date)}</dd>
+          <dd className="mt-1 text-sm text-gray-900">
+            {formatDateTime(attendance.attendance_date, timeZone)}
+          </dd>
         </div>
         {attendance.triage_id && (
           <div>
@@ -207,7 +202,7 @@ export function AttendanceDetailPage() {
           <ol className="space-y-2 text-sm">
             {attendance.transitions.map((t) => (
               <li key={t.id} className="flex items-center gap-2">
-                <span className="text-gray-500">{formatDateTime(t.transitioned_at)}</span>
+                <span className="text-gray-500">{formatDateTime(t.transitioned_at, timeZone)}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[t.from_status]}`}
                 >

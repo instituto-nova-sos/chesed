@@ -7,13 +7,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type loadTestCase struct {
+	name    string
+	envVars map[string]string
+	wantErr bool
+	check   func(t *testing.T, cfg Config)
+}
+
 func TestLoad(t *testing.T) {
-	tests := []struct {
-		name    string
-		envVars map[string]string
-		wantErr bool
-		check   func(t *testing.T, cfg Config)
-	}{
+	for _, tt := range loadTestCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			clearBaseConfigEnv(t)
+
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			cfg, err := Load()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			if tt.check != nil {
+				tt.check(t, cfg)
+			}
+		})
+	}
+}
+
+func loadTestCases() []loadTestCase {
+	return []loadTestCase{
 		{
 			name: "valid config with all required fields",
 			envVars: map[string]string{
@@ -44,6 +68,23 @@ func TestLoad(t *testing.T) {
 				assert.Equal(t, "8080", cfg.ServerPort)
 				assert.Equal(t, "info", cfg.LogLevel)
 				assert.False(t, cfg.OIDCSkipIssuerCheck)
+				// AdminDatabaseURL defaults to DATABASE_URL when unset.
+				assert.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.AdminDatabaseURL)
+			},
+		},
+		{
+			name: "ADMIN_DATABASE_URL overrides the admin connection",
+			envVars: map[string]string{
+				"DATABASE_URL":       "postgres://chesed_app:pw@localhost:5432/db",
+				"ADMIN_DATABASE_URL": "postgres://chesed:pw@localhost:5432/db",
+				"KEYCLOAK_URL":       "http://localhost:8180",
+				"KEYCLOAK_REALM":     "chesed",
+				"KEYCLOAK_CLIENT_ID": "chesed-pwa",
+			},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Equal(t, "postgres://chesed_app:pw@localhost:5432/db", cfg.DatabaseURL)
+				assert.Equal(t, "postgres://chesed:pw@localhost:5432/db", cfg.AdminDatabaseURL)
 			},
 		},
 		{
@@ -101,26 +142,6 @@ func TestLoad(t *testing.T) {
 			envVars: map[string]string{},
 			wantErr: true,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			clearBaseConfigEnv(t)
-
-			for key, value := range tt.envVars {
-				t.Setenv(key, value)
-			}
-
-			cfg, err := Load()
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			if tt.check != nil {
-				tt.check(t, cfg)
-			}
-		})
 	}
 }
 
