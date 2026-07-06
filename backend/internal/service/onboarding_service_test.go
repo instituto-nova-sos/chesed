@@ -78,17 +78,34 @@ func (m *mockAgreementRepo) AcceptManualUpload(ctx context.Context, id uuid.UUID
 	return args.Get(0).(*domain.VolunteerAgreement), args.Error(1)
 }
 
+// mockOnboardingCampusRepo satisfies CampusRepository for the onboarding tests;
+// only FindByID is exercised (campus timezone resolution).
+type mockOnboardingCampusRepo struct{ mock.Mock }
+
+func (m *mockOnboardingCampusRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.Campus, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Campus), args.Error(1)
+}
+
 func newOnboardingTestDeps() (*MockUserRepository, *MockPersonRepository, *MockPersonRoleRepository, *mockAgreementRepo, *OnboardingService) {
 	userRepo := new(MockUserRepository)
 	personRepo := new(MockPersonRepository)
 	roleRepo := new(MockPersonRoleRepository)
 	agreementRepo := new(mockAgreementRepo)
+	campusRepo := new(mockOnboardingCampusRepo)
 	auditRepo := new(MockAuditRepository)
 	auditSvc := NewAuditService(auditRepo)
 
 	auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil).Maybe()
+	// Campus timezone lookup is a best-effort enrichment; default to a campus so
+	// tests that resolve a campus_id don't need per-case setup.
+	campusRepo.On("FindByID", mock.Anything, mock.Anything).
+		Return(&domain.Campus{Timezone: "America/Sao_Paulo"}, nil).Maybe()
 
-	svc := NewOnboardingService(userRepo, personRepo, roleRepo, agreementRepo, auditSvc)
+	svc := NewOnboardingService(userRepo, personRepo, roleRepo, agreementRepo, campusRepo, auditSvc)
 	return userRepo, personRepo, roleRepo, agreementRepo, svc
 }
 

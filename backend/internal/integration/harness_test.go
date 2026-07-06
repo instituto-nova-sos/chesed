@@ -52,6 +52,7 @@ import (
 type testHarness struct {
 	t        *testing.T
 	pool     *pgxpool.Pool
+	connStr  string
 	router   chi.Router
 	campusID uuid.UUID
 	cleanup  func()
@@ -94,6 +95,7 @@ func newHarness(t *testing.T, store service.ObjectStorage) *testHarness {
 	return &testHarness{
 		t:        t,
 		pool:     pool,
+		connStr:  connStr,
 		router:   router,
 		campusID: campusID,
 		cleanup: func() {

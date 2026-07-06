@@ -300,6 +300,67 @@ func TestPersonService_CreatePerson(t *testing.T) {
 	})
 }
 
+// TestPersonService_CreatePerson_DocumentFormat covers international document
+// format validation (S09.2): CPF failures keep the specific ErrInvalidCPF, other
+// document types surface the generic ErrInvalidDocumentFormat, and a valid RG is
+// accepted.
+func TestPersonService_CreatePerson_DocumentFormat(t *testing.T) {
+	t.Run("invalid CPF returns ErrInvalidCPF", func(t *testing.T) {
+		svc, _, _, _ := newTestPersonService()
+		ctx, _ := newPersonTestContext()
+
+		badCPF := "529.982.247-26"
+		input := CreatePersonInput{
+			FullName:       "Bad CPF",
+			DocumentType:   "CPF",
+			DocumentNumber: &badCPF,
+		}
+
+		_, err := svc.CreatePerson(ctx, input)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrInvalidCPF)
+	})
+
+	t.Run("invalid SSN returns ErrInvalidDocumentFormat", func(t *testing.T) {
+		svc, _, _, _ := newTestPersonService()
+		ctx, _ := newPersonTestContext()
+
+		badSSN := "not-a-ssn"
+		input := CreatePersonInput{
+			FullName:       "Bad SSN",
+			DocumentType:   "SSN",
+			DocumentNumber: &badSSN,
+		}
+
+		_, err := svc.CreatePerson(ctx, input)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrInvalidDocumentFormat)
+	})
+
+	t.Run("valid RG document accepted", func(t *testing.T) {
+		svc, personRepo, _, auditRepo := newTestPersonService()
+		ctx, _ := newPersonTestContext()
+
+		rg := "MG-12.345.678"
+		input := CreatePersonInput{
+			FullName:       "Valid RG",
+			DocumentType:   "RG",
+			DocumentNumber: &rg,
+		}
+
+		personRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.Person"), mock.Anything).
+			Return(&domain.Person{ID: uuid.New(), FullName: "Valid RG", IsActive: true}, nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		result, err := svc.CreatePerson(ctx, input)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Valid RG", result.FullName)
+	})
+}
+
 func TestPersonService_GetPerson(t *testing.T) {
 	t.Run("success with details", func(t *testing.T) {
 		svc, personRepo, _, _ := newTestPersonService()
