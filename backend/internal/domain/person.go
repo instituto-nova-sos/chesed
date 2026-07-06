@@ -81,3 +81,7 @@ type DuplicateCheckResult struct {
 	HasDuplicates bool             `json:"has_duplicates"`
 	Matches       []DuplicateMatch `json:"matches"`
 }
+
+// PersonDocumentTypes enumerates the valid identity document categories for a
+// person. Distinct from the file-attachment DocumentTypes in document.go.
+var PersonDocumentTypes = []string{"CPF", "RG", "SSN", "EU_ID", "PASSPORT", "OTHER"}

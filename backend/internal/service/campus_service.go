@@ -32,11 +32,12 @@ func NewCampusService(repo CampusRepository, auditSvc *AuditService) *CampusServ
 
 // CreateCampusInput holds validated input for campus creation.
 type CreateCampusInput struct {
-	Name    string  `json:"name" validate:"required,max=150"`
-	Region  string  `json:"region" validate:"required,oneof=BRAZIL USA EUROPE"`
-	City    *string `json:"city" validate:"omitempty,max=100"`
-	State   *string `json:"state" validate:"omitempty,max=100"`
-	Country string  `json:"country" validate:"required,len=3"`
+	Name     string  `json:"name" validate:"required,max=150"`
+	Region   string  `json:"region" validate:"required,oneof=BRAZIL USA EUROPE"`
+	City     *string `json:"city" validate:"omitempty,max=100"`
+	State    *string `json:"state" validate:"omitempty,max=100"`
+	Country  string  `json:"country" validate:"required,len=3"`
+	Timezone string  `json:"timezone" validate:"omitempty,max=64"`
 }
 
 // UpdateCampusInput holds validated input for campus update.
@@ -46,6 +47,7 @@ type UpdateCampusInput struct {
 	City     *string `json:"city" validate:"omitempty,max=100"`
 	State    *string `json:"state" validate:"omitempty,max=100"`
 	Country  string  `json:"country" validate:"required,len=3"`
+	Timezone string  `json:"timezone" validate:"omitempty,max=64"`
 	IsActive bool    `json:"is_active"`
 }
 
@@ -91,6 +93,7 @@ func (s *CampusService) Create(ctx context.Context, input CreateCampusInput) (*d
 		City:     input.City,
 		State:    input.State,
 		Country:  input.Country,
+		Timezone: input.Timezone,
 		IsActive: true,
 	}
 
@@ -130,6 +133,7 @@ func (s *CampusService) Update(ctx context.Context, id uuid.UUID, input UpdateCa
 		City:     input.City,
 		State:    input.State,
 		Country:  input.Country,
+		Timezone: input.Timezone,
 		IsActive: input.IsActive,
 	}
 

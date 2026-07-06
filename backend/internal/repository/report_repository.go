@@ -8,17 +8,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ReportRepository handles reporting/aggregation queries.
+// ReportRepository handles reporting/aggregation queries. Its reads run through
+// the per-request RLS transaction (via base.q) so campus isolation is enforced
+// at the database layer in addition to the explicit campus_id filters.
 type ReportRepository struct {
-	pool *pgxpool.Pool
+	base
 }
 
 // NewReportRepository creates a ReportRepository.
-func NewReportRepository(pool *pgxpool.Pool) *ReportRepository {
-	return &ReportRepository{pool: pool}
+func NewReportRepository(pool Querier) *ReportRepository {
+	return &ReportRepository{base: base{pool: pool}}
 }
 
 // BuildAttendanceReport assembles the attendance summary report for the period.
@@ -101,7 +102,7 @@ func (r *ReportRepository) fetchTotals(
 		SELECT COUNT(*)::int, COUNT(DISTINCT a.person_id)::int
 		FROM attendance a
 		WHERE a.campus_id = $1 AND a.attendance_date >= $2 AND a.attendance_date < ($3::date + INTERVAL '1 day')`, f)
-	return r.pool.QueryRow(ctx, q, args...).
+	return r.q(ctx).QueryRow(ctx, q, args...).
 		Scan(&report.TotalAttendances, &report.UniquePersons)
 }
 
@@ -115,7 +116,7 @@ func (r *ReportRepository) fetchByStatus(
 		FROM attendance a
 		WHERE a.campus_id = $1 AND a.attendance_date >= $2 AND a.attendance_date < ($3::date + INTERVAL '1 day')`, f)
 	q += ` GROUP BY a.status`
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.q(ctx).Query(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -134,7 +135,7 @@ func (r *ReportRepository) fetchByServiceType(
 		JOIN service_type st ON st.id = a.service_type_id
 		WHERE a.campus_id = $1 AND a.attendance_date >= $2 AND a.attendance_date < ($3::date + INTERVAL '1 day')`, f)
 	q += ` GROUP BY st.category ORDER BY COUNT(*) DESC, st.category ASC`
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.q(ctx).Query(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -160,7 +161,7 @@ func (r *ReportRepository) fetchByMonth(
 		FROM attendance a
 		WHERE a.campus_id = $1 AND a.attendance_date >= $2 AND a.attendance_date < ($3::date + INTERVAL '1 day')`, f)
 	q += ` GROUP BY month ORDER BY month ASC`
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.q(ctx).Query(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -187,7 +188,7 @@ func (r *ReportRepository) fetchByProfessional(
 		JOIN person prof ON prof.id = a.professional_id
 		WHERE a.campus_id = $1 AND a.attendance_date >= $2 AND a.attendance_date < ($3::date + INTERVAL '1 day')`, f)
 	q += ` GROUP BY prof.id, prof.full_name ORDER BY COUNT(*) DESC, prof.full_name ASC`
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.q(ctx).Query(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -228,7 +229,7 @@ func (r *ReportRepository) StreamAttendancesForCSV(
 		  AND a.attendance_date < ($3::date + INTERVAL '1 day')
 		ORDER BY a.attendance_date ASC, a.id ASC`
 
-	rows, err := r.pool.Query(ctx, q, filter.CampusID, filter.Start, filter.End)
+	rows, err := r.q(ctx).Query(ctx, q, filter.CampusID, filter.Start, filter.End)
 	if err != nil {
 		return fmt.Errorf("reportRepository.StreamAttendancesForCSV: query: %w", err)
 	}
@@ -265,7 +266,7 @@ func (r *ReportRepository) BuildCampaignMetrics(ctx context.Context, campaignID,
 		SELECT id, name, status, start_date, end_date
 		FROM campaign
 		WHERE id = $1 AND campus_id = $2`
-	if err := r.pool.QueryRow(ctx, campaignQuery, campaignID, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, campaignQuery, campaignID, campusID).Scan(
 		&m.CampaignID, &m.CampaignName, &m.Status, &m.Period.StartDate, &m.Period.EndDate,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -274,7 +275,7 @@ func (r *ReportRepository) BuildCampaignMetrics(ctx context.Context, campaignID,
 		return nil, fmt.Errorf("reportRepository.BuildCampaignMetrics: campaign: %w", err)
 	}
 
-	if err := r.pool.QueryRow(ctx,
+	if err := r.q(ctx).QueryRow(ctx,
 		`SELECT COUNT(*)::int FROM triage WHERE campaign_id = $1 AND campus_id = $2`,
 		campaignID, campusID,
 	).Scan(&m.TriageCount); err != nil {
@@ -285,7 +286,7 @@ func (r *ReportRepository) BuildCampaignMetrics(ctx context.Context, campaignID,
 		return nil, err
 	}
 
-	if err := r.pool.QueryRow(ctx,
+	if err := r.q(ctx).QueryRow(ctx,
 		`SELECT COUNT(*)::int FROM campaign_team WHERE campaign_id = $1`,
 		campaignID,
 	).Scan(&m.TeamSize); err != nil {
@@ -326,13 +327,13 @@ func (r *ReportRepository) fetchDashboardCounters(ctx context.Context, campusID 
 			(SELECT COUNT(*)::int FROM attendance
 			   WHERE campus_id = $1 AND status = 'SCHEDULED' AND attendance_date >= current_date),
 			(SELECT COUNT(*)::int FROM campaign WHERE campus_id = $1 AND status = 'ACTIVE')`
-	return r.pool.QueryRow(ctx, q, campusID).Scan(
+	return r.q(ctx).QueryRow(ctx, q, campusID).Scan(
 		&m.TotalPersons, &m.AttendancesThisMonth, &m.UpcomingScheduled, &m.ActiveCampaigns,
 	)
 }
 
 func (r *ReportRepository) fetchDashboardByStatus(ctx context.Context, campusID uuid.UUID, m *domain.DashboardMetrics) error {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.q(ctx).Query(ctx,
 		`SELECT status, COUNT(*)::int FROM attendance WHERE campus_id = $1 GROUP BY status`,
 		campusID,
 	)
@@ -358,7 +359,7 @@ func (r *ReportRepository) fetchDashboardRecentMonths(ctx context.Context, campu
 			GROUP BY date_trunc('month', attendance_date)
 		) AS counts ON counts.month = months.month
 		ORDER BY months.month ASC`
-	rows, err := r.pool.Query(ctx, q, campusID)
+	rows, err := r.q(ctx).Query(ctx, q, campusID)
 	if err != nil {
 		return err
 	}
@@ -375,7 +376,7 @@ func (r *ReportRepository) fetchDashboardRecentMonths(ctx context.Context, campu
 }
 
 func (r *ReportRepository) fetchCampaignAttendances(ctx context.Context, campaignID, campusID uuid.UUID, m *domain.CampaignMetrics) error {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.q(ctx).Query(ctx,
 		`SELECT status, COUNT(*)::int
 		 FROM attendance
 		 WHERE campaign_id = $1 AND campus_id = $2

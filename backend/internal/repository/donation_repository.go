@@ -14,12 +14,12 @@ import (
 
 // DonationRepository handles donation persistence.
 type DonationRepository struct {
-	pool Querier
+	base
 }
 
 // NewDonationRepository creates a new DonationRepository.
 func NewDonationRepository(pool Querier) *DonationRepository {
-	return &DonationRepository{pool: pool}
+	return &DonationRepository{base: base{pool: pool}}
 }
 
 // Create inserts a donation, mapping the receipt_number unique violation to
@@ -32,7 +32,7 @@ func (r *DonationRepository) Create(ctx context.Context, d domain.Donation) (*do
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		d.ID, d.DonorPersonID, d.CampaignID, d.CampusID, d.DonationType,
 		d.Amount, d.Currency, d.ItemDescription, d.DonationDate, d.Notes,
 		d.RegisteredBy,
@@ -61,7 +61,7 @@ func (r *DonationRepository) FindByID(ctx context.Context, id, campusID uuid.UUI
 		WHERE d.id = $1 AND d.campus_id = $2`
 
 	var detail domain.DonationDetail
-	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, id, campusID).Scan(
 		&detail.ID, &detail.DonorPersonID, &detail.CampaignID, &detail.CampusID, &detail.DonationType,
 		&detail.Amount, &detail.Currency, &detail.ItemDescription, &detail.DonationDate,
 		&detail.ReceiptNumber, &detail.ReceiptIssuedAt, &detail.Notes, &detail.RegisteredBy,
@@ -97,7 +97,7 @@ func (r *DonationRepository) List(ctx context.Context, filter domain.DonationFil
 
 	countQuery := "SELECT COUNT(*) FROM donation d WHERE " + where
 	var total int
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("donationRepository.List: count: %w", err)
 	}
 
@@ -120,7 +120,7 @@ func (r *DonationRepository) List(ctx context.Context, filter domain.DonationFil
 		LIMIT $%d OFFSET $%d`, where, len(args)+1, len(args)+2)
 	args = append(args, filter.PerPage, offset)
 
-	rows, err := r.pool.Query(ctx, listQuery, args...)
+	rows, err := r.q(ctx).Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("donationRepository.List: query: %w", err)
 	}
@@ -161,7 +161,7 @@ func (r *DonationRepository) Update(ctx context.Context, d domain.Donation) (*do
 		WHERE id = $9 AND campus_id = $10
 		RETURNING updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		d.DonorPersonID, d.CampaignID, d.DonationType, d.Amount,
 		d.Currency, d.ItemDescription, d.DonationDate, d.Notes,
 		d.ID, d.CampusID,

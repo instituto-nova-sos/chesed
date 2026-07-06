@@ -14,12 +14,12 @@ import (
 
 // AttendanceRepository handles attendance persistence.
 type AttendanceRepository struct {
-	pool Querier
+	base
 }
 
 // NewAttendanceRepository creates a new AttendanceRepository.
 func NewAttendanceRepository(pool Querier) *AttendanceRepository {
-	return &AttendanceRepository{pool: pool}
+	return &AttendanceRepository{base: base{pool: pool}}
 }
 
 // Create inserts an attendance.
@@ -31,7 +31,7 @@ func (r *AttendanceRepository) Create(ctx context.Context, a domain.Attendance) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		a.ID, a.PersonID, a.TriageID, a.CampaignID, a.CampusID, a.ServiceTypeID,
 		a.ProfessionalID, a.Status, a.AttendanceDate, a.Observations,
 		a.Recommendations, a.CreatedBy,
@@ -51,7 +51,7 @@ func (r *AttendanceRepository) CreateWithSync(ctx context.Context, a domain.Atte
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		a.ID, a.PersonID, a.TriageID, a.CampaignID, a.CampusID, a.ServiceTypeID,
 		a.ProfessionalID, a.Status, a.AttendanceDate, a.Observations,
 		a.Recommendations, a.CreatedBy, syncID,
@@ -71,7 +71,7 @@ func (r *AttendanceRepository) FindBySyncID(ctx context.Context, syncID, campusI
 		WHERE sync_id = $1 AND campus_id = $2`
 
 	var a domain.Attendance
-	if err := r.pool.QueryRow(ctx, q, syncID, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, syncID, campusID).Scan(
 		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
@@ -96,7 +96,7 @@ func (r *AttendanceRepository) ListUpdatedSince(ctx context.Context, campusID uu
 		ORDER BY updated_at ASC
 		LIMIT $3`
 
-	rows, err := r.pool.Query(ctx, q, campusID, since, limit)
+	rows, err := r.q(ctx).Query(ctx, q, campusID, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("attendanceRepository.ListUpdatedSince: %w", err)
 	}
@@ -130,7 +130,7 @@ func (r *AttendanceRepository) FindByID(ctx context.Context, id, campusID uuid.U
 		WHERE id = $1 AND campus_id = $2`
 
 	var a domain.Attendance
-	if err := r.pool.QueryRow(ctx, q, id, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, id, campusID).Scan(
 		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,
@@ -156,7 +156,7 @@ func (r *AttendanceRepository) FindByIDWithTransitions(ctx context.Context, id, 
 		WHERE attendance_id = $1
 		ORDER BY transitioned_at ASC`
 
-	rows, err := r.pool.Query(ctx, q, id)
+	rows, err := r.q(ctx).Query(ctx, q, id)
 	if err != nil {
 		return nil, fmt.Errorf("attendanceRepository.FindByIDWithTransitions: query: %w", err)
 	}
@@ -206,7 +206,7 @@ func (r *AttendanceRepository) List(ctx context.Context, filter domain.Attendanc
 
 	countQuery := "SELECT COUNT(*) FROM attendance a WHERE " + where
 	var total int
-	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("attendanceRepository.List: count: %w", err)
 	}
 
@@ -228,7 +228,7 @@ func (r *AttendanceRepository) List(ctx context.Context, filter domain.Attendanc
 		LIMIT $%d OFFSET $%d`, where, len(args)+1, len(args)+2)
 	args = append(args, filter.PerPage, offset)
 
-	rows, err := r.pool.Query(ctx, listQuery, args...)
+	rows, err := r.q(ctx).Query(ctx, listQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("attendanceRepository.List: query: %w", err)
 	}
@@ -261,7 +261,7 @@ func (r *AttendanceRepository) List(ctx context.Context, filter domain.Attendanc
 // Transition atomically updates an attendance status and records the transition.
 // The from-status check is enforced in SQL to prevent concurrent races.
 func (r *AttendanceRepository) Transition(ctx context.Context, t domain.AttendanceTransition) (*domain.Attendance, error) {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.q(ctx).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("attendanceRepository.Transition: begin tx: %w", err)
 	}
@@ -315,7 +315,7 @@ func (r *AttendanceRepository) UpdateNotes(ctx context.Context, id, campusID uui
 		          created_at, updated_at, created_by`
 
 	var a domain.Attendance
-	if err := r.pool.QueryRow(ctx, q, observations, recommendations, id, campusID).Scan(
+	if err := r.q(ctx).QueryRow(ctx, q, observations, recommendations, id, campusID).Scan(
 		&a.ID, &a.PersonID, &a.TriageID, &a.CampaignID, &a.CampusID, &a.ServiceTypeID, &a.ProfessionalID,
 		&a.Status, &a.AttendanceDate, &a.Observations, &a.Recommendations,
 		&a.CreatedAt, &a.UpdatedAt, &a.CreatedBy,

@@ -24,7 +24,7 @@ func NewCampusRepository(pool *pgxpool.Pool) *CampusRepository {
 // ListActive returns all active campuses ordered by name.
 func (r *CampusRepository) ListActive(ctx context.Context) ([]domain.Campus, error) {
 	query := `
-		SELECT id, name, region, city, state, country, is_active, created_at, updated_at
+		SELECT id, name, region, city, state, country, timezone, is_active, created_at, updated_at
 		FROM campus
 		WHERE is_active = TRUE
 		ORDER BY name`
@@ -35,7 +35,7 @@ func (r *CampusRepository) ListActive(ctx context.Context) ([]domain.Campus, err
 // List returns all campuses ordered by name (including inactive).
 func (r *CampusRepository) List(ctx context.Context) ([]domain.Campus, error) {
 	query := `
-		SELECT id, name, region, city, state, country, is_active, created_at, updated_at
+		SELECT id, name, region, city, state, country, timezone, is_active, created_at, updated_at
 		FROM campus
 		ORDER BY name`
 
@@ -45,14 +45,14 @@ func (r *CampusRepository) List(ctx context.Context) ([]domain.Campus, error) {
 // FindByID returns a campus by ID.
 func (r *CampusRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.Campus, error) {
 	query := `
-		SELECT id, name, region, city, state, country, is_active, created_at, updated_at
+		SELECT id, name, region, city, state, country, timezone, is_active, created_at, updated_at
 		FROM campus
 		WHERE id = $1`
 
 	var c domain.Campus
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&c.ID, &c.Name, &c.Region, &c.City, &c.State,
-		&c.Country, &c.IsActive, &c.CreatedAt, &c.UpdatedAt,
+		&c.Country, &c.Timezone, &c.IsActive, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -66,15 +66,17 @@ func (r *CampusRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.
 
 // Create inserts a new campus.
 func (r *CampusRepository) Create(ctx context.Context, campus domain.Campus) (*domain.Campus, error) {
+	// An empty timezone falls back to the column default via COALESCE/NULLIF so
+	// callers may omit it; the NOT NULL default 'America/Sao_Paulo' then applies.
 	query := `
-		INSERT INTO campus (id, name, region, city, state, country, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING created_at, updated_at`
+		INSERT INTO campus (id, name, region, city, state, country, timezone, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, COALESCE(NULLIF($7, ''), 'America/Sao_Paulo'), $8)
+		RETURNING timezone, created_at, updated_at`
 
 	err := r.pool.QueryRow(ctx, query,
 		campus.ID, campus.Name, campus.Region, campus.City,
-		campus.State, campus.Country, campus.IsActive,
-	).Scan(&campus.CreatedAt, &campus.UpdatedAt)
+		campus.State, campus.Country, campus.Timezone, campus.IsActive,
+	).Scan(&campus.Timezone, &campus.CreatedAt, &campus.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("campusRepository.Create: %w", err)
 	}
@@ -87,14 +89,15 @@ func (r *CampusRepository) Update(ctx context.Context, campus domain.Campus) (*d
 	query := `
 		UPDATE campus
 		SET name = $2, region = $3, city = $4, state = $5, country = $6,
-		    is_active = $7, updated_at = NOW()
+		    timezone = COALESCE(NULLIF($7, ''), timezone),
+		    is_active = $8, updated_at = NOW()
 		WHERE id = $1
-		RETURNING updated_at`
+		RETURNING timezone, updated_at`
 
 	err := r.pool.QueryRow(ctx, query,
 		campus.ID, campus.Name, campus.Region, campus.City,
-		campus.State, campus.Country, campus.IsActive,
-	).Scan(&campus.UpdatedAt)
+		campus.State, campus.Country, campus.Timezone, campus.IsActive,
+	).Scan(&campus.Timezone, &campus.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -117,7 +120,7 @@ func (r *CampusRepository) queryMany(ctx context.Context, query string, args ...
 		var c domain.Campus
 		if err := rows.Scan(
 			&c.ID, &c.Name, &c.Region, &c.City, &c.State,
-			&c.Country, &c.IsActive, &c.CreatedAt, &c.UpdatedAt,
+			&c.Country, &c.Timezone, &c.IsActive, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("campusRepository.queryMany: scan: %w", err)
 		}

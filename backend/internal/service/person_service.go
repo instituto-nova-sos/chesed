@@ -153,10 +153,8 @@ func buildPersonFromInput(input CreatePersonInput, claims auth.AuthClaims) (doma
 		}
 	}
 
-	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
-		if !utils.ValidateCPF(*input.DocumentNumber) {
-			return domain.Person{}, fmt.Errorf("personService.CreatePerson: %w", domain.ErrInvalidCPF)
-		}
+	if err := validateDocument(input.DocumentType, input.DocumentNumber); err != nil {
+		return domain.Person{}, fmt.Errorf("personService.CreatePerson: %w", err)
 	}
 
 	birthDate, err := parseOptionalDate(input.BirthDate)
@@ -189,10 +187,8 @@ func buildPersonFromInput(input CreatePersonInput, claims auth.AuthClaims) (doma
 // applyPersonUpdate validates the document and birth date, then returns a copy
 // of old with the editable fields overwritten from input.
 func applyPersonUpdate(old *domain.Person, input UpdatePersonInput) (domain.Person, error) {
-	if input.DocumentType == "CPF" && input.DocumentNumber != nil && *input.DocumentNumber != "" {
-		if !utils.ValidateCPF(*input.DocumentNumber) {
-			return domain.Person{}, fmt.Errorf("personService.UpdatePerson: %w", domain.ErrInvalidCPF)
-		}
+	if err := validateDocument(input.DocumentType, input.DocumentNumber); err != nil {
+		return domain.Person{}, fmt.Errorf("personService.UpdatePerson: %w", err)
 	}
 
 	birthDate, err := parseOptionalDate(input.BirthDate)
@@ -216,6 +212,23 @@ func applyPersonUpdate(old *domain.Person, input UpdatePersonInput) (domain.Pers
 	updated.Phone = input.Phone
 	updated.ReferralSource = input.ReferralSource
 	return updated, nil
+}
+
+// validateDocument enforces the format rules for the given document type and
+// number. An empty number is accepted (document_number is optional). A CPF
+// failure surfaces the specific ErrInvalidCPF; any other type surfaces the
+// generic ErrInvalidDocumentFormat.
+func validateDocument(docType string, documentNumber *string) error {
+	if documentNumber == nil || *documentNumber == "" {
+		return nil
+	}
+	if utils.ValidateDocumentFormat(docType, *documentNumber) {
+		return nil
+	}
+	if docType == "CPF" {
+		return domain.ErrInvalidCPF
+	}
+	return domain.ErrInvalidDocumentFormat
 }
 
 // buildPersonAddress maps an optional address input into a primary domain.Address.

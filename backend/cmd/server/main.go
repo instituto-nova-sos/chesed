@@ -121,7 +121,7 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 	personSvc := service.NewPersonService(personRepo, personRoleRepo, agreementRepo, auditSvc)
 	selfRegisterSvc := service.NewSelfRegisterService(personRepo, personRoleRepo, userRepo, agreementRepo, auditSvc)
 	agreementSvc := service.NewVolunteerAgreementService(agreementRepo, personRoleRepo, auditSvc)
-	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
+	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, campusRepo, auditSvc)
 
 	uploadDir := "uploads/agreements"
 	return appDeps{
@@ -159,7 +159,7 @@ func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler, sto
 		r.Get("/health", d.health.ServeHTTP)
 		d.registerAuthOnlyRoutes(r, authMW)
 		d.registerAgreementRoutes(r, authMW)
-		d.registerProtectedRoutes(r, authMW)
+		d.registerProtectedRoutes(r, authMW, pool)
 	})
 
 	return r
@@ -186,11 +186,14 @@ func (d appDeps) registerAgreementRoutes(r chi.Router, authMW func(http.Handler)
 	})
 }
 
-// registerProtectedRoutes mounts the fully-guarded application routes.
-func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler) http.Handler) {
+// registerProtectedRoutes mounts the fully-guarded application routes. Every
+// route here runs inside the per-request campus transaction (CampusTx) so
+// PostgreSQL RLS enforces campus isolation at the database layer.
+func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler) http.Handler, pool *pgxpool.Pool) {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
 		r.Use(middleware.AutoProvision(d.userSvc))
+		r.Use(middleware.CampusTx(pool))
 		r.Use(middleware.RequireAgreement(d.agreementRepo, d.personRoleRepo))
 
 		allRoles := middleware.RequireRole(d.auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")

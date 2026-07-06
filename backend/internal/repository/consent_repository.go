@@ -13,12 +13,12 @@ import (
 
 // ConsentRepository handles consent persistence.
 type ConsentRepository struct {
-	pool Querier
+	base
 }
 
 // NewConsentRepository creates a new ConsentRepository.
 func NewConsentRepository(pool Querier) *ConsentRepository {
-	return &ConsentRepository{pool: pool}
+	return &ConsentRepository{base: base{pool: pool}}
 }
 
 // consentColumns is the canonical column list; scanConsent must stay in
@@ -49,7 +49,7 @@ func (r *ConsentRepository) Create(ctx context.Context, c domain.Consent) (*doma
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING granted_at, is_active, created_at, updated_at`
 
-	if err := r.pool.QueryRow(ctx, q,
+	if err := r.q(ctx).QueryRow(ctx, q,
 		c.ID, c.PersonID, c.ConsentType, c.ConsentVersion, c.Purpose,
 		c.GrantedByPerson, c.SignatureData, c.CampusID,
 	).Scan(&c.GrantedAt, &c.IsActive, &c.CreatedAt, &c.UpdatedAt); err != nil {
@@ -66,7 +66,7 @@ func (r *ConsentRepository) Create(ctx context.Context, c domain.Consent) (*doma
 func (r *ConsentRepository) FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Consent, error) {
 	q := `SELECT ` + consentColumns + ` FROM consent WHERE id = $1 AND campus_id = $2`
 
-	c, err := scanConsent(r.pool.QueryRow(ctx, q, id, campusID))
+	c, err := scanConsent(r.q(ctx).QueryRow(ctx, q, id, campusID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -84,7 +84,7 @@ func (r *ConsentRepository) ListByPerson(ctx context.Context, personID, campusID
 		WHERE person_id = $1 AND campus_id = $2
 		ORDER BY granted_at DESC`
 
-	rows, err := r.pool.Query(ctx, q, personID, campusID)
+	rows, err := r.q(ctx).Query(ctx, q, personID, campusID)
 	if err != nil {
 		return nil, fmt.Errorf("consentRepository.ListByPerson: %w", err)
 	}
@@ -113,7 +113,7 @@ func (r *ConsentRepository) Revoke(ctx context.Context, id, campusID uuid.UUID, 
 		WHERE id = $1 AND campus_id = $2 AND is_active = TRUE
 		RETURNING ` + consentColumns
 
-	c, err := scanConsent(r.pool.QueryRow(ctx, q, id, campusID, reason))
+	c, err := scanConsent(r.q(ctx).QueryRow(ctx, q, id, campusID, reason))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound

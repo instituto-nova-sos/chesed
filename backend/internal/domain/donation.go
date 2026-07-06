@@ -62,3 +62,6 @@ type DonationFilter struct {
 
 // DonationTypes enumerates the valid donation categories.
 var DonationTypes = []string{"FINANCIAL", "GOODS", "SERVICES"}
+
+// DonationCurrencies enumerates the supported ISO 4217 currency codes.
+var DonationCurrencies = []string{"BRL", "USD", "EUR"}
