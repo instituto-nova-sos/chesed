@@ -240,6 +240,7 @@ export function ReportsPage() {
   function handleGenerate(event: React.FormEvent) {
     event.preventDefault();
     if (!range.start || !range.end) return;
+    setDownloadError(null);
     generate({
       start: range.start,
       end: range.end,
