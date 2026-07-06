@@ -1275,9 +1275,11 @@ as `ACCESS_DENIED`).
 Synchronously enforces the LGPD data-retention policy (RNF-01) for the caller's
 campus: person records whose last activity predates the retention window (5 years
 operational, per docs/13) are anonymized (reusing the S11.3 anonymization), each
-action audited. Idempotent — already-anonymized records are skipped. No request
-body. Admin only (`403 ACCESS_DENIED` otherwise). No scheduler infra in the MVP;
-an external cron may invoke this endpoint.
+action audited. Last activity is the most recent of the person's own row and any
+related triage, attendance, or donation — a subject still being assisted is never
+anonymized even if their profile row is old. Idempotent — already-anonymized
+records are skipped. No request body. Admin only (`403 ACCESS_DENIED` otherwise).
+No scheduler infra in the MVP; an external cron may invoke this endpoint.
 
 ```json
 // Response 200

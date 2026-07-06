@@ -20,15 +20,24 @@ func NewRetentionRepository(pool Querier) *RetentionRepository {
 }
 
 // ListExpiredPersonIDs returns the ids of persons in the campus whose last
-// update predates olderThan and that have not already been anonymized. The
+// activity predates olderThan and that have not already been anonymized. Last
+// activity is the most recent of the person's own row and any related triage,
+// attendance, or donation — so a subject still being assisted (recent triage or
+// attendance) is never anonymized even if their profile row is old. The
 // anonymized_at guard makes repeated retention runs idempotent.
 func (r *RetentionRepository) ListExpiredPersonIDs(ctx context.Context, campusID uuid.UUID, olderThan time.Time) ([]uuid.UUID, error) {
 	const q = `
-		SELECT id FROM person
-		WHERE campus_id = $1
-		  AND anonymized_at IS NULL
-		  AND updated_at < $2
-		ORDER BY updated_at`
+		SELECT p.id
+		FROM person p
+		WHERE p.campus_id = $1
+		  AND p.anonymized_at IS NULL
+		  AND GREATEST(
+		        p.updated_at,
+		        COALESCE((SELECT max(t.updated_at) FROM triage t WHERE t.person_id = p.id), p.updated_at),
+		        COALESCE((SELECT max(a.updated_at) FROM attendance a WHERE a.person_id = p.id), p.updated_at),
+		        COALESCE((SELECT max(d.updated_at) FROM donation d WHERE d.donor_person_id = p.id), p.updated_at)
+		      ) < $2
+		ORDER BY p.updated_at`
 
 	rows, err := r.q(ctx).Query(ctx, q, campusID, olderThan)
 	if err != nil {

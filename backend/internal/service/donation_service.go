@@ -348,7 +348,11 @@ func (s *DonationService) GenerateReceipt(ctx context.Context, id uuid.UUID) (*d
 
 	key := receiptKey(campusID, id)
 	if data.Donation.ReceiptNumber == nil {
-		if err := s.issueReceipt(ctx, data, key, campusID, id); err != nil {
+		// ErrDuplicate here means a concurrent first-call already stamped the
+		// receipt (same deterministic key, so the object exists). Treat it as
+		// already-issued and fall through to re-presign rather than returning a
+		// spurious 409 to one of two racing clients.
+		if err := s.issueReceipt(ctx, data, key, campusID, id); err != nil && !errors.Is(err, domain.ErrDuplicate) {
 			return nil, fmt.Errorf("donationService.GenerateReceipt: %w", err)
 		}
 	}

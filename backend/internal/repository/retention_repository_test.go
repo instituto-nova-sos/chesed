@@ -21,7 +21,7 @@ func TestRetentionRepository_ListExpiredPersonIDs(t *testing.T) {
 	cutoff := time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
 	id1, id2 := uuid.New(), uuid.New()
 
-	mock.ExpectQuery(`SELECT id FROM person\s+WHERE campus_id = \$1\s+AND anonymized_at IS NULL\s+AND updated_at < \$2`).
+	mock.ExpectQuery(`(?s)SELECT p.id.*FROM person p.*p.campus_id = \$1.*p.anonymized_at IS NULL.*GREATEST\(.*triage.*attendance.*donation.*\) < \$2`).
 		WithArgs(campusID, cutoff).
 		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(id1).AddRow(id2))
 
@@ -40,7 +40,7 @@ func TestRetentionRepository_ListExpiredPersonIDs_Empty(t *testing.T) {
 	campusID := uuid.New()
 	cutoff := time.Now()
 
-	mock.ExpectQuery(`SELECT id FROM person`).
+	mock.ExpectQuery(`(?s)SELECT p.id.*FROM person p`).
 		WithArgs(campusID, cutoff).
 		WillReturnRows(pgxmock.NewRows([]string{"id"}))
 

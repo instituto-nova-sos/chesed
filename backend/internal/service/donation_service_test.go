@@ -550,7 +550,10 @@ func TestDonationService_GenerateReceipt(t *testing.T) {
 		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
 
-	t.Run("duplicate on stamp propagates", func(t *testing.T) {
+	t.Run("duplicate on stamp is treated as already-issued and re-presigns", func(t *testing.T) {
+		// A concurrent first-call won the race and stamped the row; MarkReceiptIssued
+		// returns ErrDuplicate. The losing call must fall through to presign the
+		// (already-written) object rather than surfacing a spurious 409.
 		svc, repo, _, _, store, _ := newTestDonationServiceWithStorage()
 		ctx, claims := donationTestContext()
 		id := uuid.New()
@@ -558,8 +561,10 @@ func TestDonationService_GenerateReceipt(t *testing.T) {
 			Return(&domain.ReceiptData{Donation: domain.Donation{ID: id, CampusID: claims.CampusID, DonationDate: time.Now()}}, nil)
 		store.On("Put", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		repo.On("MarkReceiptIssued", mock.Anything, id, claims.CampusID, mock.Anything, mock.Anything).Return(domain.ErrDuplicate)
+		store.On("PresignGet", mock.Anything, mock.Anything, mock.Anything).Return("https://signed", nil)
 
-		_, err := svc.GenerateReceipt(ctx, id)
-		require.ErrorIs(t, err, domain.ErrDuplicate)
+		dl, err := svc.GenerateReceipt(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "https://signed", dl.URL)
 	})
 }
