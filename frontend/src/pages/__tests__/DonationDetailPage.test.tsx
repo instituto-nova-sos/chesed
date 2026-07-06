@@ -67,7 +67,7 @@ describe('DonationDetailPage receipt', () => {
     donationState.error = null;
     roleState.min = 'COORDINATOR';
     downloadReceipt.mockReset();
-    vi.spyOn(window.location, 'assign').mockImplementation(() => {});
+    vi.spyOn(window, 'open').mockImplementation(() => null);
   });
 
   it('shows the receipt button for a coordinator', () => {
@@ -95,8 +95,10 @@ describe('DonationDetailPage receipt', () => {
     await user.click(screen.getByRole('button', { name: /baixar recibo/i }));
     await waitFor(() => expect(downloadReceipt).toHaveBeenCalledWith('d-1'));
     await waitFor(() =>
-      expect(window.location.assign).toHaveBeenCalledWith(
+      expect(window.open).toHaveBeenCalledWith(
         'https://storage.example.com/receipts/d-1.pdf',
+        '_blank',
+        'noopener,noreferrer',
       ),
     );
   });

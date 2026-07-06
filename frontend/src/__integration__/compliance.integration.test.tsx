@@ -88,7 +88,9 @@ describe('integration: compliance report + MSW', () => {
     });
 
     expect(seenUrl!.searchParams.get('format')).toBe('csv');
-    expect(blob).toBeInstanceOf(Blob);
+    // The blob comes from undici's fetch, whose Blob class differs from the
+    // test realm's global — assert on its contents rather than the instance.
+    expect(await blob.text()).toContain('active_consents,14');
   });
 });
 
