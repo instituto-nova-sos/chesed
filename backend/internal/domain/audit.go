@@ -42,16 +42,16 @@ type AuditLogFilter struct {
 // AuditLogListItem is a single row of the audit viewer, with the acting user's
 // email resolved and the JSONB value columns passed through verbatim.
 type AuditLogListItem struct {
-	ID         uuid.UUID       `json:"id"`
-	UserEmail  *string         `json:"user_email,omitempty"`
-	ActionType string          `json:"action_type"`
-	EntityType string          `json:"entity_type"`
-	EntityID   *uuid.UUID      `json:"entity_id,omitempty"`
-	Description *string        `json:"description,omitempty"`
-	OldValues  json.RawMessage `json:"old_values,omitempty"`
-	NewValues  json.RawMessage `json:"new_values,omitempty"`
-	IPAddress  *string         `json:"ip_address,omitempty"`
-	Timestamp  time.Time       `json:"timestamp"`
+	ID          uuid.UUID       `json:"id"`
+	UserEmail   *string         `json:"user_email,omitempty"`
+	ActionType  string          `json:"action_type"`
+	EntityType  string          `json:"entity_type"`
+	EntityID    *uuid.UUID      `json:"entity_id,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	OldValues   json.RawMessage `json:"old_values,omitempty"`
+	NewValues   json.RawMessage `json:"new_values,omitempty"`
+	IPAddress   *string         `json:"ip_address,omitempty"`
+	Timestamp   time.Time       `json:"timestamp"`
 }
 
 // AuditLogListResult is the paginated audit viewer response.

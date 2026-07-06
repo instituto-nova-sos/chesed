@@ -103,6 +103,9 @@ type appDeps struct {
 	donation     *handler.DonationHandler
 	document     *handler.DocumentHandler
 	report       *handler.ReportHandler
+	compliance   *handler.ComplianceReportHandler
+	audit        *handler.AuditHandler
+	admin        *handler.AdminHandler
 	sync         *handler.SyncHandler
 
 	userSvc        *service.UserService
@@ -127,6 +130,8 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 	consentRepo := repository.NewConsentRepository(pool)
 	documentRepo := repository.NewDocumentRepository(pool)
 	reportRepo := repository.NewReportRepository(pool)
+	complianceRepo := repository.NewComplianceReportRepository(pool)
+	retentionRepo := repository.NewRetentionRepository(pool)
 
 	auditSvc := service.NewAuditService(auditRepo)
 	userSvc := service.NewUserService(userRepo, auditSvc)
@@ -147,10 +152,13 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 		triage:         handler.NewTriageHandler(service.NewTriageService(triageRepo, campaignRepo, auditSvc)),
 		attendance:     handler.NewAttendanceHandler(service.NewAttendanceService(attendanceRepo, campaignRepo, auditSvc)),
 		campaign:       handler.NewCampaignHandler(service.NewCampaignService(campaignRepo, personRepo, auditSvc)),
-		consent:        handler.NewConsentHandler(service.NewConsentService(consentRepo, personRepo, auditSvc)),
-		donation:       handler.NewDonationHandler(service.NewDonationService(donationRepo, personRepo, campaignRepo, auditSvc)),
+		consent:        handler.NewConsentHandler(service.NewConsentService(consentRepo, personRepo, personRepo, auditSvc)),
+		donation:       handler.NewDonationHandler(service.NewDonationService(donationRepo, personRepo, campaignRepo, store, service.NewReceiptRenderer(), auditSvc)),
 		document:       handler.NewDocumentHandler(service.NewDocumentService(documentRepo, personRepo, attendanceRepo, store, auditSvc)),
 		report:         handler.NewReportHandler(service.NewReportService(reportRepo)),
+		compliance:     handler.NewComplianceReportHandler(service.NewComplianceReportService(complianceRepo, auditSvc)),
+		audit:          handler.NewAuditHandler(service.NewAuditReadService(auditRepo)),
+		admin:          handler.NewAdminHandler(service.NewRetentionService(retentionRepo, personRepo, auditSvc)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)),
 		userSvc:        userSvc,
 		auditSvc:       auditSvc,
@@ -245,6 +253,8 @@ func (d appDeps) registerProtectedRoutes(r chi.Router, authMW func(http.Handler)
 		d.registerDonationRoutes(r)
 		d.registerDocumentRoutes(r)
 		d.registerReportRoutes(r)
+		d.registerAuditRoutes(r)
+		d.registerAdminRoutes(r)
 		d.registerSyncRoutes(r, allRoles)
 	})
 }
@@ -334,6 +344,7 @@ func (d appDeps) registerDonationRoutes(r chi.Router) {
 		r.With(coordinatorUp).Get("/", d.donation.List)
 		r.With(coordinatorUp).Get("/{id}", d.donation.Get)
 		r.With(secretaryUp).Put("/{id}", d.donation.Update)
+		r.With(coordinatorUp).Get("/{id}/receipt", d.donation.Receipt)
 	})
 }
 
@@ -359,7 +370,22 @@ func (d appDeps) registerReportRoutes(r chi.Router) {
 		r.With(reportRoles).Get("/attendances", d.report.AttendanceSummary)
 		r.With(reportRoles).Get("/attendances/export", d.report.AttendanceExport)
 		r.With(reportRoles).Get("/campaigns/{id}", d.report.CampaignMetrics)
+		r.With(reportRoles).Get("/compliance", d.compliance.Report)
+		r.With(reportRoles).Get("/compliance/export", d.compliance.Export)
 	})
+}
+
+// registerAuditRoutes mounts the read-only audit log viewer (RF-53). ADMIN only;
+// campus scoping is applied in SQL because audit_log is excluded from RLS.
+func (d appDeps) registerAuditRoutes(r chi.Router) {
+	adminOnly := middleware.RequireRole(d.auditSvc, "ADMIN")
+	r.With(adminOnly).Get("/audit/logs", d.audit.List)
+}
+
+// registerAdminRoutes mounts ADMIN-only compliance operations (data retention).
+func (d appDeps) registerAdminRoutes(r chi.Router) {
+	adminOnly := middleware.RequireRole(d.auditSvc, "ADMIN")
+	r.With(adminOnly).Post("/admin/retention/run", d.admin.RunRetention)
 }
 
 func (d appDeps) registerSyncRoutes(r chi.Router, allRoles func(http.Handler) http.Handler) {
