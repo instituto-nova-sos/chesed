@@ -3,15 +3,26 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/instituto-nova-sos/chesed/internal/auth"
+	"github.com/instituto-nova-sos/chesed/internal/handler"
+	"github.com/instituto-nova-sos/chesed/internal/middleware"
+	"github.com/instituto-nova-sos/chesed/internal/repository"
+	"github.com/instituto-nova-sos/chesed/internal/service"
 )
 
 // appConnString rewrites the owner connection string to log in as the non-owner
@@ -174,4 +185,95 @@ func TestRLS_OwnerBypassesRLS(t *testing.T) {
 	err := h.pool.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&count)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, 2, "the owner role must bypass RLS and see all rows")
+}
+
+// buildPreCampusRouter mounts /self-register and /auth/me exactly as production
+// does: the app repositories run on the non-owner appPool (RLS-subject), and the
+// routes are wrapped in BypassRLS(ownerPool) so these pre-campus flows run on the
+// RLS-bypassing owner connection. Auth claims are injected directly (as the OIDC
+// middleware would) via the withClaims wrapper.
+func buildPreCampusRouter(appPool, ownerPool *pgxpool.Pool, claims auth.AuthClaims) chi.Router {
+	auditRepo := repository.NewAuditRepository(ownerPool)
+	personRepo := repository.NewPersonRepository(appPool)
+	personRoleRepo := repository.NewPersonRoleRepository(ownerPool)
+	userRepo := repository.NewUserRepository(ownerPool)
+	agreementRepo := repository.NewVolunteerAgreementRepository(ownerPool)
+	campusRepo := repository.NewCampusRepository(ownerPool)
+
+	auditSvc := service.NewAuditService(auditRepo)
+	selfRegSvc := service.NewSelfRegisterService(personRepo, personRoleRepo, userRepo, agreementRepo, auditSvc)
+	onboardingSvc := service.NewOnboardingService(userRepo, personRepo, personRoleRepo, agreementRepo, campusRepo, auditSvc)
+
+	selfRegH := handler.NewSelfRegisterHandler(selfRegSvc)
+	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
+
+	injectClaims := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(auth.NewContext(r.Context(), claims)))
+		})
+	}
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(injectClaims)
+		r.Use(middleware.BypassRLS(ownerPool))
+		r.Post("/api/v1/self-register", selfRegH.Register)
+		r.Get("/api/v1/auth/me", onboardingH.GetStatus)
+	})
+	return r
+}
+
+// TestRLS_SelfRegisterAndOnboardingBypassRLS proves the pre-campus routes work
+// when the app connects as the non-owner chesed_app role: without BypassRLS the
+// person INSERT would be rejected by WITH CHECK and the onboarding global lookup
+// would fail closed to zero rows. Regression guard for BLOCKER-1.
+func TestRLS_SelfRegisterAndOnboardingBypassRLS(t *testing.T) {
+	h := freshHarness(t)
+	defer h.Close()
+
+	appPool := openAppPool(t, h)
+
+	subject := uuid.New().String()
+	claims := auth.AuthClaims{
+		Subject:       subject,
+		Email:         "self-register@chesed.test",
+		EmailVerified: true,
+		Roles:         []string{"VOLUNTEER"},
+		CampusID:      h.campusID,
+	}
+	router := buildPreCampusRouter(appPool, h.pool, claims)
+
+	// Self-register: the person INSERT (campus_id = h.campusID) must succeed even
+	// though the app pool is RLS-subject, because BypassRLS routes it to the owner.
+	body, _ := json.Marshal(map[string]any{
+		"full_name":     "Self Registrant",
+		"role_type":     "VOLUNTEER",
+		"campus_id":     h.campusID.String(),
+		"document_type": "CPF",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/self-register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, "self-register must succeed as chesed_app via BypassRLS: %s", rec.Body.String())
+
+	// The row must exist in Postgres.
+	var count int
+	require.NoError(t, h.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM person WHERE full_name = 'Self Registrant'`).Scan(&count))
+	assert.Equal(t, 1, count, "self-registered person must persist")
+
+	// Onboarding: the cross-campus email lookup must find the just-created person
+	// (fail-closed RLS would return zero rows without BypassRLS).
+	meReq := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	meRec := httptest.NewRecorder()
+	router.ServeHTTP(meRec, meReq)
+	require.Equal(t, http.StatusOK, meRec.Code, meRec.Body.String())
+
+	var status struct {
+		CampusID *string `json:"campus_id"`
+	}
+	require.NoError(t, json.Unmarshal(meRec.Body.Bytes(), &status))
+	require.NotNil(t, status.CampusID, "onboarding must resolve the campus via the global lookup (not fail-closed)")
+	assert.Equal(t, h.campusID.String(), *status.CampusID)
 }
