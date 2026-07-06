@@ -27,7 +27,7 @@ func NewComplianceReportHandler(svc *service.ComplianceReportService) *Complianc
 
 // Report handles GET /reports/compliance.
 func (h *ComplianceReportHandler) Report(w http.ResponseWriter, r *http.Request) {
-	start, end, ok := parseReportRange(w, r)
+	start, end, ok := parseDateRange(w, r)
 	if !ok {
 		return
 	}
@@ -51,7 +51,7 @@ func (h *ComplianceReportHandler) Export(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	start, end, ok := parseReportRange(w, r)
+	start, end, ok := parseDateRange(w, r)
 	if !ok {
 		return
 	}

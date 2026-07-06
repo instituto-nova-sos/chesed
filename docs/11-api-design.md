@@ -1175,7 +1175,9 @@ responds 404 (`not_found`).
 #### GET /reports/compliance?start=2026-01-01&end=2026-03-31
 
 Campus-scoped LGPD compliance metrics for the period. `start`/`end` are required
-`YYYY-MM-DD` dates (same range validation as `/reports/attendances`). Coordinator+.
+`YYYY-MM-DD` dates (well-ordered; unlike the attendance report there is no 366-day
+span cap — compliance posture is reviewed over multi-year retention windows).
+Coordinator+.
 
 ```json
 // Response 200

@@ -144,7 +144,9 @@ func (h *ReportHandler) AttendanceExport(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func parseReportRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
+// parseDateRange validates a required, well-ordered start/end YYYY-MM-DD range.
+// It applies no span cap, so callers that need one add it themselves.
+func parseDateRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
 	if startStr == "" || endStr == "" {
@@ -165,7 +167,16 @@ func parseReportRange(w http.ResponseWriter, r *http.Request) (time.Time, time.T
 		writeError(w, http.StatusBadRequest, "invalid_range", "end must be on or after start")
 		return time.Time{}, time.Time{}, false
 	}
+	return start, end, true
+}
 
+// parseReportRange is parseDateRange plus the attendance-report span cap: those
+// aggregations are per-day/per-month, so an unbounded range could be abused.
+func parseReportRange(w http.ResponseWriter, r *http.Request) (time.Time, time.Time, bool) {
+	start, end, ok := parseDateRange(w, r)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
 	const maxDays = 366
 	if end.Sub(start)/(24*time.Hour) > maxDays {
 		writeError(w, http.StatusBadRequest, "range_too_large",
