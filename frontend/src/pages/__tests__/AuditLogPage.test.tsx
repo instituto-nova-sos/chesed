@@ -87,7 +87,9 @@ describe('AuditLogPage', () => {
     render(<AuditLogPage />);
 
     await waitFor(() =>
-      expect(screen.getByText(/Nenhum registro/i)).toBeInTheDocument(),
+      expect(
+        screen.getByRole('heading', { name: 'Nenhum registro' }),
+      ).toBeInTheDocument(),
     );
   });
 });
