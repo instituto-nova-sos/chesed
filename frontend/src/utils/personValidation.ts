@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isValidCPF } from './cpfValidation';
+import { isValidDocumentFormat } from './documentFormat';
 
 export const addressSchema = z.object({
   zip_code: z.string().max(20).optional().or(z.literal('')),
@@ -11,6 +11,22 @@ export const addressSchema = z.object({
   state: z.string().max(100).optional().or(z.literal('')),
   country: z.string().max(3).optional().or(z.literal('')),
 });
+
+interface DocumentBearing {
+  document_type: string;
+  document_number?: string;
+}
+
+function validateDocumentNumber(data: DocumentBearing, ctx: z.RefinementCtx): void {
+  const number = data.document_number ?? '';
+  if (number.length === 0) return;
+  if (isValidDocumentFormat(data.document_type, number)) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['document_number'],
+    message: data.document_type === 'CPF' ? 'CPF inválido' : 'Documento inválido',
+  });
+}
 
 export const createPersonSchema = z
   .object({
@@ -33,19 +49,7 @@ export const createPersonSchema = z
     referral_source: z.string().max(200).optional().or(z.literal('')),
     address: addressSchema.optional(),
   })
-  .refine(
-    (data) => {
-      if (
-        data.document_type === 'CPF' &&
-        data.document_number &&
-        data.document_number.length > 0
-      ) {
-        return isValidCPF(data.document_number);
-      }
-      return true;
-    },
-    { message: 'CPF inválido', path: ['document_number'] },
-  );
+  .superRefine(validateDocumentNumber);
 
 export const updatePersonSchema = createPersonSchema;
 
@@ -66,19 +70,7 @@ export const selfRegisterSchema = z
     role_type: z.enum(['VOLUNTEER', 'ASSISTED']),
     campus_id: z.string().uuid('Campus é obrigatório'),
   })
-  .refine(
-    (data) => {
-      if (
-        data.document_type === 'CPF' &&
-        data.document_number &&
-        data.document_number.length > 0
-      ) {
-        return isValidCPF(data.document_number);
-      }
-      return true;
-    },
-    { message: 'CPF inválido', path: ['document_number'] },
-  );
+  .superRefine(validateDocumentNumber);
 
 export type CreatePersonFormData = z.infer<typeof createPersonSchema>;
 export type UpdatePersonFormData = z.infer<typeof updatePersonSchema>;

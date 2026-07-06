@@ -16,12 +16,14 @@ interface AuthState {
   emailVerified: boolean;
   roles: string[];
   campusId: string | null;
+  campusTimezone: string | null;
   personId: string | null;
   token: string | null;
   initialize: () => Promise<void>;
   logout: () => void;
   getToken: () => Promise<string | null>;
   setCampusId: (campusId: string) => void;
+  setCampusTimezone: (timezone: string | null) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -32,6 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   emailVerified: false,
   roles: [],
   campusId: null,
+  campusTimezone: null,
   personId: null,
   token: null,
 
@@ -53,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           emailVerified: parsed?.email_verified ?? false,
           roles: parsed?.realm_access?.roles ?? [],
           campusId: null,
+          campusTimezone: null,
           personId: parsed?.person_id ?? null,
           token: keycloak.token ?? null,
         });
@@ -97,5 +101,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setCampusId: (campusId: string) => {
     set({ campusId });
+  },
+
+  setCampusTimezone: (timezone: string | null) => {
+    set({ campusTimezone: timezone });
   },
 }));

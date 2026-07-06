@@ -1,21 +1,14 @@
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTriages } from '../hooks/useTriages';
+import { useCampusTimezone } from '../hooks/useCampusTimezone';
+import { formatDateTime } from '../utils/formatDateTime';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pagination } from '../components/ui/Pagination';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export function TriageListPage() {
   const navigate = useNavigate();
+  const timeZone = useCampusTimezone();
   const [searchParams] = useSearchParams();
   const personID = searchParams.get('person_id') ?? undefined;
   const { triages, pagination, isLoading, error, goToPage } = useTriages({
@@ -69,7 +62,9 @@ export function TriageListPage() {
                       {t.main_complaint}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{t.requested_service_count}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(t.triage_date)}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {formatDateTime(t.triage_date, timeZone)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

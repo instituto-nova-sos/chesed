@@ -1,5 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAttendances } from '../hooks/useAttendances';
+import { useCampusTimezone } from '../hooks/useCampusTimezone';
+import { formatDateTime } from '../utils/formatDateTime';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pagination } from '../components/ui/Pagination';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
@@ -27,18 +29,9 @@ const STATUS_FILTERS: { value: AttendanceStatus | ''; label: string }[] = [
   { value: 'CANCELLED', label: 'Cancelado' },
 ];
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export function AttendanceListPage() {
   const navigate = useNavigate();
+  const timeZone = useCampusTimezone();
   const { attendances, pagination, isLoading, error, goToPage, filterByStatus, params } =
     useAttendances();
 
@@ -111,7 +104,9 @@ export function AttendanceListPage() {
                         {STATUS_LABELS[a.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(a.attendance_date)}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {formatDateTime(a.attendance_date, timeZone)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

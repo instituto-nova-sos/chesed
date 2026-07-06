@@ -18,6 +18,12 @@ const TYPE_OPTIONS = Object.entries(DONATION_TYPE_LABELS).map(([value, label]) =
   label,
 }));
 
+const CURRENCY_OPTIONS = [
+  { value: 'BRL', label: 'Real (BRL)' },
+  { value: 'USD', label: 'Dólar (USD)' },
+  { value: 'EUR', label: 'Euro (EUR)' },
+];
+
 interface FormValues {
   donation_type: string;
   amount: string;
@@ -79,7 +85,12 @@ function FinancialFields({ form }: { form: UseFormReturn<FormValues> }) {
             'Informe um valor maior que zero',
         })}
       />
-      <Input id="donation-currency" label="Moeda" registration={register('currency')} />
+      <Select
+        id="donation-currency"
+        label="Moeda"
+        options={CURRENCY_OPTIONS}
+        registration={register('currency', { required: 'Campo obrigatório' })}
+      />
     </div>
   );
 }
