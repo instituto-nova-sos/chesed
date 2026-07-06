@@ -55,11 +55,15 @@ CREATE TABLE campus (
     city        VARCHAR(100),
     state       VARCHAR(100),
     country     VARCHAR(3) NOT NULL DEFAULT 'BRA',
+    timezone    VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo',
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
+
+**Migrations:**
+- `000030_campus_timezone` — Adds `timezone VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo'`. Stores the campus IANA timezone for multi-region time rendering.
 
 ### person
 
@@ -71,7 +75,7 @@ CREATE TABLE person (
     full_name         VARCHAR(200) NOT NULL,
     birth_date        DATE,
     document_type     VARCHAR(20) NOT NULL DEFAULT 'CPF'
-                      CHECK (document_type IN ('CPF', 'SSN', 'EU_ID', 'PASSPORT', 'OTHER')),
+                      CHECK (document_type IN ('CPF', 'RG', 'SSN', 'EU_ID', 'PASSPORT', 'OTHER')),
     document_number   VARCHAR(30),
     gender            VARCHAR(20) CHECK (gender IN ('M', 'F', 'OTHER', 'PREFER_NOT_TO_SAY')),
     email             VARCHAR(255),
@@ -96,6 +100,9 @@ CREATE INDEX idx_person_name ON person(full_name);
 CREATE INDEX idx_person_document ON person(document_type, document_number);
 CREATE INDEX idx_person_search ON person USING GIN(search_vector);
 ```
+
+**Migrations:**
+- `000027_person_document_type_add_rg` — Adds `RG` to the `document_type` CHECK constraint. Fixes a drift where validators accepted `RG` but the DB CHECK rejected it.
 
 ### address
 
@@ -483,7 +490,8 @@ CREATE TABLE donation (
     donation_type       VARCHAR(20) NOT NULL
                         CHECK (donation_type IN ('FINANCIAL', 'GOODS', 'SERVICES')),
     amount              DECIMAL(12, 2),
-    currency            VARCHAR(3) NOT NULL DEFAULT 'BRL',
+    currency            VARCHAR(3) NOT NULL DEFAULT 'BRL'
+                        CHECK (currency IN ('BRL', 'USD', 'EUR')),
     item_description    TEXT,
     donation_date       DATE NOT NULL DEFAULT CURRENT_DATE,
     receipt_number      VARCHAR(50) UNIQUE,
@@ -499,6 +507,9 @@ CREATE INDEX idx_donation_campaign ON donation(campaign_id);
 CREATE INDEX idx_donation_donor ON donation(donor_person_id);
 CREATE INDEX idx_donation_date ON donation(donation_date);
 ```
+
+**Migrations:**
+- `000029_donation_currency_check` — Adds `CHECK (currency IN ('BRL', 'USD', 'EUR'))`. Amounts are stored in their native currency; no FX conversion is applied.
 
 ### audit_log
 
@@ -556,17 +567,34 @@ Refresh tokens are managed by Keycloak. No application-level token storage is ne
 - Go middleware injects campus filter automatically
 - Admin users can query across campuses with explicit parameter
 
-### Database-Level (Phase 3)
-- PostgreSQL Row-Level Security (RLS) as additional layer
-- Set `app.current_campus_id` session variable
-- RLS policies filter rows by campus_id
+### Database-Level Row-Level Security (RLS)
+
+Migration `000028_enable_rls` enables PostgreSQL RLS as a defense-in-depth layer for
+campus isolation. Application-level `WHERE campus_id` filtering is **retained** — RLS is
+additive, not a replacement.
+
+- **Session GUC**: each request transaction sets `app.current_campus` (via `set_config(..., is_local => true)`) from the authenticated user's campus. Policies read it with `current_setting('app.current_campus', true)`.
+- **Fail-closed**: an unset GUC returns `NULL`, which matches no rows (zero rows), never all rows.
+- **App role**: the application connects as the non-owner role `chesed_app`, so RLS applies to it. Migrations and seed run as the owner role, which bypasses RLS — no GUC needed for schema operations.
+- **Covered tables**: `person`, `address`, `triage`, `triage_requested_service`, `attendance`, `attendance_transition`, `assisted_profile`, `campaign`, `campaign_team`, `consent`, `document`, `donation`.
+- **Policy shape**:
+  - Direct-column tables (`person`, `triage`, `attendance`, `campaign`, `consent`, `document`, `donation`) match `campus_id = current_setting('app.current_campus', true)::uuid`.
+  - Join-inherited tables (`address`, `assisted_profile`, `campaign_team`, `attendance_transition`, `triage_requested_service`) have no `campus_id` column and isolate via an `EXISTS` check against their parent's `campus_id`.
+- **Excluded**: `audit_log` is **not** under RLS by design — its `campus_id` is nullable and it records pre-campus events (login/provisioning denials). It remains append-only and application-filtered.
 
 ```sql
--- Example RLS policy (Phase 3)
+-- Direct-column policy (migration 000028)
 ALTER TABLE person ENABLE ROW LEVEL SECURITY;
+CREATE POLICY person_campus_isolation ON person
+    USING (campus_id = current_setting('app.current_campus', true)::uuid)
+    WITH CHECK (campus_id = current_setting('app.current_campus', true)::uuid);
 
-CREATE POLICY campus_isolation ON person
-    USING (campus_id = current_setting('app.current_campus_id')::UUID);
+-- Join-inherited policy (migration 000028)
+ALTER TABLE address ENABLE ROW LEVEL SECURITY;
+CREATE POLICY address_campus_isolation ON address
+    USING (EXISTS (SELECT 1 FROM person p
+                   WHERE p.id = address.person_id
+                     AND p.campus_id = current_setting('app.current_campus', true)::uuid));
 ```
 
 ---

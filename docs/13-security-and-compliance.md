@@ -227,6 +227,22 @@ Complete physical deletion is performed only when legally mandated. Anonymizatio
 - WAF: Cloudflare (free tier) in front of reverse proxy for DDoS protection and bot mitigation
 - Security headers validation: CI pipeline verifies presence of HSTS, CSP, X-Content-Type-Options, X-Frame-Options headers
 
+### Campus Data Segregation — PostgreSQL Row-Level Security (RNF-07, RNF-15)
+
+Campus isolation is enforced in **two independent layers**, so a mistake in one does not expose cross-campus data:
+
+1. **Application-level filtering**: every query carries `WHERE campus_id = ?` derived from the Keycloak-issued `campus_id` claim.
+2. **Database-level RLS** (defense-in-depth, migration `000028_enable_rls`): PostgreSQL Row-Level Security policies enforce the same boundary inside the database, so it holds even if a repository forgets its `WHERE campus_id` clause.
+
+How RLS is applied:
+- The request-scoped transaction sets a session GUC `app.current_campus` (via the `CampusTx` middleware) from the authenticated user's campus.
+- RLS policies filter every campus-scoped table by `app.current_campus`; direct-column tables compare `campus_id`, while join-inherited tables (address, assisted_profile, campaign_team, attendance_transition, triage_requested_service) enforce isolation via an `EXISTS` check against their parent's `campus_id`.
+- The application connects as the **non-owner** role `chesed_app`, so RLS applies to it. Migrations and seed run as the owner role and bypass RLS.
+- **Fail-closed**: an unset `app.current_campus` GUC matches no rows (zero rows), never all rows.
+- `audit_log` is intentionally excluded from RLS (nullable `campus_id`, records pre-campus events such as login/provisioning denials).
+
+RLS **complements** — it does not replace — application-level campus filtering and the Keycloak-derived campus scoping.
+
 ### Dependencies
 - Minimal dependency footprint (Go stdlib-first approach)
 - Dependabot or Renovate for automated vulnerability alerts

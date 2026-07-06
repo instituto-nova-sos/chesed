@@ -134,11 +134,10 @@ Mobile device
 | Impact | Privacy violation; data exposure across organizational boundaries |
 | Likelihood | Low |
 
-**Mitigations**:
-- All queries include `campus_id` filter from JWT (not from user input)
-- Repository layer enforces campus filter at the SQL level
+**Mitigations** (two independent layers):
+- **Layer 1 — application**: all queries include `campus_id` filter from JWT (not from user input); the repository layer enforces the campus filter at the SQL level
+- **Layer 2 — PostgreSQL Row-Level Security** (migration `000028`): RLS policies enforce campus isolation inside the database. The app connects as the non-owner role `chesed_app`, so a repository that forgets its `WHERE campus_id` clause can no longer leak cross-campus data — an unset campus GUC fails closed (zero rows). `audit_log` is RLS-excluded by design (nullable `campus_id`, pre-campus events).
 - Integration tests with multi-campus test data
-- Phase 3: PostgreSQL Row-Level Security as additional layer
 - Audit logging of cross-campus access attempts
 
 ---
@@ -362,7 +361,7 @@ executed/rendered by another user's browser on download.
 |--------|-----------|--------|------|-------------------|
 | T1: Brute force login | Medium | High | **Medium** | Keycloak brute-force detection + MFA |
 | T2: RBAC escalation | Low-Medium | High | **Medium** | Middleware enforcement |
-| T3: Campus isolation breach | Low | High | **Medium** | JWT-based campus filter |
+| T3: Campus isolation breach | Low | High | **Medium** | JWT-based campus filter + PostgreSQL RLS |
 | T4: Device theft | Medium | High | **High** | IndexedDB encryption + session timeout |
 | T5: Sync injection | Low | Medium | **Low** | Server-side validation |
 | T6: Data exfiltration | Low-Medium | Medium | **Medium** | Audit logging + access control |
