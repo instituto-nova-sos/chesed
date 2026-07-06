@@ -1,7 +1,70 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-06 (Session 38)
+2026-07-06 (Session 39)
+
+---
+
+## Session 39: Sprint 10 — LGPD & Compliance (2026-07-06)
+
+### What Was Delivered (branch `feat/sprint10-lgpd-compliance`, READY-FOR-PR)
+Sprint 10 closes the LGPD/compliance surface (Phase 3), five stories on one branch,
+parallelized across six workstreams over disjoint file sets with two serialized
+route-wiring seams (backend main.go/harness, frontend App.tsx/Sidebar):
+
+- **S11.3 — Consent revocation with anonymization (RF-58).** Revoking a
+  `DATA_PROCESSING` consent now scrubs the linked person's PII + address rows in
+  place, stamps `person.anonymized_at`, and audits it PII-free, all atomic within
+  the request `CampusTx` (rollback on error). Other consent types revoke only.
+  Sentinel `document_number = 'ANON-'||left(hex,25)` fits VARCHAR(30) and stays
+  unique; `search_vector` auto-refreshes via the existing trigger. Migration 000031.
+- **S11.4 — LGPD compliance report (RF-53).** `GET /reports/compliance` (Coordinator+)
+  returns campus-scoped consent/anonymization/data-subject metrics; `/export?format=csv`
+  streams a CSV and writes the first real `EXPORT` audit entry. Uncapped date range
+  (multi-year windows) via a new `parseDateRange`.
+- **S11.5 — Donation receipt PDF (RF-55).** `GET /donations/:id/receipt` (Coordinator+)
+  renders a PDF with `go-pdf/fpdf`, stores it in object storage, stamps a unique
+  `receipt_number`/`receipt_issued_at`, and returns a presigned URL. Idempotent
+  (re-presigns; race-loser on stamp re-presigns instead of 409). Migration 000032
+  adds campus fiscal-issuer columns (legal_name/cnpj/address...).
+- **S11.6 — Audit log viewer (RF-53).** Built the audit READ path end to end
+  (`GET /audit/logs`, ADMIN only, paginated, filtered). `audit_log` stays
+  append-only + non-RLS; campus scoping applied in SQL from the token. Frontend
+  AuditLogPage.
+- **S11.7 — Data retention sweep (RNF-01).** `POST /admin/retention/run` (ADMIN)
+  anonymizes persons past the 5-year window, reusing S11.3. **Last activity is
+  GREATEST of the person row and related triage/attendance/donation** — subjects
+  still being assisted are never erased.
+
+### Key Decisions
+- Receipt persists to object storage (not stream-on-the-fly) to match the reserved
+  `receipt_number`/`receipt_issued_at` columns and give an immutable, auditable receipt.
+- Anonymization scope = linked person + address only this sprint (assisted_profile,
+  triage/attendance free text, uploaded documents deferred to a future erasure pass).
+- Retention is an admin-triggered synchronous endpoint (no scheduler infra in MVP;
+  an external cron may call it).
+- PDF lib `go-pdf/fpdf` (pure Go, no CGO) — compiles in the alpine image + testcontainers.
+
+### Process & Verification
+- TDD RED→GREEN per story; every new endpoint has a backend integration test
+  (testcontainers Postgres + MinIO) and every new API-client surface a frontend MSW test.
+- **Integration tests caught two bugs unit mocks missed**: the `'ANON-'||id::text`
+  sentinel overflowed VARCHAR(30) (fixed to 25-hex), and the compliance report
+  inherited the attendance 366-day cap (fixed with `parseDateRange`).
+- A three-way adversarial critical review found one MAJOR (retention keyed off
+  `person.updated_at` — erasure-of-active-subject risk) and one LOW (receipt race
+  → spurious 409); both fixed and re-verified. Verdict APPROVE in
+  `tasks/review-feat/sprint10-lgpd-compliance.md`.
+- `make deliver` green through all 7 gates (backend + frontend + e2e smoke 6/6 +
+  review + DoD); READY-FOR-PR printed. **Not pushed** (PAT has no push/PR permission).
+  Note: e2e smoke requires `docker compose -f docker-compose.e2e.yml up -d --build` first.
+
+### Next Steps
+- Human runs `git push -u origin feat/sprint10-lgpd-compliance` and opens the PR.
+- Sprint 11 (Integration & Hardening): WordPress public API, advanced sync conflict
+  UI, backup/DR, load + pen testing, production deployment (E12).
+- Deferred suggestions from the review: end-to-end anonymization-rollback integration
+  test, collision-proof anonymization sentinel, add `CampusTx` to the integration harness.
 
 ---
 
