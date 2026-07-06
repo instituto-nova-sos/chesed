@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/auth"
@@ -26,6 +27,13 @@ type ConsentPersonRepository interface {
 	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Person, error)
 }
 
+// PersonAnonymizer scrubs a person's PII (LGPD right to erasure, S11.3). It is a
+// separate interface from ConsentPersonRepository so the read path stays
+// read-only; PersonRepository satisfies both.
+type PersonAnonymizer interface {
+	Anonymize(ctx context.Context, personID, campusID uuid.UUID) error
+}
+
 // CreateConsentInput holds validated input for consent creation.
 type CreateConsentInput struct {
 	PersonID          string  `json:"person_id" validate:"required,uuid"`
@@ -45,12 +53,13 @@ type RevokeConsentInput struct {
 type ConsentService struct {
 	repo       ConsentRepository
 	personRepo ConsentPersonRepository
+	anonymizer PersonAnonymizer
 	auditSvc   *AuditService
 }
 
 // NewConsentService creates a new ConsentService.
-func NewConsentService(repo ConsentRepository, personRepo ConsentPersonRepository, auditSvc *AuditService) *ConsentService {
-	return &ConsentService{repo: repo, personRepo: personRepo, auditSvc: auditSvc}
+func NewConsentService(repo ConsentRepository, personRepo ConsentPersonRepository, anonymizer PersonAnonymizer, auditSvc *AuditService) *ConsentService {
+	return &ConsentService{repo: repo, personRepo: personRepo, anonymizer: anonymizer, auditSvc: auditSvc}
 }
 
 // CreateConsent registers a new active consent for a person in the caller's
@@ -203,7 +212,38 @@ func (s *ConsentService) RevokeConsent(ctx context.Context, id uuid.UUID, input 
 		Success:     true,
 	})
 
+	// Withdrawing the master data-processing consent triggers erasure of the
+	// person's PII (LGPD Art. 18, RF-58). Atomicity with the revocation above is
+	// provided by the per-request campus transaction (middleware/campus_tx.go):
+	// a returned error rolls the whole request back, so the revoke is not left
+	// half-applied.
+	if existing.ConsentType == "DATA_PROCESSING" {
+		if err := s.anonymizePerson(ctx, existing.PersonID, claims.CampusID); err != nil {
+			return nil, fmt.Errorf("consentService.RevokeConsent: %w", err)
+		}
+	}
+
 	return revoked, nil
+}
+
+// anonymizePerson scrubs the person's PII and records the erasure in the audit
+// log. The audit entry deliberately carries no scrubbed PII (CLAUDE.md MUST-NOT
+// #7): only the anonymization timestamp and the person id.
+func (s *ConsentService) anonymizePerson(ctx context.Context, personID, campusID uuid.UUID) error {
+	if err := s.anonymizer.Anonymize(ctx, personID, campusID); err != nil {
+		return err
+	}
+
+	s.audit(ctx, AuditParams{
+		ActionType:  "UPDATE",
+		EntityType:  "person",
+		EntityID:    &personID,
+		Module:      "consent",
+		Description: "person anonymized (LGPD consent revocation)",
+		NewValues:   map[string]any{"anonymized_at": time.Now()},
+		Success:     true,
+	})
+	return nil
 }
 
 // audit writes an audit entry, logging (never failing the request) on error.
