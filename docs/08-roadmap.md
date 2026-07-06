@@ -243,13 +243,13 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 
 ### Sprint 8: Reports and Dashboards (Weeks 16-17)
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 8.1 | Report API: by service type, by team, by campaign | Phase 1 |
-| 8.2 | React: Report filters (type, team, campaign, period) | 8.1 |
-| 8.3 | React: Chart components (Recharts) | 8.2 |
-| 8.4 | React: Statistics dashboard | 8.3 |
-| 8.5 | Follow-up workflow state (attendance reopen) | 3.2 |
+| # | Task | Dependencies | Status |
+|---|------|-------------|--------|
+| 8.1 | Report API: by service type, by team (professional), by campaign | Phase 1 | Done |
+| 8.2 | React: Report filters (type, team, campaign, period) | 8.1 | Done |
+| 8.3 | React: Chart components (Recharts) | 8.2 | Done |
+| 8.4 | React: Statistics dashboard (GET /reports/dashboard) | 8.3 | Done |
+| 8.5 | Follow-up workflow state (attendance reopen) | 3.2 | Done (delivered with attendance transitions; FOLLOW_UP is a valid transition target) |
 
 **Phase 2 Milestone**: Full feature set operational except multi-region and compliance automation.
 

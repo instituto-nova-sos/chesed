@@ -1,7 +1,7 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-05 (Session 36)
+2026-07-05 (Session 37)
 
 ---
 
@@ -2990,6 +2990,93 @@ All commits local on `feat/sprint7-donations`. Suggested (human-run):
 - **E10 (Advanced Reports and Dashboards)** is the last Phase 2 epic — needs the
   same phase-kickoff detailing (GWT in backlog) before implementation (Recharts
   charts, dashboard metrics, report filters).
+
+---
+
+## Session 37: Sprint 8 — Advanced Reports and Dashboards (E10, Phase 2 FINAL) (2026-07-05)
+
+Delivered the full **E10 epic** on branch **`feat/sprint8-reports-dashboards`**,
+parallelized, through `make deliver` to READY-FOR-PR with an independent reviewer
+**APPROVE** (0 blocker / 0 major / 1 minor [fixed] / 2 suggestions, cycle 1). This
+**closes Phase 2** — all epics E07–E10 are done.
+
+### Scope
+- **S10.1** reports by service type / team / campaign · **S10.2** Recharts charts ·
+  **S10.3** dashboard with key metrics · **S10.4** report filter UI.
+- **Read-only analytics epic — NO new tables or migrations.** All reports aggregate
+  existing operational data (`attendance`, `person`, `campaign`, `campaign_team`,
+  `service_type`), campus-scoped. The Sprint 4/5 report stack (attendance summary,
+  CSV export, campaign metrics) was **extended, not replaced**.
+- **Kickoff decisions** (product-owner confirmed, phase-boundary rule): the "team"
+  dimension (RF-42) = grouping by **acting professional** (`attendance.professional_id`)
+  — there is no generic team entity, only campaign-scoped `campaign_team`; charts =
+  **essential** scope (3 report charts + dashboard trend) with offline/empty fallback.
+
+### What was built
+- **Backend** — `GET /reports/dashboard` (campus-scoped KPIs: total persons,
+  attendances-this-month, upcoming scheduled, active campaigns, all-time status
+  snapshot, last-6-months trend via `generate_series` LEFT JOIN so empty months
+  yield 0). Extended `GET /reports/attendances` with optional
+  `service_type_id`/`campaign_id`/`professional_id` filters (via an `applyFilters`
+  helper with injection-safe dynamic `$N` arg indexing) and a `by_professional`
+  breakdown. Both Coordinator+. Malformed filter UUID → `400 invalid_filter`;
+  foreign-campus filter id → empty 200 (T3 no-existence-disclosure). Domain gains
+  `DashboardMetrics`, `ProfessionalCount`; `AttendanceReportFilter` gains the three
+  optional `*uuid.UUID` filters. `scanStatusCounts` extracted (dedup).
+- **Frontend** — added **recharts 2.15.4** (lazy-loaded in the `reports` route chunk,
+  ~105KB gzip, off the initial bundle). Thin chart wrappers
+  (`MonthlyTrendChart`/`StatusDonutChart`/`ServiceTypeBarChart` + `ChartEmpty`
+  fallback). `DashboardPage` now renders **server-computed KPIs** from
+  `GET /reports/dashboard` (replacing the old client-side `listAttendances`/
+  `listTriages` per_page:1 aggregation) + trend + status charts. `ReportsPage`
+  gains service-type/campaign/professional filters (options reused from existing
+  `listServiceTypes` + `useLinkableCampaigns`; professional options derived from
+  `by_professional`) plus the chart-backed breakdowns and a professional table.
+- **Docs** — E10 detailed in `docs/09-backlog.md` (GWT + metadata, all `done`;
+  `validate-backlog` OK); dashboard body + attendance filter contract +
+  `by_professional` added to `docs/11-api-design.md`; roadmap Sprint 8 marked Done.
+- **Tests** — backend unit (GetDashboard, filter parsing) + **4 integration
+  scenarios** (`report_test.go`: dashboard happy path w/ DB assertions, campus
+  boundary, Coordinator+ RBAC 403, professional-filter + by_professional ordering);
+  frontend chart units + page tests + api units + MSW integration
+  (`reports.integration.test.tsx`: dashboard fetch, filter query-string, 500→ApiError);
+  **Playwright `@smoke`** slice (`reports-smoke.spec.ts`: ADMIN loads dashboard KPIs
+  from the server + report charts render). Read-only slice → no e2e fixture cleanup change.
+
+### Parallel execution model (as requested)
+Two write-capable subagents on **disjoint file sets** (backend A: golang-pro;
+frontend B: frontend-developer); orchestrator owned all shared files
+(`docs/*`, `main.go`, `harness_test.go`, `types/report.ts`+`index.ts`,
+`__integration__/server.ts`, the e2e smoke spec) + RED→GREEN commit sequencing
+(6 commits: docs → RED/GREEN backend → RED/GREEN frontend → review-fix) + final
+validation. Independent `code-review-agent` produced the verdict file
+`tasks/review-feat/sprint8-reports-dashboards.md`.
+
+### One fix during orchestration
+The backend agent's `TestAttendanceReport_ProfessionalFilter` used a 2020→2100
+date window that (correctly) tripped the pre-existing 366-day `range_too_large`
+guard → 400. Fixed the test to use a current-month window (`time.Now()`-anchored,
+date-stable). All 4 report integration tests then green against real Postgres.
+
+### Validation (all green)
+`make validate-backlog` OK · full `make deliver`: backend build/lint/test +
+**integration suite** (real Postgres) · frontend tsc + **214 unit + 53 MSW** +
+coverage + PWA build (0 lint errors; pre-existing 47 warnings held) · **6/6
+Playwright @smoke** against the rebuilt e2e stack · critical-review **APPROVE** ·
+DoD gate → `READY-FOR-PR`.
+
+### Push boundary respected
+All commits local on `feat/sprint8-reports-dashboards`. Suggested (human-run):
+`git push -u origin feat/sprint8-reports-dashboards`.
+
+### What's next
+- **Phase 2 is COMPLETE** (E07 campaigns, E08 documents/consent, E09 donations,
+  E10 reports/dashboards all delivered). Next is **Phase 3** (E11 Multi-Region and
+  Compliance — incl. the deferred donation receipt PDF **S11.5/RF-55**, LGPD
+  reporting, consent revocation w/ anonymization, PostgreSQL RLS; E12 External
+  Integrations). Phase 3 needs the same phase-kickoff GWT detailing before work.
+- Standing follow-up (unchanged, non-blocking): role-aware Sidebar/nav pass — links
+  render for all roles while endpoints gate server-side.
 
 ---
 
