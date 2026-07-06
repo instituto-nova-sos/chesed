@@ -1,10 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,14 @@ type DonationRepository interface {
 	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.DonationDetail, error)
 	List(ctx context.Context, filter domain.DonationFilter) (*domain.DonationListResult, error)
 	Update(ctx context.Context, d domain.Donation) (*domain.Donation, error)
+	FindReceiptData(ctx context.Context, id, campusID uuid.UUID) (*domain.ReceiptData, error)
+	MarkReceiptIssued(ctx context.Context, id, campusID uuid.UUID, number string, issuedAt time.Time) error
+}
+
+// ReceiptRenderer renders a resolved donation into receipt PDF bytes. Defined
+// here (dependency inversion) so DonationService can be unit-tested with a stub.
+type ReceiptRenderer interface {
+	Render(d domain.ReceiptData) ([]byte, error)
 }
 
 // DonationPersonRepository is the campus-scoped person lookup donations need to
@@ -56,12 +66,21 @@ type DonationService struct {
 	repo         DonationRepository
 	personRepo   DonationPersonRepository
 	campaignRepo CampaignRefRepository
+	storage      ObjectStorage
+	renderer     ReceiptRenderer
 	auditSvc     *AuditService
 }
 
 // NewDonationService creates a new DonationService.
-func NewDonationService(repo DonationRepository, personRepo DonationPersonRepository, campaignRepo CampaignRefRepository, auditSvc *AuditService) *DonationService {
-	return &DonationService{repo: repo, personRepo: personRepo, campaignRepo: campaignRepo, auditSvc: auditSvc}
+func NewDonationService(repo DonationRepository, personRepo DonationPersonRepository, campaignRepo CampaignRefRepository, storage ObjectStorage, renderer ReceiptRenderer, auditSvc *AuditService) *DonationService {
+	return &DonationService{
+		repo:         repo,
+		personRepo:   personRepo,
+		campaignRepo: campaignRepo,
+		storage:      storage,
+		renderer:     renderer,
+		auditSvc:     auditSvc,
+	}
 }
 
 // CreateDonation records a new donation stamped with the caller's campus and
@@ -306,6 +325,89 @@ func (s *DonationService) applyDonationUpdate(ctx context.Context, existing *dom
 		RegisteredBy:    existing.RegisteredBy,
 		CreatedAt:       existing.CreatedAt,
 	}, nil
+}
+
+// receiptDownloadTTL is the lifetime of receipt download URLs.
+const receiptDownloadTTL = 15 * time.Minute
+
+// GenerateReceipt issues (once) and returns a presigned download URL for a
+// donation's receipt PDF, scoped to the caller's campus. The first call renders
+// the PDF, stores it, stamps the receipt number/timestamp, and audits the
+// issuance; subsequent calls are idempotent and just re-presign the existing
+// object.
+func (s *DonationService) GenerateReceipt(ctx context.Context, id uuid.UUID) (*domain.DocumentDownload, error) {
+	campusID := auth.CampusIDFromContext(ctx)
+	if campusID == uuid.Nil {
+		return nil, fmt.Errorf("donationService.GenerateReceipt: %w", domain.ErrForbidden)
+	}
+
+	data, err := s.repo.FindReceiptData(ctx, id, campusID)
+	if err != nil {
+		return nil, fmt.Errorf("donationService.GenerateReceipt: %w", err)
+	}
+
+	key := receiptKey(campusID, id)
+	if data.Donation.ReceiptNumber == nil {
+		if err := s.issueReceipt(ctx, data, key, campusID, id); err != nil {
+			return nil, fmt.Errorf("donationService.GenerateReceipt: %w", err)
+		}
+	}
+
+	url, err := s.storage.PresignGet(ctx, key, receiptDownloadTTL)
+	if err != nil {
+		return nil, fmt.Errorf("donationService.GenerateReceipt: presign: %w", err)
+	}
+	return &domain.DocumentDownload{
+		URL:       url,
+		ExpiresAt: time.Now().UTC().Add(receiptDownloadTTL),
+	}, nil
+}
+
+// issueReceipt renders the PDF, stores it (storage first, so a stamped row never
+// references a missing object), stamps the donation, and audits the issuance.
+func (s *DonationService) issueReceipt(ctx context.Context, data *domain.ReceiptData, key string, campusID, id uuid.UUID) error {
+	number := buildReceiptNumber(data.Donation.DonationDate)
+	data.Donation.ReceiptNumber = &number
+
+	pdf, err := s.renderer.Render(*data)
+	if err != nil {
+		return fmt.Errorf("render receipt: %w", err)
+	}
+	if err := s.storage.Put(ctx, key, "application/pdf", int64(len(pdf)), bytes.NewReader(pdf)); err != nil {
+		return fmt.Errorf("store receipt: %w", err)
+	}
+
+	issuedAt := time.Now().UTC()
+	if err := s.repo.MarkReceiptIssued(ctx, id, campusID, number, issuedAt); err != nil {
+		slog.ErrorContext(ctx, "donationService: receipt stamp failed after storage put; orphan object",
+			"key", key, "error", err.Error(),
+		)
+		return err
+	}
+
+	s.audit(ctx, AuditParams{
+		ActionType:  "UPDATE",
+		EntityType:  "donation",
+		EntityID:    &id,
+		Module:      "donation",
+		Description: "receipt issued",
+		NewValues:   map[string]any{"receipt_number": number, "receipt_issued_at": issuedAt},
+		Success:     true,
+	})
+	return nil
+}
+
+// receiptKey is the deterministic object-storage key for a donation receipt.
+func receiptKey(campusID, donationID uuid.UUID) string {
+	return fmt.Sprintf("receipts/%s/%s.pdf", campusID, donationID)
+}
+
+// buildReceiptNumber formats a globally unique receipt number prefixed by the
+// donation year: REC-{YYYY}-{8 uppercase hex}. The uuid suffix keeps it unique
+// without a sequence table; a collision still maps to ErrDuplicate at the DB.
+func buildReceiptNumber(donationDate time.Time) string {
+	suffix := strings.ToUpper(uuid.New().String()[:8])
+	return fmt.Sprintf("REC-%d-%s", donationDate.Year(), suffix)
 }
 
 // audit writes an audit entry, logging (never failing the request) on error.

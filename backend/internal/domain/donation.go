@@ -30,8 +30,25 @@ type Donation struct {
 // the linked donor and campaign.
 type DonationDetail struct {
 	Donation
-	DonorName    *string `json:"donor_name,omitempty"`
-	CampaignName *string `json:"campaign_name,omitempty"`
+	DonorName     *string `json:"donor_name,omitempty"`
+	DonorDocument *string `json:"donor_document,omitempty"`
+	CampaignName  *string `json:"campaign_name,omitempty"`
+}
+
+// ReceiptData is the fully resolved input to the donation-receipt PDF renderer:
+// the donation, the resolved donor identity, and the issuing campus fiscal
+// details. Issuer fields are nil when the campus has not been configured.
+type ReceiptData struct {
+	Donation      Donation
+	DonorName     *string
+	DonorDocument *string
+	IssuerName    *string // campus.legal_name
+	IssuerCNPJ    *string
+	IssuerAddress *string // campus.address_line
+	IssuerCity    *string // campus.city_name
+	IssuerState   *string // campus.state_code
+	IssuerZip     *string
+	CampusName    string // campus.name — always present, header fallback
 }
 
 // DonationListItem is a summary representation for list responses.

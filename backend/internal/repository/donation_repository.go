@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
@@ -54,7 +55,7 @@ func (r *DonationRepository) FindByID(ctx context.Context, id, campusID uuid.UUI
 		       d.amount, d.currency, d.item_description, d.donation_date,
 		       d.receipt_number, d.receipt_issued_at, d.notes, d.registered_by,
 		       d.created_at, d.updated_at,
-		       p.full_name, c.name
+		       p.full_name, p.document_number, c.name
 		FROM donation d
 		LEFT JOIN person p ON p.id = d.donor_person_id
 		LEFT JOIN campaign c ON c.id = d.campaign_id
@@ -66,7 +67,7 @@ func (r *DonationRepository) FindByID(ctx context.Context, id, campusID uuid.UUI
 		&detail.Amount, &detail.Currency, &detail.ItemDescription, &detail.DonationDate,
 		&detail.ReceiptNumber, &detail.ReceiptIssuedAt, &detail.Notes, &detail.RegisteredBy,
 		&detail.CreatedAt, &detail.UpdatedAt,
-		&detail.DonorName, &detail.CampaignName,
+		&detail.DonorName, &detail.DonorDocument, &detail.CampaignName,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -74,6 +75,65 @@ func (r *DonationRepository) FindByID(ctx context.Context, id, campusID uuid.UUI
 		return nil, fmt.Errorf("donationRepository.FindByID: %w", err)
 	}
 	return &detail, nil
+}
+
+// FindReceiptData loads everything the receipt renderer needs — the donation,
+// the resolved donor identity, and the issuing campus fiscal fields — in one
+// campus-scoped query.
+func (r *DonationRepository) FindReceiptData(ctx context.Context, id, campusID uuid.UUID) (*domain.ReceiptData, error) {
+	const q = `
+		SELECT d.id, d.donor_person_id, d.campaign_id, d.campus_id, d.donation_type,
+		       d.amount, d.currency, d.item_description, d.donation_date,
+		       d.receipt_number, d.receipt_issued_at, d.notes, d.registered_by,
+		       d.created_at, d.updated_at,
+		       p.full_name, p.document_number,
+		       cp.name, cp.legal_name, cp.cnpj, cp.address_line, cp.city_name, cp.state_code, cp.zip_code
+		FROM donation d
+		JOIN campus cp ON cp.id = d.campus_id
+		LEFT JOIN person p ON p.id = d.donor_person_id
+		WHERE d.id = $1 AND d.campus_id = $2`
+
+	var data domain.ReceiptData
+	if err := r.q(ctx).QueryRow(ctx, q, id, campusID).Scan(
+		&data.Donation.ID, &data.Donation.DonorPersonID, &data.Donation.CampaignID,
+		&data.Donation.CampusID, &data.Donation.DonationType,
+		&data.Donation.Amount, &data.Donation.Currency, &data.Donation.ItemDescription,
+		&data.Donation.DonationDate, &data.Donation.ReceiptNumber, &data.Donation.ReceiptIssuedAt,
+		&data.Donation.Notes, &data.Donation.RegisteredBy,
+		&data.Donation.CreatedAt, &data.Donation.UpdatedAt,
+		&data.DonorName, &data.DonorDocument,
+		&data.CampusName, &data.IssuerName, &data.IssuerCNPJ, &data.IssuerAddress,
+		&data.IssuerCity, &data.IssuerState, &data.IssuerZip,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("donationRepository.FindReceiptData: %w", err)
+	}
+	return &data, nil
+}
+
+// MarkReceiptIssued stamps the receipt number and issuance timestamp on a
+// donation that has none yet. A unique-violation on receipt_number and a
+// no-op update (already issued) both map to ErrDuplicate.
+func (r *DonationRepository) MarkReceiptIssued(ctx context.Context, id, campusID uuid.UUID, number string, issuedAt time.Time) error {
+	const q = `
+		UPDATE donation
+		SET receipt_number = $3, receipt_issued_at = $4, updated_at = NOW()
+		WHERE id = $1 AND campus_id = $2 AND receipt_number IS NULL`
+
+	tag, err := r.q(ctx).Exec(ctx, q, id, campusID, number, issuedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrDuplicate
+		}
+		return fmt.Errorf("donationRepository.MarkReceiptIssued: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrDuplicate
+	}
+	return nil
 }
 
 // buildDonationWhere assembles the WHERE clause for donation listing.
