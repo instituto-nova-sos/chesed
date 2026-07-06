@@ -240,6 +240,114 @@ func (m *mockReportRepo) BuildCampaignMetrics(ctx context.Context, campaignID, c
 	return args.Get(0).(*domain.CampaignMetrics), args.Error(1)
 }
 
+func (m *mockReportRepo) BuildDashboard(ctx context.Context, campusID uuid.UUID) (*domain.DashboardMetrics, error) {
+	args := m.Called(ctx, campusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DashboardMetrics), args.Error(1)
+}
+
+func TestReportHandler_AttendanceSummary_Filters(t *testing.T) {
+	t.Run("threads optional filters into the report filter", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		svc := service.NewReportService(repo)
+		h := NewReportHandler(svc)
+
+		serviceTypeID := uuid.New()
+		campaignID := uuid.New()
+		professionalID := uuid.New()
+
+		repo.On("BuildAttendanceReport", mock.Anything, mock.MatchedBy(func(f domain.AttendanceReportFilter) bool {
+			return f.ServiceTypeID != nil && *f.ServiceTypeID == serviceTypeID &&
+				f.CampaignID != nil && *f.CampaignID == campaignID &&
+				f.ProfessionalID != nil && *f.ProfessionalID == professionalID
+		})).Return(&domain.AttendanceReport{}, nil)
+
+		target := "/api/v1/reports/attendances?start=2026-01-01&end=2026-01-31" +
+			"&service_type_id=" + serviceTypeID.String() +
+			"&campaign_id=" + campaignID.String() +
+			"&professional_id=" + professionalID.String()
+		req := authedRequest(http.MethodGet, target)
+		rec := httptest.NewRecorder()
+		h.AttendanceSummary(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("returns 400 invalid_filter on malformed filter uuid", func(t *testing.T) {
+		h := NewReportHandler(service.NewReportService(new(mockReportRepo)))
+		req := authedRequest(http.MethodGet,
+			"/api/v1/reports/attendances?start=2026-01-01&end=2026-01-31&professional_id=not-a-uuid")
+		rec := httptest.NewRecorder()
+		h.AttendanceSummary(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		var body map[string]string
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, "invalid_filter", body["error"])
+	})
+}
+
+func dashboardRouter(h *ReportHandler) http.Handler {
+	r := chi.NewRouter()
+	r.Get("/reports/dashboard", h.Dashboard)
+	return r
+}
+
+func TestReportHandler_Dashboard(t *testing.T) {
+	t.Run("returns 200 with dashboard payload", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		repo.On("BuildDashboard", mock.Anything, mock.Anything).Return(&domain.DashboardMetrics{
+			TotalPersons:         512,
+			AttendancesThisMonth: 84,
+			UpcomingScheduled:    17,
+			ActiveCampaigns:      3,
+			AttendancesByStatus:  map[string]int{"COMPLETED": 640},
+			RecentMonths:         []domain.MonthCount{{Month: "2026-07", Count: 84}},
+		}, nil)
+
+		req := authedRequest(http.MethodGet, "/reports/dashboard")
+		rec := httptest.NewRecorder()
+		dashboardRouter(h).ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got domain.DashboardMetrics
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, 512, got.TotalPersons)
+		assert.Equal(t, 3, got.ActiveCampaigns)
+		assert.Equal(t, 640, got.AttendancesByStatus["COMPLETED"])
+		require.Len(t, got.RecentMonths, 1)
+	})
+
+	t.Run("returns 403 without campus context", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		h := NewReportHandler(service.NewReportService(repo))
+
+		req := httptest.NewRequest(http.MethodGet, "/reports/dashboard", nil)
+		req = req.WithContext(auth.NewContext(req.Context(), auth.AuthClaims{Subject: uuid.New().String()}))
+		rec := httptest.NewRecorder()
+		dashboardRouter(h).ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("returns 500 when repository fails", func(t *testing.T) {
+		repo := new(mockReportRepo)
+		repo.On("BuildDashboard", mock.Anything, mock.Anything).Return(nil, errors.New("db down"))
+		h := NewReportHandler(service.NewReportService(repo))
+
+		req := authedRequest(http.MethodGet, "/reports/dashboard")
+		rec := httptest.NewRecorder()
+		dashboardRouter(h).ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+}
+
 func campaignMetricsRouter(h *ReportHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/reports/campaigns/{id}", h.CampaignMetrics)
