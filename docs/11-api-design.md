@@ -996,7 +996,7 @@ Error responses:
 | GET | `/reports/attendances` | Yes | Coordinator+ | Attendance summary | **Phase 1 (Sprint 4)** |
 | GET | `/reports/attendances/export` | Yes | Coordinator+ | CSV export | **Phase 1 (Sprint 4)** |
 | GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics | **Phase 2 (Sprint 5)** |
-| GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs | Phase 2 |
+| GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs | **Phase 2 (Sprint 8)** |
 
 #### GET /reports/attendances?start=2026-01-01&end=2026-03-31
 
@@ -1004,6 +1004,22 @@ Both `start` and `end` are required `YYYY-MM-DD` dates. The end day is inclusive
 (server interprets as `< end + 1 day`). Range may not exceed 366 days. The query
 is automatically campus-scoped from the caller's token. `FOLLOW_UP` is reserved
 for Phase 2 and will not appear in `by_status` until then.
+
+**Optional filters (Sprint 8, S10.1/S10.4)** — all narrow the same campus-scoped
+result set and combine with `AND`:
+
+| Query param | Type | Effect |
+|-------------|------|--------|
+| `service_type_id` | UUID | Restrict to one service type |
+| `campaign_id` | UUID | Restrict to attendances linked to a campaign |
+| `professional_id` | UUID | Restrict to one acting professional |
+
+A malformed UUID in any filter returns `400 invalid_filter`. A filter id outside
+the caller's campus simply yields empty aggregations (no existence disclosure);
+the request still returns `200`.
+
+The response adds a `by_professional` breakdown (Sprint 8) grouping attendances by
+the acting professional, ordered by count desc then name asc.
 
 ```json
 // Response 200
@@ -1025,13 +1041,60 @@ for Phase 2 and will not appear in `by_status` until then.
     { "month": "2026-01", "count": 72 },
     { "month": "2026-02", "count": 85 },
     { "month": "2026-03", "count": 77 }
+  ],
+  "by_professional": [
+    { "professional_id": "uuid", "professional_name": "Maria Silva", "count": 120 },
+    { "professional_id": "uuid", "professional_name": "João Souza", "count": 114 }
   ]
 }
 ```
 
 Error codes: `invalid_range` (missing/inverted/oversize), `invalid_start` /
-`invalid_end` (malformed date), `forbidden` (no campus in token),
-`range_too_large` (>366 days).
+`invalid_end` (malformed date), `invalid_filter` (malformed filter UUID),
+`forbidden` (no campus in token), `range_too_large` (>366 days).
+
+#### GET /reports/dashboard
+
+Campus-scoped snapshot of key operational metrics for the current moment. Takes
+no query parameters — all windows are computed server-side relative to the
+request date. Coordinator+ only. Replaces the client-side KPI computation that
+the dashboard page previously assembled from list endpoints.
+
+- `attendances_this_month` counts attendances with `attendance_date` in the
+  current calendar month (campus timezone assumed UTC).
+- `attendances_by_status` is an all-time campus snapshot of the current status
+  distribution.
+- `upcoming_scheduled` counts `SCHEDULED` attendances dated today or later.
+- `active_campaigns` counts campaigns with status `ACTIVE`.
+- `recent_months` is the last 6 calendar months of attendance volume (oldest
+  first), suitable for a trend chart. Months with no attendances appear with
+  `count: 0`.
+
+```json
+// Response 200
+{
+  "total_persons": 512,
+  "attendances_this_month": 84,
+  "upcoming_scheduled": 17,
+  "active_campaigns": 3,
+  "attendances_by_status": {
+    "COMPLETED": 640,
+    "SCHEDULED": 40,
+    "IN_PROGRESS": 22,
+    "CANCELLED": 18
+  },
+  "recent_months": [
+    { "month": "2026-02", "count": 61 },
+    { "month": "2026-03", "count": 77 },
+    { "month": "2026-04", "count": 70 },
+    { "month": "2026-05", "count": 82 },
+    { "month": "2026-06", "count": 91 },
+    { "month": "2026-07", "count": 84 }
+  ]
+}
+```
+
+Error codes: `forbidden` (no campus in token), `internal_error`.
 
 #### GET /reports/attendances/export?start=2026-01-01&end=2026-03-31&format=csv
 
