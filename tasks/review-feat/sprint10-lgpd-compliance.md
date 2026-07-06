@@ -67,6 +67,4 @@ None.
 
 ---
 
-## Verdict
-
-APPROVE
+### Verdict: APPROVE
