@@ -63,12 +63,27 @@ func (m *MockConsentPersonRepository) FindByID(ctx context.Context, id, campusID
 	return args.Get(0).(*domain.Person), args.Error(1)
 }
 
+// MockPersonAnonymizer implements PersonAnonymizer for testing.
+type MockPersonAnonymizer struct {
+	mock.Mock
+}
+
+func (m *MockPersonAnonymizer) Anonymize(ctx context.Context, personID, campusID uuid.UUID) error {
+	return m.Called(ctx, personID, campusID).Error(0)
+}
+
 func newTestConsentService() (*ConsentService, *MockConsentRepository, *MockConsentPersonRepository, *MockAuditRepository) {
+	svc, repo, personRepo, _, auditRepo := newTestConsentServiceWithAnonymizer()
+	return svc, repo, personRepo, auditRepo
+}
+
+func newTestConsentServiceWithAnonymizer() (*ConsentService, *MockConsentRepository, *MockConsentPersonRepository, *MockPersonAnonymizer, *MockAuditRepository) {
 	repo := new(MockConsentRepository)
 	personRepo := new(MockConsentPersonRepository)
+	anonymizer := new(MockPersonAnonymizer)
 	auditRepo := new(MockAuditRepository)
 	auditSvc := NewAuditService(auditRepo)
-	return NewConsentService(repo, personRepo, auditSvc), repo, personRepo, auditRepo
+	return NewConsentService(repo, personRepo, anonymizer, auditSvc), repo, personRepo, anonymizer, auditRepo
 }
 
 func consentTestContext() (context.Context, auth.AuthClaims) {
@@ -292,15 +307,15 @@ func TestConsentService_ListPersonConsents(t *testing.T) {
 }
 
 func TestConsentService_RevokeConsent(t *testing.T) {
-	t.Run("success revokes and audits old and new values", func(t *testing.T) {
-		svc, repo, _, auditRepo := newTestConsentService()
+	t.Run("non data-processing consent revokes without anonymizing the person", func(t *testing.T) {
+		svc, repo, _, anonymizer, auditRepo := newTestConsentServiceWithAnonymizer()
 		ctx, claims := consentTestContext()
 
 		id := uuid.New()
 		now := time.Now()
 		reason := "Data subject request"
 		repo.On("FindByID", mock.Anything, id, claims.CampusID).
-			Return(&domain.Consent{ID: id, IsActive: true}, nil)
+			Return(&domain.Consent{ID: id, PersonID: uuid.New(), ConsentType: "IMAGE_USAGE", IsActive: true}, nil)
 		repo.On("Revoke", mock.Anything, id, claims.CampusID, reason).
 			Return(&domain.Consent{ID: id, IsActive: false, RevokedAt: &now, RevokedReason: &reason}, nil)
 		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
@@ -309,7 +324,60 @@ func TestConsentService_RevokeConsent(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, revoked.IsActive)
 		require.NotNil(t, revoked.RevokedAt)
-		auditRepo.AssertCalled(t, "Create", mock.Anything, mock.AnythingOfType("domain.AuditLog"))
+		anonymizer.AssertNotCalled(t, "Anonymize", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("data-processing revocation anonymizes the person and audits the erasure", func(t *testing.T) {
+		svc, repo, _, anonymizer, auditRepo := newTestConsentServiceWithAnonymizer()
+		ctx, claims := consentTestContext()
+
+		id := uuid.New()
+		personID := uuid.New()
+		now := time.Now()
+		reason := "Data subject request"
+		repo.On("FindByID", mock.Anything, id, claims.CampusID).
+			Return(&domain.Consent{ID: id, PersonID: personID, ConsentType: "DATA_PROCESSING", IsActive: true}, nil)
+		repo.On("Revoke", mock.Anything, id, claims.CampusID, reason).
+			Return(&domain.Consent{ID: id, IsActive: false, RevokedAt: &now, RevokedReason: &reason}, nil)
+		anonymizer.On("Anonymize", mock.Anything, personID, claims.CampusID).Return(nil)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		revoked, err := svc.RevokeConsent(ctx, id, RevokeConsentInput{RevokedReason: reason})
+		require.NoError(t, err)
+		assert.False(t, revoked.IsActive)
+		anonymizer.AssertCalled(t, "Anonymize", mock.Anything, personID, claims.CampusID)
+
+		// Two audit entries: consent revocation + person anonymization. The
+		// anonymization entry must not carry any scrubbed PII.
+		var anonymizationAudited bool
+		for _, c := range auditRepo.Calls {
+			entry := c.Arguments.Get(1).(domain.AuditLog)
+			if entry.EntityType == "person" {
+				anonymizationAudited = true
+				require.NotNil(t, entry.EntityID)
+				assert.Equal(t, personID, *entry.EntityID)
+			}
+		}
+		assert.True(t, anonymizationAudited, "expected a person anonymization audit entry")
+	})
+
+	t.Run("anonymization failure surfaces as an error", func(t *testing.T) {
+		svc, repo, _, anonymizer, auditRepo := newTestConsentServiceWithAnonymizer()
+		ctx, claims := consentTestContext()
+
+		id := uuid.New()
+		personID := uuid.New()
+		now := time.Now()
+		reason := "Data subject request"
+		repo.On("FindByID", mock.Anything, id, claims.CampusID).
+			Return(&domain.Consent{ID: id, PersonID: personID, ConsentType: "DATA_PROCESSING", IsActive: true}, nil)
+		repo.On("Revoke", mock.Anything, id, claims.CampusID, reason).
+			Return(&domain.Consent{ID: id, IsActive: false, RevokedAt: &now, RevokedReason: &reason}, nil)
+		anonymizer.On("Anonymize", mock.Anything, personID, claims.CampusID).Return(domain.ErrNotFound)
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
+
+		_, err := svc.RevokeConsent(ctx, id, RevokeConsentInput{RevokedReason: reason})
+		require.Error(t, err)
 	})
 
 	t.Run("not found propagates for cross-campus consent", func(t *testing.T) {
