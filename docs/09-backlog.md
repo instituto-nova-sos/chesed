@@ -948,7 +948,7 @@
     charset are validated (no country-specific checksum required).
 
 **S11.3 - Consent revocation with data anonymization**
-- status: ready
+- status: done
 - depends_on: [S08.3]
 - covers_requirements: [RF-58]
 - parallel_with: [S11.4, S11.5, S11.6, S11.7]
@@ -978,7 +978,7 @@
   uploaded documents are out of scope this sprint — tracked for a future erasure pass).
 
 **S11.4 - LGPD compliance report generation**
-- status: ready
+- status: done
 - depends_on: [S10.1, S11.3]
 - covers_requirements: [RNF-01, RF-53]
 - parallel_with: [S11.3, S11.5, S11.6, S11.7]
@@ -1001,7 +1001,7 @@
     the API returns `403` and logs the attempt (`ACCESS_DENIED`).
 
 **S11.5 - Donation receipt PDF generation**
-- status: ready
+- status: done
 - depends_on: [S09.1]
 - covers_requirements: [RF-55]
 - parallel_with: [S11.3, S11.4, S11.6, S11.7]
@@ -1025,7 +1025,7 @@
     donation date, and the receipt number.
 
 **S11.6 - Audit log viewer for compliance teams**
-- status: ready
+- status: done
 - depends_on: [S01.5]
 - covers_requirements: [RF-53]
 - parallel_with: [S11.3, S11.4, S11.5, S11.7]
@@ -1049,7 +1049,7 @@
   campus scoping is applied at the SQL layer because `audit_log` is intentionally excluded from RLS.
 
 **S11.7 - Data retention policy enforcement**
-- status: ready
+- status: done
 - depends_on: [S11.3]
 - covers_requirements: [RNF-01]
 - parallel_with: [S11.3, S11.4, S11.5, S11.6]
