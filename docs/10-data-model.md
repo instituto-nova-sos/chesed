@@ -580,7 +580,12 @@ additive, not a replacement.
 - **Policy shape**:
   - Direct-column tables (`person`, `triage`, `attendance`, `campaign`, `consent`, `document`, `donation`) match `campus_id = current_setting('app.current_campus', true)::uuid`.
   - Join-inherited tables (`address`, `assisted_profile`, `campaign_team`, `attendance_transition`, `triage_requested_service`) have no `campus_id` column and isolate via an `EXISTS` check against their parent's `campus_id`.
-- **Excluded**: `audit_log` is **not** under RLS by design — its `campus_id` is nullable and it records pre-campus events (login/provisioning denials). It remains append-only and application-filtered.
+- **Excluded (by design)**:
+  - `audit_log` — nullable `campus_id`; records pre-campus events (login/provisioning denials). Append-only and application-filtered.
+  - `volunteer_agreement` — carries `campus_id` but is reached only through a person the caller has already resolved (person is RLS-protected), and is written on the pre-campus self-registration path; left out of RLS to keep that path working. Access is transitively campus-bounded via person.
+  - `person_role`, `app_user`, `service_type`, `campus` — identity/reference tables that are queried before a campus is established (provisioning, onboarding) or are the tenant boundary itself; their repositories run on the owner pool.
+  - The completeness guarantee ("a repository that forgets its `WHERE campus_id` clause cannot leak") therefore holds for the **Covered tables** above; the excluded tables are enumerated here rather than silently uncovered.
+- **Pre-campus routes**: `/self-register` and `/auth/me` run before a campus GUC exists (self-registration takes the campus from the request body; onboarding does a deliberate cross-campus email lookup). They are wrapped in a `BypassRLS` middleware that installs the owner connection, so these flows are not fail-closed by RLS. The owner path still writes `campus_id` explicitly, so data integrity is preserved.
 
 ```sql
 -- Direct-column policy (migration 000028)

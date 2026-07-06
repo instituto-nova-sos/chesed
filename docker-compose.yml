@@ -84,6 +84,9 @@ services:
       # The app connects as the non-owner RLS role (Sprint 9.1). Migrations run
       # as owner `chesed` via `make migrate-up` and bypass RLS.
       DATABASE_URL: postgres://chesed_app:chesed_app@db:5432/chesed?sslmode=disable
+      # Owner connection for pre-campus routes (self-register, onboarding lookup)
+      # that must bypass RLS. Used only by the BypassRLS middleware.
+      ADMIN_DATABASE_URL: postgres://chesed:chesed@db:5432/chesed?sslmode=disable
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_REALM: chesed
       KEYCLOAK_CLIENT_ID: chesed-pwa

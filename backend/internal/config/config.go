@@ -11,6 +11,7 @@ import (
 type Config struct {
 	ServerPort          string `validate:"required"`
 	DatabaseURL         string `validate:"required"`
+	AdminDatabaseURL    string `validate:"required"`
 	KeycloakURL         string `validate:"required,url"`
 	KeycloakRealm       string `validate:"required"`
 	KeycloakClientID    string `validate:"required"`
@@ -26,8 +27,13 @@ type Config struct {
 // Load reads configuration from environment variables and validates required fields.
 func Load() (Config, error) {
 	cfg := Config{
-		ServerPort:          getEnvOrDefault("SERVER_PORT", "8080"),
-		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		ServerPort:  getEnvOrDefault("SERVER_PORT", "8080"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		// The owner (RLS-bypassing) connection used only by pre-campus routes
+		// (self-register, onboarding cross-campus lookup). Defaults to
+		// DATABASE_URL so single-role dev/test setups keep working; in RLS-
+		// enabled deployments it is set to the owner role's URL.
+		AdminDatabaseURL:    getEnvOrDefault("ADMIN_DATABASE_URL", os.Getenv("DATABASE_URL")),
 		KeycloakURL:         os.Getenv("KEYCLOAK_URL"),
 		KeycloakRealm:       os.Getenv("KEYCLOAK_REALM"),
 		KeycloakClientID:    os.Getenv("KEYCLOAK_CLIENT_ID"),

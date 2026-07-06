@@ -105,6 +105,8 @@ services:
       # App connects as the non-owner RLS role (Sprint 9.1). The `migrate`
       # service keeps DATABASE_URL (owner) so migrations bypass RLS.
       DATABASE_URL: ${APP_DATABASE_URL}
+      # Owner connection for pre-campus routes (BypassRLS middleware).
+      ADMIN_DATABASE_URL: ${DATABASE_URL}
       KEYCLOAK_URL: ${KEYCLOAK_URL}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}

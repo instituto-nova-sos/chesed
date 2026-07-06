@@ -136,7 +136,7 @@ Mobile device
 
 **Mitigations** (two independent layers):
 - **Layer 1 — application**: all queries include `campus_id` filter from JWT (not from user input); the repository layer enforces the campus filter at the SQL level
-- **Layer 2 — PostgreSQL Row-Level Security** (migration `000028`): RLS policies enforce campus isolation inside the database. The app connects as the non-owner role `chesed_app`, so a repository that forgets its `WHERE campus_id` clause can no longer leak cross-campus data — an unset campus GUC fails closed (zero rows). `audit_log` is RLS-excluded by design (nullable `campus_id`, pre-campus events).
+- **Layer 2 — PostgreSQL Row-Level Security** (migration `000028`): RLS policies enforce campus isolation inside the database for the **operational tables** (person, address, triage, triage_requested_service, attendance, attendance_transition, assisted_profile, campaign, campaign_team, consent, document, donation). The app connects as the non-owner role `chesed_app`, so on those tables a repository that forgets its `WHERE campus_id` clause can no longer leak cross-campus data — an unset campus GUC fails closed (zero rows). Tables **excluded by design** (enumerated in `docs/10-data-model.md`): `audit_log` (nullable `campus_id`, pre-campus events), `volunteer_agreement` (reached only via an already-resolved RLS-protected person; written on the pre-campus self-register path), and the identity/reference tables `person_role`/`app_user`/`service_type`/`campus`. Pre-campus routes (`/self-register`, `/auth/me`) run on the owner connection via `BypassRLS` and remain functional.
 - Integration tests with multi-campus test data
 - Audit logging of cross-campus access attempts
 

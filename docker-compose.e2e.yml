@@ -107,6 +107,8 @@ services:
       SERVER_PORT: "8080"
       # App connects as the non-owner RLS role; e2e-migrate keeps owner `chesed`.
       DATABASE_URL: postgres://chesed_app:chesed_app@e2e-db:5432/chesed?sslmode=disable
+      # Owner connection for pre-campus routes (BypassRLS middleware).
+      ADMIN_DATABASE_URL: postgres://chesed:chesed@e2e-db:5432/chesed?sslmode=disable
       # Point the OIDC verifier at the mock issuer instead of Keycloak.
       KEYCLOAK_URL: "http://mock-oidc:8080"
       KEYCLOAK_REALM: "chesed"

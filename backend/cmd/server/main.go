@@ -44,6 +44,18 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// Owner (RLS-bypassing) pool for pre-campus routes that must operate outside
+	// any single campus (self-register, onboarding cross-campus email lookup).
+	adminPool, err := database.NewPool(ctx, cfg.AdminDatabaseURL)
+	if err != nil {
+		return fmt.Errorf("main.run: admin pool: %w", err)
+	}
+	defer adminPool.Close()
+
+	// Warn if the app pool connects as a role that bypasses RLS (owner or
+	// superuser) — that silently disables campus isolation at the DB layer.
+	warnIfRLSBypassed(ctx, pool)
+
 	issuerURL := cfg.KeycloakURL + "/realms/" + cfg.KeycloakRealm
 	authMW, err := middleware.OIDCAuth(issuerURL, cfg.KeycloakClientID, cfg.OIDCSkipIssuerCheck)
 	if err != nil {
@@ -61,7 +73,7 @@ func run() error {
 		return fmt.Errorf("main.run: storage: %w", err)
 	}
 
-	router := setupRouter(pool, authMW, store)
+	router := setupRouter(pool, adminPool, authMW, store)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
@@ -147,7 +159,28 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 	}
 }
 
-func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler, store service.ObjectStorage) *chi.Mux {
+// warnIfRLSBypassed logs a warning when the app's connection role bypasses RLS
+// (superuser, BYPASSRLS, or table owner). Campus isolation at the DB layer
+// silently disappears in that case, so a misconfiguration that reconnects the
+// app as the owner role is detectable from the logs at startup.
+func warnIfRLSBypassed(ctx context.Context, pool *pgxpool.Pool) {
+	const q = `
+		SELECT rolsuper OR rolbypassrls
+		       OR pg_catalog.pg_has_role(current_user, (SELECT relowner FROM pg_class WHERE relname = 'person'), 'USAGE')
+		FROM pg_roles WHERE rolname = current_user`
+	var bypasses bool
+	if err := pool.QueryRow(ctx, q).Scan(&bypasses); err != nil {
+		slog.WarnContext(ctx, "main: could not verify RLS enforcement for the app role", "error", err.Error())
+		return
+	}
+	if bypasses {
+		slog.WarnContext(ctx, "main: app database role BYPASSES row-level security — campus isolation is NOT enforced at the DB layer; connect as a non-owner role (e.g. chesed_app)")
+	} else {
+		slog.InfoContext(ctx, "main: app database role is subject to row-level security (campus isolation enforced)")
+	}
+}
+
+func setupRouter(pool, adminPool *pgxpool.Pool, authMW func(http.Handler) http.Handler, store service.ObjectStorage) *chi.Mux {
 	d := buildDeps(pool, store)
 
 	r := chi.NewRouter()
@@ -157,7 +190,7 @@ func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler, sto
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", d.health.ServeHTTP)
-		d.registerAuthOnlyRoutes(r, authMW)
+		d.registerAuthOnlyRoutes(r, authMW, adminPool)
 		d.registerAgreementRoutes(r, authMW)
 		d.registerProtectedRoutes(r, authMW, pool)
 	})
@@ -166,9 +199,13 @@ func setupRouter(pool *pgxpool.Pool, authMW func(http.Handler) http.Handler, sto
 }
 
 // registerAuthOnlyRoutes mounts routes needing auth but no provision/RBAC.
-func (d appDeps) registerAuthOnlyRoutes(r chi.Router, authMW func(http.Handler) http.Handler) {
+// These run BEFORE a campus is established (onboarding cross-campus lookup,
+// self-registration), so they use BypassRLS to run on the owner connection —
+// they cannot be subject to per-request RLS (there is no campus GUC yet).
+func (d appDeps) registerAuthOnlyRoutes(r chi.Router, authMW func(http.Handler) http.Handler, adminPool *pgxpool.Pool) {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
+		r.Use(middleware.BypassRLS(adminPool))
 		r.Get("/auth/me", d.onboarding.GetStatus)
 		r.Post("/self-register", d.selfRegister.Register)
 		r.Get("/campuses", d.campus.ListActive)
