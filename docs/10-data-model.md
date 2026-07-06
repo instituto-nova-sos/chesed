@@ -56,6 +56,13 @@ CREATE TABLE campus (
     state       VARCHAR(100),
     country     VARCHAR(3) NOT NULL DEFAULT 'BRA',
     timezone    VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo',
+    -- Fiscal identity for donation receipts (Sprint 10, S11.5); nullable
+    legal_name    VARCHAR(200),
+    cnpj          VARCHAR(18),
+    address_line  VARCHAR(300),
+    city_name     VARCHAR(100),
+    state_code    VARCHAR(2),
+    zip_code      VARCHAR(9),
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -64,6 +71,7 @@ CREATE TABLE campus (
 
 **Migrations:**
 - `000030_campus_timezone` — Adds `timezone VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo'`. Stores the campus IANA timezone for multi-region time rendering.
+- `000032_campus_issuer_data` — Adds nullable `legal_name`, `cnpj`, `address_line`, `city_name`, `state_code`, `zip_code` for the donation-receipt issuer header (Sprint 10). Nullable so existing campuses stay valid; the receipt renders "—" when absent.
 
 ### person
 
@@ -83,6 +91,7 @@ CREATE TABLE person (
     photo_url         VARCHAR(500),
     referral_source   VARCHAR(200),
     campus_id         UUID NOT NULL REFERENCES campus(id),
+    anonymized_at     TIMESTAMPTZ,   -- set when PII is scrubbed (LGPD erasure, Sprint 10 S11.3)
     is_active         BOOLEAN NOT NULL DEFAULT TRUE,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -103,6 +112,7 @@ CREATE INDEX idx_person_search ON person USING GIN(search_vector);
 
 **Migrations:**
 - `000027_person_document_type_add_rg` — Adds `RG` to the `document_type` CHECK constraint. Fixes a drift where validators accepted `RG` but the DB CHECK rejected it.
+- `000031_person_anonymized_at` — Adds nullable `anonymized_at TIMESTAMPTZ` (Sprint 10, S11.3). Set when a person's PII is scrubbed on `DATA_PROCESSING` consent revocation or by the retention sweep. Rows are kept for referential integrity; PII columns are overwritten (`full_name='[ANONYMIZED]'`, `document_number='ANON-'||id` to satisfy `uq_person_document`, contact fields nulled). The `search_vector` trigger refreshes automatically on the update.
 
 ### address
 

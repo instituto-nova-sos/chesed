@@ -908,9 +908,10 @@
 
 **Phase**: 3 | **Priority**: P2 | **Prerequisite**: Phase 2 complete
 
-> Sprint 9 (Multi-Region and Data Segregation) delivers S11.1, S11.2, and the multi-currency /
-> timezone hardening (roadmap tasks 9.3/9.4). S11.3–S11.5 remain scheduled for Sprint 10
-> (LGPD and Compliance).
+> Sprint 9 (Multi-Region and Data Segregation) delivered S11.1, S11.2, and the multi-currency /
+> timezone hardening (roadmap tasks 9.3/9.4). Sprint 10 (LGPD and Compliance) delivers S11.3–S11.7:
+> consent revocation with anonymization (10.1), compliance reporting (10.3), receipt PDF (10.5),
+> the audit log viewer (10.4), and retention enforcement (10.2).
 
 **S11.1 - Multi-campus data isolation with PostgreSQL RLS**
 - As a compliance owner, I need campus isolation enforced at the database layer (defense-in-depth)
@@ -946,9 +947,129 @@
   - **Given** `document_type` in `RG, EU_ID, PASSPORT, OTHER` **when** submitted **then** length and
     charset are validated (no country-specific checksum required).
 
-**S11.3** - Consent revocation with data anonymization *(Sprint 10)*
-**S11.4** - LGPD compliance reporting *(Sprint 10)*
-**S11.5** - Donation receipt PDF generation *(Sprint 10)*
+**S11.3 - Consent revocation with data anonymization**
+- status: ready
+- depends_on: [S08.3]
+- covers_requirements: [RF-58]
+- parallel_with: [S11.4, S11.5, S11.6, S11.7]
+- size: M
+- offline: Admin-only mutation; consents are critical PII and are never fetched or revoked while offline (the section shows the offline message instead).
+- As a compliance owner, when a data subject withdraws consent for data processing, I need the
+  person's personal data anonymized (right to erasure, LGPD Art. 18), not merely a revoked flag.
+- Acceptance criteria:
+  - **Given** an active `DATA_PROCESSING` consent **when** an ADMIN `PATCH /consents/{id}/revoke`
+    with a reason **then**, in the same request transaction, the consent is revoked AND the linked
+    `person` PII (full_name, document_number, email, phone, photo_url, referral_source, birth_date,
+    gender) and its `address` rows are scrubbed, `person.anonymized_at` is set, and the change is
+    audited without recording the scrubbed PII.
+  - **Given** an active consent of any other type (`IMAGE_USAGE`, `HEALTH_DATA`, `MINOR_GUARDIAN`)
+    **when** it is revoked **then** the consent is flagged revoked but the person is NOT anonymized.
+  - **Given** a consent whose person is in another campus **when** revocation is attempted **then**
+    the API returns `404` and nothing is scrubbed (campus isolation, threat T3).
+  - **Given** the anonymization step fails mid-request **when** the handler returns an error status
+    **then** the whole request transaction rolls back (the consent is not left revoked) — atomicity
+    is provided by the per-request campus transaction.
+  - **Given** two persons of the same `document_type` are anonymized **when** the second runs **then**
+    no `uq_person_document` unique violation occurs (a per-person sentinel is used, not NULL).
+  - **Given** a person was anonymized **when** searched by their former name **then** no row is
+    returned (the `search_vector` is refreshed by the existing trigger).
+- Notes: only `DATA_PROCESSING` (the master processing consent) triggers person anonymization;
+  rows are kept for referential integrity (`assisted_profile`, triage/attendance free text, and
+  uploaded documents are out of scope this sprint — tracked for a future erasure pass).
+
+**S11.4 - LGPD compliance report generation**
+- status: ready
+- depends_on: [S10.1, S11.3]
+- covers_requirements: [RNF-01, RF-53]
+- parallel_with: [S11.3, S11.5, S11.6, S11.7]
+- size: M
+- offline: Read surface; when offline the compliance page shows a clear offline message instead of
+  stale metrics.
+- As a compliance owner, I can generate a campus-scoped LGPD compliance report (consent posture,
+  anonymization activity, data-subject counts) and export it as CSV for auditors.
+- Acceptance criteria:
+  - **Given** an authenticated coordinator (or higher) **when** they `GET /api/v1/reports/compliance`
+    for a period **then** the response includes consent counts by type, active vs revoked consent
+    totals, anonymized-subject count, total data subjects, and documents stored — all campus-scoped.
+  - **Given** a coordinator in campus A **when** the report loads **then** no campus-B data is
+    included in any metric.
+  - **Given** `GET /api/v1/reports/compliance/export?format=csv` for a period **then** a
+    `text/csv` attachment of metric/value rows is returned and an `EXPORT` audit entry is written.
+  - **Given** a malformed date range **when** the request is made **then** the API returns `400`
+    `invalid_range` and no report.
+  - **Given** a user below the coordinator access profile **when** they request the report **then**
+    the API returns `403` and logs the attempt (`ACCESS_DENIED`).
+
+**S11.5 - Donation receipt PDF generation**
+- status: ready
+- depends_on: [S09.1]
+- covers_requirements: [RF-55]
+- parallel_with: [S11.3, S11.4, S11.6, S11.7]
+- size: M
+- offline: Coordinator+ read/issue action; the "Baixar recibo" control is inert offline and the
+  detail page shows the offline message rather than issuing a request.
+- As a coordinator, I can issue and download a PDF receipt (proof of donation value) for a donation.
+- Acceptance criteria:
+  - **Given** a donation in the caller's campus without a receipt **when** a coordinator (or higher)
+    `GET /api/v1/donations/{id}/receipt` **then** a PDF is rendered and stored in object storage, the
+    donation is stamped with a unique `receipt_number` and `receipt_issued_at`, the issuance is
+    audited, and a presigned download URL (`{url, expires_at}`) is returned.
+  - **Given** a donation that already has a receipt **when** the endpoint is called again **then** the
+    same `receipt_number` is returned via a fresh presigned URL and no new receipt is issued (idempotent).
+  - **Given** a donation in another campus **when** the receipt is requested **then** the API returns
+    `404` (no cross-campus disclosure).
+  - **Given** a user below the coordinator access profile **when** they request a receipt **then** the
+    API returns `403` and logs the attempt (`ACCESS_DENIED`).
+  - **Given** the receipt PDF **when** rendered **then** it shows the issuing campus/organization
+    details (legal name, CNPJ, address when present), donor name and document, amount, currency,
+    donation date, and the receipt number.
+
+**S11.6 - Audit log viewer for compliance teams**
+- status: ready
+- depends_on: [S01.5]
+- covers_requirements: [RF-53]
+- parallel_with: [S11.3, S11.4, S11.5, S11.7]
+- size: M
+- offline: Read surface, ADMIN only; the audit log is never cached offline (sensitive) — the page
+  shows an offline message.
+- As a compliance owner (ADMIN), I can query the audit trail for my campus with filters, so I can
+  investigate access to and changes of sensitive data.
+- Acceptance criteria:
+  - **Given** an authenticated ADMIN **when** they `GET /api/v1/audit/logs` **then** a paginated,
+    newest-first list of audit entries for their campus is returned, each with the acting user's email,
+    action type, entity type/id, description, old/new values, IP, and timestamp.
+  - **Given** filters `user_id`, `entity_type`, `action_type`, and a `start`/`end` date range **when**
+    supplied **then** every filter narrows the result set (combined with `AND`).
+  - **Given** an ADMIN in campus A **when** they query **then** only campus-A rows are returned
+    (system rows with no campus are excluded); campus-B rows never appear.
+  - **Given** a malformed `user_id`/date filter **when** supplied **then** the API returns `400`.
+  - **Given** a user below ADMIN **when** they request the audit logs **then** the API returns `403`
+    and the attempt is recorded as `ACCESS_DENIED`.
+- Notes: read-only surface — the `audit_log` table remains append-only (no UPDATE/DELETE);
+  campus scoping is applied at the SQL layer because `audit_log` is intentionally excluded from RLS.
+
+**S11.7 - Data retention policy enforcement**
+- status: ready
+- depends_on: [S11.3]
+- covers_requirements: [RNF-01]
+- parallel_with: [S11.3, S11.4, S11.5, S11.6]
+- size: S
+- offline: ADMIN-triggered server operation; not an offline surface.
+- As a compliance owner (ADMIN), I can run a retention sweep that anonymizes operational personal
+  data past the retention window, so the platform enforces the LGPD retention policy (5 years
+  operational per docs/13).
+- Acceptance criteria:
+  - **Given** an ADMIN **when** they `POST /api/v1/admin/retention/run` **then** person records in
+    their campus whose last activity is older than the retention window are anonymized, each action
+    is audited, and a summary `{scanned, anonymized}` is returned.
+  - **Given** person records inside the retention window **when** the sweep runs **then** they are not
+    anonymized.
+  - **Given** a user below ADMIN **when** they invoke the endpoint **then** the API returns `403`
+    (`ACCESS_DENIED`).
+  - **Given** the sweep runs twice **when** the second run executes **then** already-anonymized
+    records are skipped (idempotent; no duplicate anonymization or unique-constraint violation).
+- Notes: synchronous admin-triggered sweep (no scheduler infra in the MVP); reuses the
+  `PersonRepository.Anonymize` operation from S11.3. An external cron may call the endpoint later.
 
 ### Sprint 9 hardening tasks (roadmap 9.3 / 9.4)
 

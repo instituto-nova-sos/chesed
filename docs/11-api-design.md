@@ -724,6 +724,26 @@ the resolved donor and campaign names for display.
 Returns the full donation (all fields above) plus resolved `donor_name` and
 `campaign_name`. Returns `404` if the donation is not in the caller's campus.
 
+#### GET /donations/:id/receipt · **Phase 3 (Sprint 10 — S11.5)**
+
+Issues (once) and downloads the donation receipt PDF (RF-55). Coordinator+.
+On the first call the API renders the PDF, stores it in object storage under
+`receipts/{campus_id}/{donation_id}.pdf`, stamps a unique `receipt_number`
+(format `REC-{YYYY}-{8-hex}`) and `receipt_issued_at` on the donation, and audits
+the issuance (`action_type: UPDATE`, `description: "receipt issued"`). Subsequent
+calls are idempotent — they return a fresh presigned URL for the existing receipt
+without re-issuing. The response mirrors the document-download shape:
+
+```json
+// Response 200
+{ "url": "https://storage.example.com/receipts/...&X-Amz-Signature=...", "expires_at": "2026-07-06T12:45:00Z" }
+```
+
+The receipt body shows the issuing campus/organization (legal name, CNPJ, address
+when present), donor name and document, amount + currency, donation date, and the
+receipt number. Errors: `404 not_found` (donation outside the caller's campus),
+`403 forbidden` (below Coordinator, audited as `ACCESS_DENIED`).
+
 ---
 
 ## Consent Endpoints (Phase 2 — Sprint 6)
@@ -801,8 +821,13 @@ Request body fields:
 - `revoked_reason` (string, required) — recorded in the registry and audit log.
 
 Sets `is_active = false`, `revoked_at = now()`, keeps the row (audit trail per
-docs/13; anonymization automation is Sprint 10). Responds `200` with the updated
-consent. Errors:
+docs/13). **Sprint 10 (S11.3):** when the revoked consent's type is
+`DATA_PROCESSING`, the same request transaction additionally anonymizes the
+linked `person` PII and `address` rows (right to erasure, RF-58), sets
+`person.anonymized_at`, and audits the anonymization (without recording the
+scrubbed PII). Other consent types revoke only. Atomicity is guaranteed by the
+per-request campus transaction (any error rolls the revoke back). Responds `200`
+with the updated consent. Errors:
 | HTTP | Error | When |
 |------|-------|------|
 | 400 | `validation_error` | Missing reason, or the consent is already revoked |
@@ -1007,6 +1032,8 @@ Error responses:
 | GET | `/reports/attendances/export` | Yes | Coordinator+ | CSV export | **Phase 1 (Sprint 4)** |
 | GET | `/reports/campaigns/:id` | Yes | Coordinator+ | Campaign metrics | **Phase 2 (Sprint 5)** |
 | GET | `/reports/dashboard` | Yes | Coordinator+ | Dashboard KPIs | **Phase 2 (Sprint 8)** |
+| GET | `/reports/compliance` | Yes | Coordinator+ | LGPD compliance metrics | **Phase 3 (Sprint 10 — S11.4)** |
+| GET | `/reports/compliance/export` | Yes | Coordinator+ | Compliance CSV export | **Phase 3 (Sprint 10 — S11.4)** |
 
 #### GET /reports/attendances?start=2026-01-01&end=2026-03-31
 
@@ -1145,6 +1172,34 @@ responds 404 (`not_found`).
 }
 ```
 
+#### GET /reports/compliance?start=2026-01-01&end=2026-03-31
+
+Campus-scoped LGPD compliance metrics for the period. `start`/`end` are required
+`YYYY-MM-DD` dates (same range validation as `/reports/attendances`). Coordinator+.
+
+```json
+// Response 200
+{
+  "period": { "start": "2026-01-01", "end": "2026-03-31" },
+  "consents_by_type": { "DATA_PROCESSING": 120, "IMAGE_USAGE": 80, "HEALTH_DATA": 15, "MINOR_GUARDIAN": 9 },
+  "active_consents": 190,
+  "revoked_consents": 34,
+  "anonymized_subjects": 12,
+  "data_subjects": 640,
+  "documents_stored": 210
+}
+```
+
+Errors: `400 invalid_range` (missing/malformed/reversed dates), `403 forbidden`
+(below Coordinator, audited as `ACCESS_DENIED`).
+
+#### GET /reports/compliance/export?format=csv&start=2026-01-01&end=2026-03-31
+
+Returns `Content-Type: text/csv` with `Content-Disposition: attachment` — one
+`metric,value` row per compliance metric. Writing the export records an `EXPORT`
+audit entry (`entity_type: compliance_report`). `format` must be `csv`
+(otherwise `400 invalid_format`).
+
 ---
 
 ## User Management Endpoints
@@ -1166,11 +1221,25 @@ responds 404 (`not_found`).
 
 ## Audit Endpoints
 
-| Method | Path | Auth | Roles | Description |
-|--------|------|------|-------|-------------|
-| GET | `/audit/logs` | Yes | Admin | Query audit logs |
+| Method | Path | Auth | Roles | Description | Status |
+|--------|------|------|-------|-------------|--------|
+| GET | `/audit/logs` | Yes | Admin | Query audit logs | **Phase 3 (Sprint 10 — S11.6)** |
 
-#### GET /audit/logs?user_id=uuid&entity_type=person&start=2026-01-01&end=2026-03-31&page=1
+Read-only viewer for compliance teams (RF-53). The `audit_log` table stays
+append-only — this endpoint only issues `SELECT`. Optional filters (all combine
+with `AND`): `user_id` (uuid), `entity_type`, `action_type`, `start`/`end`
+(`YYYY-MM-DD`, inclusive end). Paginated with `page`/`per_page` (default 1/50,
+max per_page 100), ordered newest-first. `user_email` is resolved by joining
+`app_user` on the Keycloak subject.
+
+**Campus scoping**: results are restricted to the caller's campus at the SQL
+layer (system rows with no campus are excluded). `audit_log` is intentionally
+excluded from PostgreSQL RLS, so scoping is enforced by the query, not the policy.
+
+Errors: `400` (malformed `user_id`/date), `403 forbidden` (below Admin, recorded
+as `ACCESS_DENIED`).
+
+#### GET /audit/logs?user_id=uuid&entity_type=person&action_type=UPDATE&start=2026-01-01&end=2026-03-31&page=1&per_page=50
 ```json
 {
   "data": [
@@ -1189,6 +1258,28 @@ responds 404 (`not_found`).
   ],
   "pagination": { "page": 1, "per_page": 50, "total": 1234 }
 }
+```
+
+---
+
+## Admin Endpoints
+
+| Method | Path | Auth | Roles | Description | Status |
+|--------|------|------|-------|-------------|--------|
+| POST | `/admin/retention/run` | Yes | Admin | Run the data-retention sweep | **Phase 3 (Sprint 10 — S11.7)** |
+
+#### POST /admin/retention/run
+
+Synchronously enforces the LGPD data-retention policy (RNF-01) for the caller's
+campus: person records whose last activity predates the retention window (5 years
+operational, per docs/13) are anonymized (reusing the S11.3 anonymization), each
+action audited. Idempotent — already-anonymized records are skipped. No request
+body. Admin only (`403 ACCESS_DENIED` otherwise). No scheduler infra in the MVP;
+an external cron may invoke this endpoint.
+
+```json
+// Response 200
+{ "scanned": 512, "anonymized": 7 }
 ```
 
 ---

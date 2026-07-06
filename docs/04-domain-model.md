@@ -391,6 +391,18 @@ Consent
 └── synced_at (nullable)
 ```
 
+**Revocation and erasure (Sprint 10, S11.3):** revoking a consent sets
+`is_active = false` and records the reason, keeping the row as the immutable
+registry trail. When the revoked consent is of type `DATA_PROCESSING` (the master
+processing consent), revocation additionally triggers **anonymization** of the
+linked person: the person's PII columns and address rows are scrubbed and
+`person.anonymized_at` is stamped, satisfying the LGPD right to erasure (RF-58).
+Anonymization overwrites PII in place (rather than deleting the row) so aggregate
+reporting and referential integrity are preserved. The retention sweep
+(`POST /admin/retention/run`) reuses the same anonymization for records past the
+retention window. Only `DATA_PROCESSING` triggers person anonymization; other
+consent types revoke without erasure.
+
 ### 14. Donation (Doacao)
 
 Records financial or in-kind contributions.
@@ -413,6 +425,14 @@ Donation
 ├── created_at
 └── updated_at
 ```
+
+**Receipt issuance (Sprint 10, S11.5):** `receipt_number` and `receipt_issued_at`
+are populated the first time a coordinator downloads the receipt for a donation
+(`GET /donations/:id/receipt`). Issuance renders a PDF, stores it in object
+storage, assigns a unique `receipt_number` (`REC-{YYYY}-{8-hex}`), and audits the
+event. Once issued the fields are immutable and re-downloads are idempotent. The
+receipt header uses the campus fiscal identity (`legal_name`, `cnpj`, address
+columns added in migration `000032`).
 
 ---
 
