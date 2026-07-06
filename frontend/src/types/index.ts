@@ -41,8 +41,10 @@ export type {
   ReportPeriod,
   ServiceTypeCount,
   MonthCount,
+  ProfessionalCount,
   AttendanceReport,
   AttendanceReportParams,
+  DashboardMetrics,
 } from './report';
 
 export type {

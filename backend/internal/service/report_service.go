@@ -23,6 +23,15 @@ type ReportRepository interface {
 		emit func(domain.AttendanceCSVRow) error,
 	) error
 	BuildCampaignMetrics(ctx context.Context, campaignID, campusID uuid.UUID) (*domain.CampaignMetrics, error)
+	BuildDashboard(ctx context.Context, campusID uuid.UUID) (*domain.DashboardMetrics, error)
+}
+
+// AttendanceReportOptions carries the optional filters for the attendance
+// summary endpoint. A nil field means the filter is not applied.
+type AttendanceReportOptions struct {
+	ServiceTypeID  *uuid.UUID
+	CampaignID     *uuid.UUID
+	ProfessionalID *uuid.UUID
 }
 
 // ReportService produces attendance summary reports and CSV exports.
@@ -37,17 +46,41 @@ func NewReportService(repo ReportRepository) *ReportService {
 
 // GetAttendanceReport returns the aggregated attendance report for the period
 // constrained to the caller's campus. start and end are inclusive day boundaries.
-func (s *ReportService) GetAttendanceReport(ctx context.Context, start, end time.Time) (*domain.AttendanceReport, error) {
+// opts narrows the campus-scoped result set by service type, campaign, and/or
+// acting professional.
+func (s *ReportService) GetAttendanceReport(
+	ctx context.Context,
+	start, end time.Time,
+	opts AttendanceReportOptions,
+) (*domain.AttendanceReport, error) {
 	filter, err := buildReportFilter(ctx, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("reportService.GetAttendanceReport: %w", err)
 	}
+	filter.ServiceTypeID = opts.ServiceTypeID
+	filter.CampaignID = opts.CampaignID
+	filter.ProfessionalID = opts.ProfessionalID
 
 	report, err := s.repo.BuildAttendanceReport(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("reportService.GetAttendanceReport: %w", err)
 	}
 	return report, nil
+}
+
+// GetDashboard returns the campus-scoped operational snapshot for the caller.
+// A missing campus in the token surfaces as ErrForbidden.
+func (s *ReportService) GetDashboard(ctx context.Context) (*domain.DashboardMetrics, error) {
+	campusID := auth.CampusIDFromContext(ctx)
+	if campusID == uuid.Nil {
+		return nil, fmt.Errorf("reportService.GetDashboard: %w", domain.ErrForbidden)
+	}
+
+	metrics, err := s.repo.BuildDashboard(ctx, campusID)
+	if err != nil {
+		return nil, fmt.Errorf("reportService.GetDashboard: %w", err)
+	}
+	return metrics, nil
 }
 
 // StreamAttendanceCSV invokes emit once per attendance row in the period,

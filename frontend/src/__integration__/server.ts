@@ -72,6 +72,53 @@ export const handlers = [
       pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
     });
   }),
+  http.get(`${API_BASE}/reports/dashboard`, () =>
+    HttpResponse.json({
+      total_persons: 42,
+      attendances_this_month: 8,
+      upcoming_scheduled: 3,
+      active_campaigns: 2,
+      attendances_by_status: {
+        COMPLETED: 30,
+        SCHEDULED: 5,
+        IN_PROGRESS: 4,
+        CANCELLED: 1,
+      },
+      recent_months: [
+        { month: '2026-02', count: 5 },
+        { month: '2026-03', count: 7 },
+        { month: '2026-04', count: 6 },
+        { month: '2026-05', count: 8 },
+        { month: '2026-06', count: 9 },
+        { month: '2026-07', count: 8 },
+      ],
+    }),
+  ),
+  http.get(`${API_BASE}/reports/attendances`, () =>
+    HttpResponse.json({
+      period: { start: '2026-07-01', end: '2026-07-31' },
+      total_attendances: 40,
+      unique_persons: 33,
+      by_status: { COMPLETED: 30, SCHEDULED: 5, IN_PROGRESS: 4, CANCELLED: 1 },
+      by_service_type: [
+        { service_type: 'LEGAL', count: 12 },
+        { service_type: 'MEDICAL', count: 28 },
+      ],
+      by_month: [{ month: '2026-07', count: 40 }],
+      by_professional: [
+        {
+          professional_id: '00000000-0000-0000-0000-0000000000a1',
+          professional_name: 'Maria Silva',
+          count: 25,
+        },
+        {
+          professional_id: '00000000-0000-0000-0000-0000000000a2',
+          professional_name: 'João Souza',
+          count: 15,
+        },
+      ],
+    }),
+  ),
 ];
 
 export const server = setupServer(...handlers);

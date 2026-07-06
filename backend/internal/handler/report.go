@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/instituto-nova-sos/chesed/internal/service"
 )
@@ -41,13 +42,55 @@ func (h *ReportHandler) AttendanceSummary(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	opts, ok := parseReportFilters(w, r)
+	if !ok {
+		return
+	}
 
-	report, err := h.svc.GetAttendanceReport(r.Context(), start, end)
+	report, err := h.svc.GetAttendanceReport(r.Context(), start, end, opts)
 	if err != nil {
 		h.writeReportError(w, r, err, "AttendanceSummary")
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// Dashboard handles GET /reports/dashboard.
+func (h *ReportHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.svc.GetDashboard(r.Context())
+	if err != nil {
+		h.writeReportError(w, r, err, "Dashboard")
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}
+
+// parseReportFilters extracts the optional service_type_id, campaign_id and
+// professional_id filters. A malformed UUID in any of them fails the request
+// with 400 invalid_filter and returns ok=false.
+func parseReportFilters(w http.ResponseWriter, r *http.Request) (service.AttendanceReportOptions, bool) {
+	q := r.URL.Query()
+	var opts service.AttendanceReportOptions
+	for _, spec := range []struct {
+		param string
+		dst   **uuid.UUID
+	}{
+		{"service_type_id", &opts.ServiceTypeID},
+		{"campaign_id", &opts.CampaignID},
+		{"professional_id", &opts.ProfessionalID},
+	} {
+		raw := q.Get(spec.param)
+		if raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_filter", spec.param+" must be a valid UUID")
+			return service.AttendanceReportOptions{}, false
+		}
+		*spec.dst = &id
+	}
+	return opts, true
 }
 
 // AttendanceExport handles GET /reports/attendances/export?format=csv.

@@ -184,6 +184,8 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 		r.With(attendanceRoles).Post("/{id}/transitions", attendanceH.Transition)
 		r.With(attendanceRoles).Patch("/{id}/notes", attendanceH.UpdateNotes)
 	})
+	r.With(coordinatorUp).Get("/api/v1/reports/dashboard", reportH.Dashboard)
+	r.With(coordinatorUp).Get("/api/v1/reports/attendances", reportH.AttendanceSummary)
 	r.With(coordinatorUp).Get("/api/v1/reports/campaigns/{id}", reportH.CampaignMetrics)
 	r.Route("/api/v1/campaigns", func(r chi.Router) {
 		r.With(coordinatorUp).Post("/", campaignH.Create)

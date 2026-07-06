@@ -1,13 +1,24 @@
 import { useAuthStore } from '../store/authStore';
 import { ApiError, apiClient } from './client';
-import type { AttendanceReport, AttendanceReportParams } from '../types';
+import type {
+  AttendanceReport,
+  AttendanceReportParams,
+  DashboardMetrics,
+} from '../types';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1';
+
+export function getDashboard(): Promise<DashboardMetrics> {
+  return apiClient<DashboardMetrics>('/reports/dashboard');
+}
 
 export function getAttendanceReport(
   params: AttendanceReportParams,
 ): Promise<AttendanceReport> {
   const search = new URLSearchParams({ start: params.start, end: params.end });
+  if (params.service_type_id) search.set('service_type_id', params.service_type_id);
+  if (params.campaign_id) search.set('campaign_id', params.campaign_id);
+  if (params.professional_id) search.set('professional_id', params.professional_id);
   return apiClient<AttendanceReport>(`/reports/attendances?${search.toString()}`);
 }
 

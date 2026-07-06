@@ -827,14 +827,80 @@
 
 ## E10: Advanced Reports and Dashboards (Phase 2)
 
-**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete
+**Phase**: 2 | **Priority**: P1 | **Prerequisite**: Phase 1 complete (met — Sprints 1-4 done)
+**Target**: Sprint 8
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Phase 2 kickoff (Sprint 8): stories detailed per the phase-boundary rule. E10 is a
+> **read-only analytics epic** — no new tables or migrations. All reports aggregate
+> existing operational data (`attendance`, `person`, `campaign`, `campaign_team`,
+> `service_type`) scoped to the caller's campus. The report stack from Sprint 4/5
+> (attendance summary, CSV export, campaign metrics) is extended, not replaced.
+> The "team" dimension (RF-42) is modeled as **grouping by the acting professional**
+> (`attendance.professional_id`) — there is no generic team entity, only
+> `campaign_team` scoped to campaigns. Charts (RF-45) use Recharts (approved dep)
+> and degrade to plain lists when offline or empty (offline-first). Endpoints and
+> the extended `/reports/attendances` filter contract are specified in
+> `docs/11-api-design.md`.
 
-**S10.1** - Reports by service type, team, campaign
-**S10.2** - Statistical charts (Recharts)
-**S10.3** - Dashboard with key metrics
-**S10.4** - Report filter UI
+### Stories
+
+**S10.1 - Reports by service type, team, campaign**
+- status: done
+- depends_on: [S06.1, S07.4]
+- covers_requirements: [RF-41, RF-42, RF-43]
+- parallel_with: [S10.2, S10.3, S10.4]
+- size: M
+- offline: Read surface; when offline the report view shows a clear offline message instead of stale aggregates.
+- As a coordinator, I can break attendances down by service type, by acting professional (team), and by campaign for my campus.
+- Acceptance criteria:
+  - **Given** an authenticated coordinator (or higher) **when** they `GET /api/v1/reports/attendances` for a period **then** the response includes `by_service_type`, `by_month`, `by_status`, and a `by_professional` breakdown, all campus-scoped.
+  - **Given** the report request carries a `service_type_id`, `campaign_id`, or `professional_id` filter **then** every aggregation is narrowed by that filter (combined with `AND`).
+  - **Given** a filter UUID that is malformed **when** the request is made **then** the API returns `400` invalid_filter and no report.
+  - **Given** a filter id belonging to another campus **when** the request is made **then** the API returns `200` with empty/zero aggregations and does not disclose the foreign entity's existence (threat model T3).
+  - **Given** a coordinator **when** they `GET /api/v1/reports/campaigns/{id}` for a campaign in their campus **then** per-campaign metrics (triage count, attendance totals by status, team size) are returned; a campaign in another campus returns `404`.
+  - **Given** a user below the coordinator access profile **when** they request any report **then** the API returns `403` and logs the attempt (`ACCESS_DENIED`).
+
+**S10.2 - Statistical charts (Recharts)**
+- status: done
+- depends_on: [S10.1, S10.3]
+- covers_requirements: [RF-45, RNF-13]
+- parallel_with: [S10.1, S10.4]
+- size: M
+- offline: Charts render from already-fetched report data; when the underlying data is empty or unavailable offline, each chart shows a "sem dados" fallback rather than an empty canvas.
+- As a coordinator, I can see attendance trends and distributions as charts instead of only tables.
+- Acceptance criteria:
+  - **Given** a generated report **when** the reports page renders **then** monthly volume is shown as a trend chart, status distribution as a donut, and service-type volume as a bar chart, alongside (not replacing) the existing breakdown lists.
+  - **Given** the dashboard **when** it renders **then** the last 6 months of attendance volume are shown as a trend chart.
+  - **Given** a chart with no data for the period **when** it renders **then** it shows a muted empty-state message instead of an empty chart.
+  - **Given** the charts rendered at 320px width **when** viewed **then** they remain readable and do not cause horizontal scroll.
+
+**S10.3 - Dashboard with key metrics**
+- status: done
+- depends_on: [S06.1, S07.1]
+- covers_requirements: [RF-45]
+- parallel_with: [S10.1, S10.2, S10.4]
+- size: M
+- offline: Read surface; when offline the dashboard shows a clear offline message instead of stale KPIs.
+- As a coordinator, I can open a dashboard that shows the key operational metrics for my campus at a glance.
+- Acceptance criteria:
+  - **Given** an authenticated coordinator (or higher) **when** they `GET /api/v1/reports/dashboard` **then** the API returns campus-scoped KPIs: total persons, attendances this month, upcoming scheduled attendances, active campaigns, an all-time status snapshot, and the last 6 months of volume.
+  - **Given** a coordinator in campus A **when** the dashboard loads **then** none of the metrics include campus B data.
+  - **Given** a user below the coordinator access profile **when** they request the dashboard **then** the API returns `403` and logs the attempt (`ACCESS_DENIED`).
+  - **Given** the dashboard page **when** it renders **then** the KPIs come from the server endpoint (not recomputed client-side from list endpoints), with loading, error, and offline states handled.
+
+**S10.4 - Report filter UI**
+- status: done
+- depends_on: [S10.1, S10.2]
+- covers_requirements: [RF-40, RF-45, RNF-13]
+- parallel_with: [S10.1, S10.2, S10.3]
+- size: S
+- offline: The filter controls are inert offline; the page shows the offline message rather than issuing report requests.
+- As a coordinator, I can filter the attendance report by date range, service type, campaign, and professional.
+- Acceptance criteria:
+  - **Given** the reports page **when** it renders for a coordinator **then** the filter bar exposes a date range plus service-type, campaign, and professional selectors, with options scoped to the caller's campus.
+  - **Given** the coordinator selects one or more filters and submits **then** the report request carries the corresponding query parameters and the results reflect the applied filters.
+  - **Given** the coordinator clears the filters **then** the report reverts to the unfiltered campus-scoped view for the chosen period.
+  - **Given** the filter bar rendered at 320px width **when** viewed **then** the controls wrap and remain usable without horizontal scroll.
 
 ---
 
