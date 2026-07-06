@@ -1,42 +1,19 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listAttendances } from '../api/attendances';
-import { listTriages } from '../api/triages';
+import { Alert } from '../components/ui/Alert';
+import { MonthlyTrendChart } from '../components/charts/MonthlyTrendChart';
+import { StatusDonutChart } from '../components/charts/StatusDonutChart';
 import { useAuth } from '../hooks/useAuth';
+import { useDashboard } from '../hooks/useDashboard';
+import type { DashboardMetrics } from '../types';
 
-interface Metrics {
-  attendancesToday: number;
-  attendancesWeek: number;
-  attendancesInProgress: number;
-  triagesWeek: number;
-}
-
-function startOfDay(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function startOfWeek(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? 6 : day - 1; // Monday-anchored week
-  d.setDate(d.getDate() - diff);
-  return d.toISOString();
-}
-
-function MetricCard({
-  label,
-  value,
-  href,
-  accent,
-}: {
+interface KpiCardProps {
   label: string;
   value: number | string;
   href: string;
   accent: string;
-}) {
+}
+
+function KpiCard({ label, value, href, accent }: KpiCardProps) {
   return (
     <Link
       to={href}
@@ -50,43 +27,91 @@ function MetricCard({
   );
 }
 
+function KpiGrid({
+  metrics,
+  isLoading,
+}: {
+  metrics: DashboardMetrics | null;
+  isLoading: boolean;
+}) {
+  const show = (value: number | undefined) =>
+    isLoading ? '...' : (value ?? '—');
+  return (
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <KpiCard
+        label="Pessoas cadastradas"
+        value={show(metrics?.total_persons)}
+        href="/persons"
+        accent="text-blue-600"
+      />
+      <KpiCard
+        label="Atendimentos no mês"
+        value={show(metrics?.attendances_this_month)}
+        href="/attendances"
+        accent="text-blue-700"
+      />
+      <KpiCard
+        label="Agendados"
+        value={show(metrics?.upcoming_scheduled)}
+        href="/attendances"
+        accent="text-amber-600"
+      />
+      <KpiCard
+        label="Campanhas ativas"
+        value={show(metrics?.active_campaigns)}
+        href="/campaigns"
+        accent="text-purple-600"
+      />
+    </div>
+  );
+}
+
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-gray-800">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function Shortcuts() {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <h2 className="text-sm font-medium text-gray-900">Atalhos</h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link
+          to="/persons"
+          className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+        >
+          Pessoas
+        </Link>
+        <Link
+          to="/triages"
+          className="rounded-lg bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+        >
+          Triagens
+        </Link>
+        <Link
+          to="/attendances"
+          className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
+        >
+          Atendimentos
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const { email, roles } = useAuth();
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const today = startOfDay();
-    const weekStart = startOfWeek();
-    let cancelled = false;
-    setLoading(true);
-
-    Promise.all([
-      listAttendances({ from: today, per_page: 1 }),
-      listAttendances({ from: weekStart, per_page: 1 }),
-      listAttendances({ status: 'IN_PROGRESS', per_page: 1 }),
-      listTriages({ from: weekStart, per_page: 1 }),
-    ])
-      .then(([todayRes, weekRes, inProgressRes, triagesRes]) => {
-        if (cancelled) return;
-        setMetrics({
-          attendancesToday: todayRes.pagination.total,
-          attendancesWeek: weekRes.pagination.total,
-          attendancesInProgress: inProgressRes.pagination.total,
-          triagesWeek: triagesRes.pagination.total,
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setMetrics(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, isLoading, error } = useDashboard();
 
   return (
     <div className="space-y-6">
@@ -100,56 +125,20 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <MetricCard
-          label="Atendimentos Hoje"
-          value={loading ? '...' : (metrics?.attendancesToday ?? '—')}
-          href="/attendances"
-          accent="text-blue-600"
-        />
-        <MetricCard
-          label="Atendimentos Semana"
-          value={loading ? '...' : (metrics?.attendancesWeek ?? '—')}
-          href="/attendances"
-          accent="text-blue-700"
-        />
-        <MetricCard
-          label="Em Andamento"
-          value={loading ? '...' : (metrics?.attendancesInProgress ?? '—')}
-          href="/attendances"
-          accent="text-amber-600"
-        />
-        <MetricCard
-          label="Triagens Semana"
-          value={loading ? '...' : (metrics?.triagesWeek ?? '—')}
-          href="/triages"
-          accent="text-purple-600"
-        />
+      {error && <Alert variant="error">{error}</Alert>}
+
+      <KpiGrid metrics={data} isLoading={isLoading} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ChartCard title="Atendimentos por mês">
+          <MonthlyTrendChart data={data?.recent_months ?? []} />
+        </ChartCard>
+        <ChartCard title="Atendimentos por status">
+          <StatusDonutChart data={data?.attendances_by_status ?? {}} />
+        </ChartCard>
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-gray-900">Atalhos</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Link
-            to="/persons"
-            className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
-          >
-            Pessoas
-          </Link>
-          <Link
-            to="/triages"
-            className="rounded-lg bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
-          >
-            Triagens
-          </Link>
-          <Link
-            to="/attendances"
-            className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
-          >
-            Atendimentos
-          </Link>
-        </div>
-      </div>
+      <Shortcuts />
     </div>
   );
 }
