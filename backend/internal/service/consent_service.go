@@ -229,12 +229,18 @@ func (s *ConsentService) RevokeConsent(ctx context.Context, id uuid.UUID, input 
 // anonymizePerson scrubs the person's PII and records the erasure in the audit
 // log. The audit entry deliberately carries no scrubbed PII (CLAUDE.md MUST-NOT
 // #7): only the anonymization timestamp and the person id.
+//
+// The erasure audit is required, not best-effort: if it cannot be persisted the
+// error propagates so the per-request campus transaction rolls the anonymization
+// back. An erasure without a provable audit record is an LGPD accountability gap
+// (docs/adr/0001-audit-logging-durability.md), so no anonymization is allowed to
+// commit without its record.
 func (s *ConsentService) anonymizePerson(ctx context.Context, personID, campusID uuid.UUID) error {
 	if err := s.anonymizer.Anonymize(ctx, personID, campusID); err != nil {
 		return err
 	}
 
-	s.audit(ctx, AuditParams{
+	return s.auditSvc.LogRequired(ctx, AuditParams{
 		ActionType:  "UPDATE",
 		EntityType:  "person",
 		EntityID:    &personID,
@@ -243,7 +249,6 @@ func (s *ConsentService) anonymizePerson(ctx context.Context, personID, campusID
 		NewValues:   map[string]any{"anonymized_at": time.Now()},
 		Success:     true,
 	})
-	return nil
 }
 
 // audit writes an audit entry, logging (never failing the request) on error.

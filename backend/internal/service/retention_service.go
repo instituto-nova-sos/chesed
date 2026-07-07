@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,15 +60,23 @@ func (s *RetentionService) Run(ctx context.Context) (RetentionSummary, error) {
 		if err := s.anonymizer.Anonymize(ctx, id, campusID); err != nil {
 			return summary, fmt.Errorf("retentionService.Run: anonymize %s: %w", id, err)
 		}
+		if err := s.audit(ctx, id); err != nil {
+			return summary, fmt.Errorf("retentionService.Run: audit %s: %w", id, err)
+		}
 		summary.Anonymized++
-		s.audit(ctx, id)
 	}
 	return summary, nil
 }
 
-// audit records a single retention anonymization without recording any PII.
-func (s *RetentionService) audit(ctx context.Context, personID uuid.UUID) {
-	params := AuditParams{
+// audit records a single retention anonymization without recording any PII (only
+// the person id and the anonymization timestamp — CLAUDE.md MUST-NOT #7).
+//
+// The audit is required, not best-effort: a persist failure is returned so the
+// per-request campus transaction rolls the anonymization back. The sweep would
+// otherwise leave an anonymized record with no audit trail, an LGPD
+// accountability gap (docs/adr/0001-audit-logging-durability.md).
+func (s *RetentionService) audit(ctx context.Context, personID uuid.UUID) error {
+	return s.auditSvc.LogRequired(ctx, AuditParams{
 		ActionType:  "UPDATE",
 		EntityType:  "person",
 		EntityID:    &personID,
@@ -77,8 +84,5 @@ func (s *RetentionService) audit(ctx context.Context, personID uuid.UUID) {
 		Description: "person anonymized (LGPD retention policy)",
 		NewValues:   map[string]any{"anonymized_at": time.Now().UTC()},
 		Success:     true,
-	}
-	if auditErr := s.auditSvc.LogAction(ctx, params); auditErr != nil {
-		slog.ErrorContext(ctx, "retentionService: audit failed", "error", auditErr.Error())
-	}
+	})
 }
