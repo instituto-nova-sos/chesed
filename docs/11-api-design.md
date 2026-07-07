@@ -636,10 +636,16 @@ per-request campus transaction on the **non-owner** `chesed_app` connection whos
 `app.current_campus` GUC is the validated `campus_id` — so PostgreSQL RLS enforces
 campus isolation as a fail-closed safety net (a handler bug cannot cross campuses).
 
-| Method | Path | Auth | Rate limit (per IP) | Description |
-|--------|------|------|---------------------|-------------|
-| GET | `/public/campaigns?campus_id=` | No | ~60/min | List a campus's `ACTIVE` campaigns (lean projection) |
-| POST | `/public/volunteer-signup` | No | ~10/min | Register a prospective volunteer |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/public/campaigns?campus_id=` | No | List a campus's `ACTIVE` campaigns (lean projection) |
+| POST | `/public/volunteer-signup` | No | Register a prospective volunteer |
+
+Rate limiting: a single per-IP limiter guards the whole `/public` group, budgeted at
+`PUBLIC_RATE_LIMIT_RPM` requests/minute (default 60), keyed on the connection's
+RemoteAddr (not a spoofable forwarded header). It is a coarse abuse backstop; the edge
+proxy is expected to apply its own per-client limits. Excess requests receive `429` with
+`Retry-After`.
 
 CORS: only origins in the configured allowlist (`PUBLIC_CORS_ORIGINS`) receive an
 `Access-Control-Allow-Origin`. The WordPress origin is provided via env, not hardcoded.

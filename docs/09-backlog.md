@@ -1127,8 +1127,9 @@
     `chesed_app` connection inside a per-request campus transaction whose `app.current_campus` GUC is
     the validated `campus_id`, so a handler bug attempting a different `campus_id` is rejected by RLS
     `WITH CHECK` (fail-closed, defense-in-depth), never crossing campuses.
-  - **Given** more than the configured per-IP rate for the endpoint (`GET` ≈ 60/min, `POST` ≈ 10/min)
-    **when** requests arrive from the same IP **then** the excess receives `429` with `Retry-After`.
+  - **Given** more than the configured per-IP rate (`PUBLIC_RATE_LIMIT_RPM`, default 60/min, a
+    single limiter over the whole `/public` group keyed on RemoteAddr) **when** requests arrive
+    from the same IP **then** the excess receives `429` with `Retry-After`.
   - **Given** a request `Origin` **when** it is not in the configured CORS allowlist
     (`PUBLIC_CORS_ORIGINS`) **then** no `Access-Control-Allow-Origin` is echoed; the WordPress origin
     is added via env, not hardcoded.

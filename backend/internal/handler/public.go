@@ -54,8 +54,9 @@ func (h *PublicHandler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// VolunteerSignup handles POST /api/v1/public/volunteers. The body was already
-// buffered and restored by PublicCampusValidator, so it can be decoded here.
+// VolunteerSignup handles POST /api/v1/public/volunteer-signup. The body was
+// already buffered and restored by PublicCampusValidator, so it can be decoded
+// here.
 func (h *PublicHandler) VolunteerSignup(w http.ResponseWriter, r *http.Request) {
 	var input service.PublicVolunteerInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
