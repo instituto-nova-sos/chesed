@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/compliance', label: 'Conformidade', icon: '🛡️', minRole: 'COORDINATOR' },
   { path: '/audit-logs', label: 'Auditoria', icon: '🔎', minRole: 'ADMIN' },
   { path: '/campuses', label: 'Campus', icon: '🏢' },
+  { path: '/sync/conflicts', label: 'Conflitos de sincronização', icon: '🔄' },
 ];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {

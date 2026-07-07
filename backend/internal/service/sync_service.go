@@ -20,6 +20,7 @@ import (
 type SyncPersonRepository interface {
 	FindByID(ctx context.Context, id, campusID uuid.UUID) (*domain.Person, error)
 	FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Person, error)
+	FindByEmail(ctx context.Context, email string, campusID uuid.UUID) (*domain.Person, error)
 	CreateWithSync(ctx context.Context, person domain.Person, address *domain.Address, syncID uuid.UUID) (*domain.Person, error)
 	ListUpdatedSince(ctx context.Context, campusID uuid.UUID, since time.Time, limit int) ([]domain.Person, error)
 }
@@ -150,7 +151,7 @@ func (s *SyncService) handlePerson(ctx context.Context, rec domain.SyncPushRecor
 	var address *domain.Address
 	created, err := s.personRepo.CreateWithSync(ctx, person, address, rec.SyncID)
 	if err != nil {
-		return mapSyncCreateError(rec.SyncID, err)
+		return s.mapSyncCreateError(ctx, rec.SyncID, person.Email, err)
 	}
 
 	s.logCreate(ctx, "person", created.ID)
@@ -198,12 +199,21 @@ func (s *SyncService) buildSyncPerson(ctx context.Context, rec domain.SyncPushRe
 	}, nil
 }
 
-// mapSyncCreateError maps a repository create error to a conflict or error result.
-func mapSyncCreateError(syncID uuid.UUID, err error) domain.SyncPushResult {
-	if errors.Is(err, domain.ErrDuplicate) || errors.Is(err, domain.ErrDuplicateEmail) || errors.Is(err, domain.ErrDuplicatePhone) {
-		return conflictResult(syncID, nil, err.Error())
+// mapSyncCreateError maps a repository create error to a conflict or error
+// result. On a duplicate conflict it attempts to enrich the result with the
+// existing server row (S12.2) so the client can offer field-level resolution.
+func (s *SyncService) mapSyncCreateError(ctx context.Context, syncID uuid.UUID, email *string, err error) domain.SyncPushResult {
+	if !isDuplicateErr(err) {
+		return errorResult(syncID, err.Error())
 	}
-	return errorResult(syncID, err.Error())
+	base := conflictResult(syncID, nil, err.Error())
+	return s.enrichPersonConflict(ctx, base, email)
+}
+
+func isDuplicateErr(err error) bool {
+	return errors.Is(err, domain.ErrDuplicate) ||
+		errors.Is(err, domain.ErrDuplicateEmail) ||
+		errors.Is(err, domain.ErrDuplicatePhone)
 }
 
 // --- Triage push ------------------------------------------------------------
@@ -238,7 +248,7 @@ func (s *SyncService) handleTriage(ctx context.Context, rec domain.SyncPushRecor
 	created, err := s.triageRepo.CreateWithSync(ctx, triage, rec.SyncID)
 	if err != nil {
 		if errors.Is(err, domain.ErrDuplicate) {
-			return conflictResult(rec.SyncID, nil, err.Error())
+			return s.enrichTriageConflict(ctx, rec, campusID, err)
 		}
 		return errorResult(rec.SyncID, err.Error())
 	}
@@ -390,7 +400,7 @@ func (s *SyncService) handleAttendance(ctx context.Context, rec domain.SyncPushR
 	created, err := s.attendanceRepo.CreateWithSync(ctx, a, rec.SyncID)
 	if err != nil {
 		if errors.Is(err, domain.ErrDuplicate) {
-			return conflictResult(rec.SyncID, nil, err.Error())
+			return s.enrichAttendanceConflict(ctx, rec, campusID, err)
 		}
 		return errorResult(rec.SyncID, err.Error())
 	}

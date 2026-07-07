@@ -46,12 +46,30 @@ export interface SyncMeta {
   value: string;
 }
 
+/**
+ * ConflictSnapshot holds the server's version of a record that conflicted with a
+ * local change (S12.2). It is captured on both the push path (when the server
+ * returns `server_data`) and the pull path (the server record that previously
+ * would have been discarded), so the field-level resolution UI can present the
+ * server value even while offline. `serverData` is a lean, non-PII projection —
+ * the same field set the client already holds — never the full server row.
+ */
+export interface ConflictSnapshot {
+  entityId: string;
+  entityType: SyncEntityType;
+  serverData: Record<string, unknown>;
+  serverUpdatedAt?: string;
+  conflictFields?: string[];
+  capturedAt: string;
+}
+
 class ChesedDB extends Dexie {
   persons!: Table<LocalEntity>;
   triages!: Table<LocalEntity>;
   attendances!: Table<LocalEntity>;
   syncQueue!: Table<SyncQueueItem>;
   syncMeta!: Table<SyncMeta>;
+  conflicts!: Table<ConflictSnapshot>;
 
   constructor() {
     super('chesed-offline');
@@ -67,6 +85,13 @@ class ChesedDB extends Dexie {
     this.version(2).stores({
       triages: 'id, syncStatus',
       attendances: 'id, syncStatus',
+    });
+    // v3 — add the conflicts store for field-level resolution (S12.2). Additive:
+    // no existing store is altered, so the upgrade preserves cached data and the
+    // queue. Keyed by entityId (one snapshot per conflicted record), indexed by
+    // entityType for per-type listing.
+    this.version(3).stores({
+      conflicts: 'entityId, entityType',
     });
   }
 }

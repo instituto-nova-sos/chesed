@@ -1,4 +1,10 @@
-import { db, type LocalEntity, type SyncEntityType, type SyncQueueItem } from './db';
+import {
+  db,
+  type ConflictSnapshot,
+  type LocalEntity,
+  type SyncEntityType,
+  type SyncQueueItem,
+} from './db';
 
 /** A record as sent in a sync push batch. */
 export interface SyncPushRecord {
@@ -12,6 +18,12 @@ export interface SyncPushResult {
   status: 'created' | 'conflict' | 'error';
   server_id?: string;
   message?: string;
+  // Present on a conflict: the server's current version of the record, so the
+  // client can capture a snapshot for field-level resolution (S12.2). Mirrors
+  // the backend domain.SyncPushResult json tags.
+  server_data?: Record<string, unknown>;
+  server_updated_at?: string;
+  conflicting_fields?: string[];
 }
 
 export interface SyncPushResponse {
@@ -119,7 +131,7 @@ async function applyResults(
       await resolveCreated(item);
       pushed += 1;
     } else if (result.status === 'conflict') {
-      await flagConflict(item, result.message ?? 'conflict');
+      await flagConflict(item, result);
       conflicts += 1;
     } else {
       await bumpRetry(item, result.message ?? 'sync error');
@@ -142,11 +154,26 @@ async function resolveCreated(item: SyncQueueItem): Promise<void> {
  * flagConflict marks the cached entity 'conflict' and flags the queue item
  * conflicted WITHOUT deleting it, so the field-captured record is preserved for
  * operator review/resubmission. The item is excluded from further auto-drains.
+ * When the server returned its version (`server_data`), a snapshot is captured so
+ * the field-level resolution UI can present the server value even while offline.
  */
-async function flagConflict(item: SyncQueueItem, message: string): Promise<void> {
+async function flagConflict(item: SyncQueueItem, result: SyncPushResult): Promise<void> {
   await setCachedStatus(item, 'conflict');
   if (item.id !== undefined) {
-    await db.syncQueue.update(item.id, { conflicted: true, lastError: message });
+    await db.syncQueue.update(item.id, {
+      conflicted: true,
+      lastError: result.message ?? 'conflict',
+    });
+  }
+  if (result.server_data) {
+    await db.conflicts.put({
+      entityId: item.entityId,
+      entityType: item.entityType,
+      serverData: result.server_data,
+      serverUpdatedAt: result.server_updated_at,
+      conflictFields: result.conflicting_fields,
+      capturedAt: new Date().toISOString(),
+    });
   }
 }
 
@@ -202,6 +229,70 @@ export async function requeueConflict(queueId: number): Promise<void> {
   }
 }
 
+/** getConflictSnapshot returns the captured server version for a conflict, if any. */
+export async function getConflictSnapshot(
+  entityId: string,
+): Promise<ConflictSnapshot | undefined> {
+  return db.conflicts.get(entityId);
+}
+
+/**
+ * resolveKeepLocal keeps the operator's local version: it re-queues the item for a
+ * last-write-wins re-push (via requeueConflict) and drops the conflict snapshot.
+ */
+export async function resolveKeepLocal(queueId: number): Promise<void> {
+  const item = await db.syncQueue.get(queueId);
+  if (!item) return;
+  await requeueConflict(queueId);
+  await db.conflicts.delete(item.entityId);
+}
+
+/**
+ * resolveKeepServer discards the local edit in favour of the server's version: it
+ * writes the snapshot's serverData into the entity cache as 'synced', removes the
+ * queue item (no re-push), and drops the snapshot.
+ */
+export async function resolveKeepServer(queueId: number): Promise<void> {
+  const item = await db.syncQueue.get(queueId);
+  if (!item) return;
+  const snapshot = await db.conflicts.get(item.entityId);
+  if (snapshot) {
+    const table = db.table<LocalEntity>(TABLE_BY_TYPE[item.entityType]);
+    await table.update(item.entityId, {
+      data: snapshot.serverData,
+      syncStatus: 'synced',
+      serverUpdatedAt: snapshot.serverUpdatedAt,
+    });
+  }
+  await db.syncQueue.delete(queueId);
+  await db.conflicts.delete(item.entityId);
+}
+
+/**
+ * resolveMerged stages an operator-merged record: it updates the queue item with
+ * the merged data (clearing the conflict flag and resetting retries), marks the
+ * cached entity 'pending' so the next drain re-pushes it, and drops the snapshot.
+ */
+export async function resolveMerged(
+  queueId: number,
+  mergedData: Record<string, unknown>,
+): Promise<void> {
+  const item = await db.syncQueue.get(queueId);
+  if (!item) return;
+  await db.syncQueue.update(queueId, {
+    data: mergedData,
+    conflicted: false,
+    lastError: undefined,
+    retryCount: 0,
+  });
+  const table = db.table<LocalEntity>(TABLE_BY_TYPE[item.entityType]);
+  const cached = await table.get(item.entityId);
+  if (cached) {
+    await table.update(item.entityId, { data: mergedData, syncStatus: 'pending' });
+  }
+  await db.conflicts.delete(item.entityId);
+}
+
 async function bumpRetry(item: SyncQueueItem, message: string): Promise<void> {
   if (item.id === undefined) return;
   const nextRetry = item.retryCount + 1;
@@ -251,6 +342,15 @@ export async function mergePullRecords(records: PullRecord[]): Promise<MergeResu
     }
     if (local.syncStatus === 'pending') {
       await table.update(record.id, { syncStatus: 'conflict' });
+      // Preserve the server value (previously discarded) so the resolution UI can
+      // present it against the pending local edit.
+      await db.conflicts.put({
+        entityId: record.id,
+        entityType: record.entity_type,
+        serverData: record.data,
+        serverUpdatedAt: record.updated_at,
+        capturedAt: new Date().toISOString(),
+      });
       conflicts += 1;
       continue;
     }
