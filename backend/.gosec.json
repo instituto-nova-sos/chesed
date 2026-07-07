@@ -1,0 +1,19 @@
+{
+  "global": {
+    "nosec": "false",
+    "audit": "true",
+    "show-ignored": "true"
+  },
+  "G101": {
+    "mode": "regex",
+    "ignore_entropy": false,
+    "entropy_threshold": "80",
+    "per_char_threshold": "3",
+    "truncate": "16"
+  },
+  "G104": {},
+  "G111": {},
+  "G301": "0750",
+  "G302": "0600",
+  "G306": "0600"
+}

@@ -71,6 +71,47 @@ validate-backlog:
 	  echo "validate-backlog: OK"; \
 	'
 
+# =============================================================================
+# Operational targets (Sprint 11 / E12 hardening)
+# =============================================================================
+# These wrap the committable ops artifacts. They are DB/tool-gated the same way
+# backend/test-integration is: real-shell when the dependency is present, a
+# SKIPPED-NEEDS-<dep> notice otherwise. They are NOT part of the blocking
+# `deliver` pipeline (they need a live DB / k6 / a running API), but they are the
+# validatable proof that the ops scripts work.
+.PHONY: backup backup-drill load-test bench security-scan
+
+BACKUP_DIR ?= $(ROOT_DIR)backups
+DB_URL_DEFAULT := postgres://chesed:chesed@localhost:5432/chesed?sslmode=disable
+
+## backup: create a logical DB backup (pg_dump custom format + sha256 sidecar).
+backup:
+	@ADMIN_DATABASE_URL="$${ADMIN_DATABASE_URL:-$${DATABASE_URL:-$(DB_URL_DEFAULT)}}" \
+	 BACKUP_DIR="$(BACKUP_DIR)" \
+	 bash $(ROOT_DIR)scripts/backup.sh backup
+
+## backup-drill: restore the latest dump into a throwaway DB and smoke-test it.
+backup-drill:
+	@ADMIN_DATABASE_URL="$${ADMIN_DATABASE_URL:-$${DATABASE_URL:-$(DB_URL_DEFAULT)}}" \
+	 BACKUP_DIR="$(BACKUP_DIR)" \
+	 bash $(ROOT_DIR)scripts/backup.sh drill
+
+## load-test: run the k6 100-VU scenario (SKIPPED-NEEDS-K6 when k6 is absent).
+load-test:
+	@if command -v k6 >/dev/null 2>&1; then \
+	  k6 run $(ROOT_DIR)scripts/load-test/k6-public-and-sync.js ; \
+	else \
+	  echo "load-test: SKIPPED-NEEDS-K6 (https://k6.io/docs/get-started/installation/)" ; \
+	fi
+
+## bench: run backend hot-path Go benchmarks (delegates to backend/Makefile).
+bench:
+	$(MAKE) -C $(BACKEND_DIR) bench
+
+## security-scan: gosec + security-header assertion (delegates to backend/Makefile).
+security-scan:
+	$(MAKE) -C $(BACKEND_DIR) security-scan
+
 # --- additional targets (deliver, etc.) appended by autonomy phase ---
 
 # =============================================================================
