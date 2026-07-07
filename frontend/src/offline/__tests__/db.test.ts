@@ -16,14 +16,14 @@ describe('offline db schema', () => {
     expect(db.name).toBe('chesed-offline');
   });
 
-  it('declares schema version 2', () => {
-    expect(db.verno).toBe(2);
+  it('declares schema version 3', () => {
+    expect(db.verno).toBe(3);
   });
 
-  it('exposes the persons, syncQueue, syncMeta, triages and attendances tables', () => {
+  it('exposes the persons, syncQueue, syncMeta, triages, attendances and conflicts tables', () => {
     const tableNames = db.tables.map((t) => t.name).sort();
     expect(tableNames).toEqual(
-      ['persons', 'syncQueue', 'syncMeta', 'triages', 'attendances'].sort(),
+      ['persons', 'syncQueue', 'syncMeta', 'triages', 'attendances', 'conflicts'].sort(),
     );
   });
 

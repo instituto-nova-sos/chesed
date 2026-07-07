@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/instituto-nova-sos/chesed/internal/auth"
 	"github.com/instituto-nova-sos/chesed/internal/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,6 +43,18 @@ func (p poolBeginner) BeginCampusTx(ctx context.Context) (campusTx, error) {
 	return p.pool.Begin(ctx)
 }
 
+// campusSource resolves the campus a request transaction must be scoped to. It
+// returns the campus UUID and whether one was found. Authenticated routes read
+// it from the auth context (authCampusSource); the public routes read it from a
+// value stashed by a preceding validation step (publicCampusSource).
+type campusSource func(r *http.Request) (uuid.UUID, bool)
+
+// authCampusSource resolves the campus from the authenticated user's claims.
+func authCampusSource(r *http.Request) (uuid.UUID, bool) {
+	campusID := auth.CampusIDFromContext(r.Context())
+	return campusID, campusID != (auth.AuthClaims{}).CampusID
+}
+
 // CampusTx opens a per-request transaction, sets the campus GUC with SET LOCAL,
 // installs the transaction as the request Querier, and commits on a 2xx/3xx
 // response or rolls back on a >=400 status or a panic. It MUST run after
@@ -50,11 +63,22 @@ func CampusTx(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 	return campusTxWith(poolBeginner{pool: pool})
 }
 
+// campusTxWith builds the middleware from a beginner, scoping to the campus in
+// the authenticated user's claims (the default source). It exists so the
+// commit/rollback logic can be unit-tested with a fake beginner.
 func campusTxWith(beginner txBeginner) func(http.Handler) http.Handler {
+	return campusTxWithSource(beginner, authCampusSource)
+}
+
+// campusTxWithSource is the shared transaction machinery, parameterized by where
+// the campus comes from. Both the authenticated CampusTx and the public
+// PublicCampusTx delegate here so the SET LOCAL GUC, Querier installation, and
+// commit-on-2xx / rollback-on-error logic have a single implementation.
+func campusTxWithSource(beginner txBeginner, src campusSource) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			campusID := auth.CampusIDFromContext(r.Context())
-			if campusID == (auth.AuthClaims{}).CampusID {
+			campusID, ok := src(r)
+			if !ok {
 				writeError(w, http.StatusForbidden, "forbidden", "missing campus assignment")
 				return
 			}

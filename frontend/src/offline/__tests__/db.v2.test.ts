@@ -11,14 +11,14 @@ describe('offline db v2 schema', () => {
     await db.open();
   });
 
-  it('declares schema version 2', () => {
-    expect(db.verno).toBe(2);
+  it('declares schema version 3', () => {
+    expect(db.verno).toBe(3);
   });
 
-  it('exposes persons, triages, attendances, syncQueue and syncMeta tables', () => {
+  it('exposes persons, triages, attendances, syncQueue, syncMeta and conflicts tables', () => {
     const names = db.tables.map((t) => t.name).sort();
     expect(names).toEqual(
-      ['attendances', 'persons', 'syncMeta', 'syncQueue', 'triages'].sort(),
+      ['attendances', 'conflicts', 'persons', 'syncMeta', 'syncQueue', 'triages'].sort(),
     );
   });
 

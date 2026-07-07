@@ -16,8 +16,17 @@ import (
 )
 
 // --- Mocks --------------------------------------------------------------------
+// S12.2: sync conflict results carry a lean, non-PII server_data projection.
 
 type MockSyncPersonRepo struct{ mock.Mock }
+
+func (m *MockSyncPersonRepo) FindByEmail(ctx context.Context, email string, campusID uuid.UUID) (*domain.Person, error) {
+	args := m.Called(ctx, email, campusID)
+	if p, ok := args.Get(0).(*domain.Person); ok {
+		return p, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
 
 func (m *MockSyncPersonRepo) FindBySyncID(ctx context.Context, syncID, campusID uuid.UUID) (*domain.Person, error) {
 	args := m.Called(ctx, syncID, campusID)
@@ -237,6 +246,202 @@ func TestSyncService_Push_PersonDuplicateDocumentConflict(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	assert.Equal(t, domain.SyncStatusConflict, resp.Results[0].Status)
+}
+
+// --- S12.2 conflict server_data projection ------------------------------------
+
+func personEmailRecord(email string) domain.SyncPushRecord {
+	return domain.SyncPushRecord{
+		EntityType: domain.SyncEntityPerson,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"full_name":     "Maria",
+			"document_type": "CPF",
+			"nationality":   "BRA",
+			"email":         email,
+		},
+	}
+}
+
+func TestSyncService_Push_PersonConflictReturnsLeanServerData(t *testing.T) {
+	svc, pRepo, _, _, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+
+	email := "maria@example.com"
+	phone := "+5511999998888"
+	serverUpdated := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	serverID := uuid.New()
+	rec := personEmailRecord(email)
+
+	pRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("CreateWithSync", ctx,
+		mock.AnythingOfType("domain.Person"),
+		mock.AnythingOfType("*domain.Address"),
+		rec.SyncID,
+	).Return(nil, domain.ErrDuplicateEmail).Once()
+	pRepo.On("FindByEmail", ctx, email, campusID).Return(&domain.Person{
+		ID:             serverID,
+		FullName:       "Maria Silva",
+		Email:          &email,
+		Phone:          &phone,
+		DocumentNumber: strPtr("12345678900"), // MUST NOT leak into server_data
+		CampusID:       campusID,
+		UpdatedAt:      serverUpdated,
+	}, nil).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	res := resp.Results[0]
+	assert.Equal(t, domain.SyncStatusConflict, res.Status)
+	require.NotNil(t, res.ServerID)
+	assert.Equal(t, serverID, *res.ServerID)
+	require.NotNil(t, res.ServerData)
+	assert.Equal(t, "Maria Silva", res.ServerData["full_name"])
+	assert.Equal(t, email, res.ServerData["email"])
+	assert.Equal(t, phone, res.ServerData["phone"])
+	assert.NotContains(t, res.ServerData, "document_number", "document_number is PII and must not leak")
+	assert.NotContains(t, res.ServerData, "birth_date")
+	assert.NotContains(t, res.ServerData, "gender")
+	require.NotNil(t, res.ServerUpdatedAt)
+	assert.True(t, serverUpdated.Equal(*res.ServerUpdatedAt))
+	pRepo.AssertExpectations(t)
+}
+
+func TestSyncService_Push_PersonConflictWithoutServerRowOmitsServerData(t *testing.T) {
+	svc, pRepo, _, _, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+
+	// Validation-only / document-or-phone conflict where the server row cannot
+	// be resolved by email (no email in payload) — back-compat: no server_data.
+	rec := validPersonRecord()
+	pRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("CreateWithSync", ctx,
+		mock.AnythingOfType("domain.Person"),
+		mock.AnythingOfType("*domain.Address"),
+		rec.SyncID,
+	).Return(nil, domain.ErrDuplicate).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	res := resp.Results[0]
+	assert.Equal(t, domain.SyncStatusConflict, res.Status)
+	assert.Nil(t, res.ServerData, "no resolvable server row -> server_data omitted (back-compat)")
+	assert.Nil(t, res.ServerUpdatedAt)
+	pRepo.AssertNotCalled(t, "FindByEmail", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestSyncService_Push_PersonConflictLookupErrorFallsBack(t *testing.T) {
+	svc, pRepo, _, _, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+
+	email := "maria@example.com"
+	rec := personEmailRecord(email)
+	pRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("CreateWithSync", ctx,
+		mock.AnythingOfType("domain.Person"),
+		mock.AnythingOfType("*domain.Address"),
+		rec.SyncID,
+	).Return(nil, domain.ErrDuplicateEmail).Once()
+	pRepo.On("FindByEmail", ctx, email, campusID).
+		Return(nil, errors.New("connection lost")).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	res := resp.Results[0]
+	assert.Equal(t, domain.SyncStatusConflict, res.Status, "lookup failure must not break the push")
+	assert.Nil(t, res.ServerData)
+}
+
+func TestSyncService_Push_TriageConflictReturnsServerData(t *testing.T) {
+	svc, pRepo, tRepo, _, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+	personID := uuid.New()
+	serverID := uuid.New()
+	serverUpdated := time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)
+	serverTriageDate := time.Date(2026, 6, 2, 8, 30, 0, 0, time.UTC)
+
+	rec := domain.SyncPushRecord{
+		EntityType: domain.SyncEntityTriage,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"person_id":      personID.String(),
+			"main_complaint": "x",
+		},
+	}
+	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
+	tRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Triage"), rec.SyncID).
+		Return(nil, domain.ErrDuplicate).Once()
+	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(&domain.Triage{
+		ID:            serverID,
+		PersonID:      personID,
+		MainComplaint: "Dor de cabeça",
+		TriageDate:    serverTriageDate,
+		Notes:         strPtr("sensitive clinical note"), // MUST NOT leak
+		CampusID:      campusID,
+		UpdatedAt:     serverUpdated,
+	}, nil).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	res := resp.Results[0]
+	assert.Equal(t, domain.SyncStatusConflict, res.Status)
+	require.NotNil(t, res.ServerID)
+	assert.Equal(t, serverID, *res.ServerID)
+	require.NotNil(t, res.ServerData)
+	assert.Equal(t, "Dor de cabeça", res.ServerData["main_complaint"])
+	assert.NotContains(t, res.ServerData, "notes", "clinical notes are PII and must not leak")
+	require.NotNil(t, res.ServerUpdatedAt)
+	assert.True(t, serverUpdated.Equal(*res.ServerUpdatedAt))
+}
+
+func TestSyncService_Push_AttendanceConflictReturnsServerData(t *testing.T) {
+	svc, pRepo, _, aRepo, _ := newSyncService(t)
+	campusID := uuid.New()
+	ctx := ctxWithCampus(t, campusID)
+	serverID := uuid.New()
+	serverUpdated := time.Date(2026, 6, 3, 11, 0, 0, 0, time.UTC)
+
+	rec := domain.SyncPushRecord{
+		EntityType: domain.SyncEntityAttendance,
+		SyncID:     uuid.New(),
+		Data: map[string]any{
+			"person_id":       uuid.New().String(),
+			"service_type_id": uuid.New().String(),
+			"professional_id": uuid.New().String(),
+			"status":          domain.AttendanceStatusScheduled,
+		},
+	}
+	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
+	pRepo.On("FindByID", ctx, mock.AnythingOfType("uuid.UUID"), campusID).
+		Return(&domain.Person{CampusID: campusID}, nil).Once()
+	aRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Attendance"), rec.SyncID).
+		Return(nil, domain.ErrDuplicate).Once()
+	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(&domain.Attendance{
+		ID:        serverID,
+		Status:    domain.AttendanceStatusInProgress,
+		CampusID:  campusID,
+		UpdatedAt: serverUpdated,
+	}, nil).Once()
+
+	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
+	require.NoError(t, err)
+	res := resp.Results[0]
+	assert.Equal(t, domain.SyncStatusConflict, res.Status)
+	require.NotNil(t, res.ServerID)
+	assert.Equal(t, serverID, *res.ServerID)
+	require.NotNil(t, res.ServerData)
+	assert.Equal(t, domain.AttendanceStatusInProgress, res.ServerData["status"])
+	require.NotNil(t, res.ServerUpdatedAt)
+	assert.True(t, serverUpdated.Equal(*res.ServerUpdatedAt))
 }
 
 func TestSyncService_Push_UnknownEntityTypeReportsErrorPerRecord(t *testing.T) {
@@ -492,10 +697,14 @@ func TestSyncService_Push_TriageCreateDuplicateReturnsConflict(t *testing.T) {
 		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	tRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Triage"), rec.SyncID).
 		Return(nil, domain.ErrDuplicate).Once()
+	// S12.2: on conflict the service re-resolves the server row by sync_id; when
+	// it is unresolvable the result stays the plain conflict (back-compat).
+	tRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
 
 	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
 	require.NoError(t, err)
 	assert.Equal(t, domain.SyncStatusConflict, resp.Results[0].Status)
+	assert.Nil(t, resp.Results[0].ServerData)
 }
 
 func TestSyncService_Push_TriageCreateGenericErrorReturnsError(t *testing.T) {
@@ -658,10 +867,14 @@ func TestSyncService_Push_AttendanceCreateDuplicateReturnsConflict(t *testing.T)
 		Return(&domain.Person{CampusID: campusID}, nil).Once()
 	aRepo.On("CreateWithSync", ctx, mock.AnythingOfType("domain.Attendance"), rec.SyncID).
 		Return(nil, domain.ErrDuplicate).Once()
+	// S12.2: on conflict the service re-resolves the server row by sync_id; when
+	// it is unresolvable the result stays the plain conflict (back-compat).
+	aRepo.On("FindBySyncID", ctx, rec.SyncID, campusID).Return(nil, domain.ErrNotFound).Once()
 
 	resp, err := svc.Push(ctx, domain.SyncPushRequest{Records: []domain.SyncPushRecord{rec}})
 	require.NoError(t, err)
 	assert.Equal(t, domain.SyncStatusConflict, resp.Results[0].Status)
+	assert.Nil(t, resp.Results[0].ServerData)
 }
 
 func TestSyncService_Push_AttendanceCreateGenericErrorReturnsError(t *testing.T) {

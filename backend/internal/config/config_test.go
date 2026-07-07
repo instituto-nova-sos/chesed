@@ -243,3 +243,66 @@ func TestLoadS3(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadPublicConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		check   func(t *testing.T, cfg Config)
+	}{
+		{
+			name:    "defaults applied when public vars unset",
+			envVars: map[string]string{},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Empty(t, cfg.PublicCORSOrigins)
+				assert.False(t, cfg.HSTSEnabled)
+				assert.Equal(t, 60, cfg.PublicRateLimitRPM)
+			},
+		},
+		{
+			name: "values parsed from environment",
+			envVars: map[string]string{
+				"PUBLIC_CORS_ORIGINS":   "https://novasos.org, https://www.novasos.org ,",
+				"HSTS_ENABLED":          "true",
+				"PUBLIC_RATE_LIMIT_RPM": "120",
+			},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Equal(t, []string{"https://novasos.org", "https://www.novasos.org"}, cfg.PublicCORSOrigins)
+				assert.True(t, cfg.HSTSEnabled)
+				assert.Equal(t, 120, cfg.PublicRateLimitRPM)
+			},
+		},
+		{
+			name: "invalid rate limit falls back to default",
+			envVars: map[string]string{
+				"PUBLIC_RATE_LIMIT_RPM": "not-a-number",
+			},
+			check: func(t *testing.T, cfg Config) {
+				t.Helper()
+				assert.Equal(t, 60, cfg.PublicRateLimitRPM)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearBaseConfigEnv(t)
+			t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+			t.Setenv("KEYCLOAK_URL", "http://localhost:8180")
+			t.Setenv("KEYCLOAK_REALM", "chesed")
+			t.Setenv("KEYCLOAK_CLIENT_ID", "chesed-pwa")
+			for _, key := range []string{"PUBLIC_CORS_ORIGINS", "HSTS_ENABLED", "PUBLIC_RATE_LIMIT_RPM"} {
+				t.Setenv(key, "")
+			}
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			tt.check(t, cfg)
+		})
+	}
+}

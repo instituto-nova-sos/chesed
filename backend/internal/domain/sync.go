@@ -44,11 +44,21 @@ type SyncPushRecord struct {
 }
 
 // SyncPushResult reports the outcome of a single push record.
+//
+// On a "conflict" status the server MAY additionally return the current server
+// row so the client can offer field-level resolution (S12.2). ServerData is a
+// lean, non-PII projection limited to the fields the client already holds — it
+// is never the full PII record, because it travels to the offline client. These
+// fields are omitted when no server row is resolvable, preserving the Phase 1
+// {status, message} shape.
 type SyncPushResult struct {
-	SyncID   uuid.UUID  `json:"sync_id"`
-	Status   string     `json:"status"`
-	ServerID *uuid.UUID `json:"server_id,omitempty"`
-	Message  string     `json:"message,omitempty"`
+	SyncID          uuid.UUID      `json:"sync_id"`
+	Status          string         `json:"status"`
+	ServerID        *uuid.UUID     `json:"server_id,omitempty"`
+	Message         string         `json:"message,omitempty"`
+	ServerData      map[string]any `json:"server_data,omitempty"`
+	ServerUpdatedAt *time.Time     `json:"server_updated_at,omitempty"`
+	ConflictFields  []string       `json:"conflicting_fields,omitempty"`
 }
 
 // SyncPushResponse is returned to the client after a batch push.

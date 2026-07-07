@@ -1087,13 +1087,200 @@
 
 ---
 
-## E12: External Integrations (Phase 3)
+## E12: External Integrations and Hardening (Phase 3)
 
 **Phase**: 3 | **Priority**: P2 | **Prerequisite**: Phase 2 complete
 
-> Detailed acceptance criteria deferred to phase kickoff (phase-boundary rule).
+> Sprint 11 (Integration and Hardening) delivers the epic. Detailed acceptance criteria were
+> deferred to phase kickoff (phase-boundary rule) and are specified below. The sprint pairs two
+> application features (S12.1 public API, S12.2 conflict UI) with the roadmap hardening tasks
+> 11.3-11.6 (S12.3 backup/DR, S12.5 load testing, S12.6 penetration testing, S12.7 production
+> deployment). Email notifications (S12.4) are scoped this sprint to verifying Keycloak-owned
+> password recovery only; event reminders are deferred (net-new scheduler, out of scope).
+> Ops stories are delivered as committable artifacts plus runbooks validated by `make deliver`;
+> the cloud-execution portion of each is a documented manual step (the pipeline has a hard push
+> boundary and no cloud access).
 
-**S12.1** - WordPress public API (campaign listings, volunteer signup)
-**S12.2** - Advanced sync conflict resolution UI
-**S12.3** - Automated backup and disaster recovery
-**S12.4** - Email notifications (password recovery, event reminders)
+**S12.1 - WordPress public API (campaign listings, volunteer signup)**
+- status: ready
+- depends_on: [S05.1]
+- covers_requirements: [RNF-20]
+- parallel_with: [S12.2, S12.3, S12.5, S12.6, S12.7]
+- size: L
+- offline: N/A — an unauthenticated, internet-facing surface consumed by the public WordPress site; not part of the offline PWA.
+- As the public WordPress site, I need a secure public API to list a campus's active campaigns and
+  accept volunteer sign-ups so prospective volunteers can discover and join without staff mediation.
+- Acceptance criteria:
+  - **Given** a valid `campus_id` query parameter **when** `GET /api/v1/public/campaigns?campus_id=…`
+    is called with no authentication **then** it returns only that campus's `ACTIVE` campaigns using a
+    lean projection (`id, name, campaign_type, status, start_date, end_date, location_name`) with NO
+    PII and NO team/coordinator/address fields.
+  - **Given** a missing or malformed `campus_id` **when** the public campaigns endpoint is called
+    **then** it returns `400`; **given** an unknown or inactive campus **then** it returns `404`.
+  - **Given** a valid volunteer sign-up body (`full_name` required; `email`, `phone`, `birth_date`,
+    `referral_source` optional; `campus_id` required and validated against an existing active campus)
+    **when** `POST /api/v1/public/volunteer-signup` is called with no authentication **then** it
+    creates a `person`, a `VOLUNTEER` `person_role`, and a `PENDING` volunteer agreement in that
+    campus, returns `201`, and writes an `audit_log` entry with the campus set, the client IP and
+    user-agent captured, and a null actor (no authenticated subject).
+  - **Given** the public write path **when** any record is written **then** it runs on the non-owner
+    `chesed_app` connection inside a per-request campus transaction whose `app.current_campus` GUC is
+    the validated `campus_id`, so a handler bug attempting a different `campus_id` is rejected by RLS
+    `WITH CHECK` (fail-closed, defense-in-depth), never crossing campuses.
+  - **Given** more than the configured per-IP rate (`PUBLIC_RATE_LIMIT_RPM`, default 60/min, a
+    single limiter over the whole `/public` group keyed on RemoteAddr) **when** requests arrive
+    from the same IP **then** the excess receives `429` with `Retry-After`.
+  - **Given** a request `Origin` **when** it is not in the configured CORS allowlist
+    (`PUBLIC_CORS_ORIGINS`) **then** no `Access-Control-Allow-Origin` is echoed; the WordPress origin
+    is added via env, not hardcoded.
+- Notes: reuses the campaign list repository (lean `CampaignListItem`) and mirrors the self-register
+  flow minus its Keycloak/`app_user` coupling (a public form has no Keycloak subject). Campus is
+  validated with `CampusRepository.FindByID` before the transaction opens (the `campus` table is
+  RLS-exempt).
+
+**S12.2 - Advanced sync conflict resolution UI**
+- status: ready
+- depends_on: [S05.1]
+- covers_requirements: [RF-49]
+- parallel_with: [S12.1, S12.3, S12.5, S12.6, S12.7]
+- size: M
+- offline: Core offline feature — extends the existing last-write-wins conflict surfacing to a
+  field-level resolution UI available while the device is offline.
+- As a volunteer whose offline edit conflicts with a server change, I need to see both the local and
+  the server value for each conflicting field and choose what to keep, instead of a blind
+  last-write-wins overwrite.
+- Acceptance criteria:
+  - **Given** a `POST /sync/push` record that conflicts **when** the server responds **then** the
+    response includes a lean, non-PII `server_data` projection, `server_updated_at`, and (optionally)
+    `conflicting_fields`, so the client can present the server value.
+  - **Given** a conflict is detected on push or pull **when** the sync engine records it **then** the
+    server snapshot is persisted in a new client-side `conflicts` store (Dexie v3, additive upgrade);
+    the pull path no longer discards the incoming server record.
+  - **Given** a conflicted record **when** the resolution page is opened **then** the UI shows each
+    conflicting field's local value beside the server value.
+  - **Given** the resolution UI **when** the user picks "keep local" **then** the local data is
+    re-pushed (last-write-wins); **when** they pick "keep server" **then** the server value is applied
+    to the local cache as `synced` with no re-push; **when** they merge per field **then** the merged
+    payload is re-pushed and the conflict is cleared.
+  - **Given** any resolution **when** it completes **then** the conflict snapshot is removed and the
+    unresolved-conflict count updates.
+- Notes: the conflict-surfacing pipeline (badge, `/sync/conflicts` route, `ConflictList`,
+  `useSyncConflicts`) already exists; this story adds the server-value capture and the field-level
+  choice. `server_data` MUST be a lean projection (it travels to the offline client), never the full
+  PII row.
+
+**S12.3 - Automated backup and disaster recovery**
+- status: ready
+- depends_on: [S11.1]
+- covers_requirements: [RNF-16]
+- parallel_with: [S12.1, S12.2, S12.5, S12.6, S12.7]
+- size: M
+- offline: N/A — server-side operational tooling.
+- As an operator, I need automated, tested PostgreSQL backups and a documented recovery procedure so
+  a data-loss event is recoverable within the target RPO/RTO.
+- Acceptance criteria:
+  - **Given** `DATABASE_URL` (or discrete PG env) **when** `scripts/backup.sh` runs **then** it writes
+    a `pg_dump --format=custom` dump with a `sha256` sidecar, prunes dumps older than
+    `BACKUP_RETENTION_DAYS` (default 30), and refuses to run without connection env.
+  - **Given** a committed dump **when** `scripts/backup.sh drill` (or `make backup-drill`) runs against
+    the compose PostgreSQL **then** it restores the dump into a throwaway target and asserts a smoke
+    `SELECT count(*)` on core tables, proving the dump is restorable (PASS/FAIL).
+  - **Given** a target database and `--confirm` **when** `scripts/restore.sh` runs **then** it verifies
+    the `sha256` and restores with `pg_restore --clean --if-exists`; without `--confirm` it refuses
+    (destructive-op guard).
+  - **Given** the runbook `docs/runbooks/backup-and-dr.md` **then** it documents the external-cron
+    trigger, the DR recovery set (Postgres dump + `keycloak/realm-export.json` + object storage), the
+    restore-drill and monthly restore-verification procedures, RPO/RTO consistent with
+    `docs/14-deployment-strategy.md`, and the managed-snapshot/PITR cloud layer as documented-manual.
+- Notes: no in-app scheduler is added; the script is triggered externally, mirroring the retention
+  sweep pattern. Off-site copy is an env-gated, documented-manual hook.
+
+**S12.4 - Password-recovery verification (Keycloak-owned)**
+- status: ready
+- depends_on: [S02.2]
+- covers_requirements: [RF-16]
+- parallel_with: [S12.1, S12.2, S12.3, S12.5, S12.6, S12.7]
+- size: S
+- offline: N/A — authentication is Keycloak-delegated and requires connectivity.
+- As a user who forgot my password, I need a working password-recovery flow — which Keycloak already
+  owns — so this story verifies and documents it rather than building application code.
+- Acceptance criteria:
+  - **Given** `keycloak/realm-export.json` **then** `resetPasswordAllowed` is true and the
+    `SEND_RESET_PASSWORD` reset flow is configured; **given** `docker-compose.prod.yml` **then** prod
+    SMTP is wired via `KC_SPI_EMAIL_SENDER_*`.
+  - **Given** the dev stack (Keycloak + Mailpit) **when** the "Forgot password" flow is triggered
+    **then** the reset email is captured in the Mailpit inbox and the reset completes, per
+    `docs/runbooks/password-recovery-verification.md`.
+  - **Given** this sprint's scope **then** NO application-side email code is written and event
+    reminders are explicitly deferred (net-new scheduler infrastructure, out of scope).
+- Notes: this replaces the original "Email notifications (password recovery, event reminders)" line;
+  event reminders remain a future backlog item.
+
+**S12.5 - Performance load testing (100 concurrent users)**
+- status: ready
+- depends_on: [S12.1]
+- covers_requirements: [RNF-08]
+- parallel_with: [S12.2, S12.3, S12.6, S12.7]
+- size: S
+- offline: N/A — performance validation tooling.
+- As an operator, I need a committable load-test artifact and hot-path benchmarks so the RNF-08
+  100-concurrent-user target can be exercised repeatably.
+- Acceptance criteria:
+  - **Given** `scripts/load-test/k6-public-and-sync.js` **when** run with k6 **then** it drives 100
+    virtual users through ramp stages against the public and sync endpoints with thresholds
+    (`http_req_duration p(95) < 500ms`, `http_req_failed < 1%`).
+  - **Given** `make load-test` **when** k6 is absent **then** it skips with a NEEDS-K6 notice (mirrors
+    the Docker-gated deliver steps); **when** present **then** it runs the scenario.
+  - **Given** Go benchmarks (`BenchmarkListActiveCampaigns`, `BenchmarkPushBatch`) **when**
+    `make bench` runs **then** they compile and execute (`go test -bench -benchmem`), giving per-op
+    latency/allocs independent of the network.
+- Notes: running 100 concurrent users against real infrastructure and interpreting p95/RPO is a
+  documented-manual ops step; the committable artifacts are the script, benchmarks, and make targets.
+
+**S12.6 - Security penetration testing**
+- status: ready
+- depends_on: [S12.1]
+- covers_requirements: [RNF-03]
+- parallel_with: [S12.2, S12.3, S12.5, S12.7]
+- size: M
+- offline: N/A — security validation tooling and report.
+- As a security owner, I need committable security-scan tooling and an OWASP-aligned findings report
+  so the public surface and the platform's existing controls are validated before production.
+- Acceptance criteria:
+  - **Given** `scripts/security-headers-check.sh` and a target URL **when** run **then** it asserts
+    each security header set by the middleware (values matched exactly) and asserts
+    `Strict-Transport-Security` only over HTTPS, exiting non-zero on any missing/incorrect header.
+  - **Given** `backend/.gosec.json` **when** `make security-scan` runs (`gosec ./...`, skipped with a
+    notice if gosec is absent) **then** it uses a defensible ruleset that does not blanket-disable
+    injection rules.
+  - **Given** `docs/security-review-sprint11.md` **then** it follows the `security-review-sprint4.md`
+    structure and documents the HSTS gap and its resolution (flag-gated middleware header +
+    nginx-termination note, closing RNF-03), the CSP-for-JSON confirmation, the public-endpoint threat
+    surface (rate limiting, campus validation, RLS fail-closed, no-PII projections, IP/UA audit,
+    CORS allowlist), the `set_config` parameterization injection-safety note, and an OWASP Top 10
+    coverage table citing the existing integration tests as automated evidence.
+- Notes: live ZAP/nuclei scanning and manual exploitation against a running instance remain
+  documented-manual; the committable artifacts are the header-check script, the gosec config, and the
+  findings report.
+
+**S12.7 - Production deployment (runbook and config templates)**
+- status: ready
+- depends_on: [S12.3]
+- covers_requirements: [RNF-16]
+- parallel_with: [S12.1, S12.2, S12.5, S12.6]
+- size: S
+- offline: N/A — deployment operations.
+- As an operator, I need a production deployment runbook and config templates over the existing
+  compose/deploy mechanics so a first production rollout is reproducible.
+- Acceptance criteria:
+  - **Given** `docs/runbooks/production-deployment.md` **then** it documents prerequisites, the full
+    env/secret checklist (including the new `PUBLIC_CORS_ORIGINS`, `HSTS_ENABLED`,
+    `PUBLIC_RATE_LIMIT_RPM`, and the `chesed_app` role password), TLS bootstrap, first vs subsequent
+    deploy over `scripts/deploy.sh`, migration application, health-check verification, re-enabling the
+    paused GitHub Actions deploy workflow (manual), and rollback.
+  - **Given** `deploy/.env.prod.template` **then** it enumerates every required prod env var with
+    placeholder values (no secrets), grouped by concern, including the new Sprint 11 vars.
+  - **Given** the hard push boundary **then** the runbook explicitly marks cloud execution
+    (server provisioning, secrets, SSH deploy) as documented-manual — the pipeline cannot deploy.
+- Notes: the deployment mechanics (`docker-compose.prod.yml`, `scripts/deploy.sh`, TLS scripts, the
+  paused `deploy.yml`) already exist; this story adds the runbook and config templates only.

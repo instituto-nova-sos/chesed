@@ -17,6 +17,16 @@ async function seedConflict(entityId: string): Promise<number> {
   })) as number;
 }
 
+async function seedSnapshot(entityId: string, fullName: string): Promise<void> {
+  await db.conflicts.put({
+    entityId,
+    entityType: 'person',
+    serverData: { id: entityId, full_name: fullName },
+    serverUpdatedAt: '2026-05-01T00:00:00Z',
+    capturedAt: new Date().toISOString(),
+  });
+}
+
 describe('useSyncConflicts', () => {
   beforeEach(async () => {
     await db.delete();
@@ -56,5 +66,81 @@ describe('useSyncConflicts', () => {
     await waitFor(() => expect(result.current.conflicts).toHaveLength(0));
     const item = await db.syncQueue.get(key);
     expect(item?.conflicted).toBeFalsy();
+  });
+
+  it('snapshotFor returns the captured server version', async () => {
+    await seedConflict('a');
+    await seedSnapshot('a', 'Server Name');
+    const { result } = renderHook(() => useSyncConflicts());
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(1));
+
+    const snap = await result.current.snapshotFor('a');
+    expect(snap?.serverData.full_name).toBe('Server Name');
+  });
+
+  it('keepServer applies the server data and clears the conflict', async () => {
+    const key = await seedConflict('a');
+    await seedSnapshot('a', 'Server Name');
+    await db.persons.put({
+      id: 'a',
+      data: { id: 'a', full_name: 'Local Name' },
+      syncStatus: 'conflict',
+      localCreatedAt: new Date().toISOString(),
+    });
+    const { result } = renderHook(() => useSyncConflicts());
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.keepServer(key);
+    });
+
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(0));
+    expect((await db.persons.get('a'))?.data.full_name).toBe('Server Name');
+    expect((await db.persons.get('a'))?.syncStatus).toBe('synced');
+    expect(await db.conflicts.get('a')).toBeUndefined();
+  });
+
+  it('keepLocal re-queues the local record and clears the conflict', async () => {
+    const key = await seedConflict('a');
+    await seedSnapshot('a', 'Server Name');
+    await db.persons.put({
+      id: 'a',
+      data: { id: 'a', full_name: 'Local Name' },
+      syncStatus: 'conflict',
+      localCreatedAt: new Date().toISOString(),
+    });
+    const { result } = renderHook(() => useSyncConflicts());
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.keepLocal(key);
+    });
+
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(0));
+    expect((await db.syncQueue.get(key))?.conflicted).toBeFalsy();
+    expect((await db.persons.get('a'))?.syncStatus).toBe('pending');
+    expect(await db.conflicts.get('a')).toBeUndefined();
+  });
+
+  it('merge stages the merged data and clears the conflict', async () => {
+    const key = await seedConflict('a');
+    await seedSnapshot('a', 'Server Name');
+    await db.persons.put({
+      id: 'a',
+      data: { id: 'a', full_name: 'Local Name' },
+      syncStatus: 'conflict',
+      localCreatedAt: new Date().toISOString(),
+    });
+    const { result } = renderHook(() => useSyncConflicts());
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.merge(key, { id: 'a', full_name: 'Merged Name' });
+    });
+
+    await waitFor(() => expect(result.current.conflicts).toHaveLength(0));
+    expect((await db.syncQueue.get(key))?.data.full_name).toBe('Merged Name');
+    expect((await db.persons.get('a'))?.syncStatus).toBe('pending');
+    expect(await db.conflicts.get('a')).toBeUndefined();
   });
 });

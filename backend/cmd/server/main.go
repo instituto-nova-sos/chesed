@@ -73,7 +73,7 @@ func run() error {
 		return fmt.Errorf("main.run: storage: %w", err)
 	}
 
-	router := setupRouter(pool, adminPool, authMW, store)
+	router := setupRouter(cfg, pool, adminPool, authMW, store)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
@@ -107,11 +107,13 @@ type appDeps struct {
 	audit        *handler.AuditHandler
 	admin        *handler.AdminHandler
 	sync         *handler.SyncHandler
+	public       *handler.PublicHandler
 
 	userSvc        *service.UserService
 	auditSvc       *service.AuditService
 	agreementRepo  *repository.VolunteerAgreementRepository
 	personRoleRepo *repository.PersonRoleRepository
+	campusRepo     *repository.CampusRepository
 }
 
 // buildDeps wires repositories → services → handlers.
@@ -160,10 +162,12 @@ func buildDeps(pool *pgxpool.Pool, store service.ObjectStorage) appDeps {
 		audit:          handler.NewAuditHandler(service.NewAuditReadService(auditRepo)),
 		admin:          handler.NewAdminHandler(service.NewRetentionService(retentionRepo, personRepo, auditSvc)),
 		sync:           handler.NewSyncHandler(service.NewSyncService(personRepo, triageRepo, attendanceRepo, campaignRepo, auditSvc)),
+		public:         handler.NewPublicHandler(service.NewPublicService(campaignRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)),
 		userSvc:        userSvc,
 		auditSvc:       auditSvc,
 		agreementRepo:  agreementRepo,
 		personRoleRepo: personRoleRepo,
+		campusRepo:     campusRepo,
 	}
 }
 
@@ -188,22 +192,45 @@ func warnIfRLSBypassed(ctx context.Context, pool *pgxpool.Pool) {
 	}
 }
 
-func setupRouter(pool, adminPool *pgxpool.Pool, authMW func(http.Handler) http.Handler, store service.ObjectStorage) *chi.Mux {
+func setupRouter(cfg config.Config, pool, adminPool *pgxpool.Pool, authMW func(http.Handler) http.Handler, store service.ObjectStorage) *chi.Mux {
 	d := buildDeps(pool, store)
 
+	// The dev origin is always allowed; production/public origins (e.g. the
+	// WordPress site) are added via PUBLIC_CORS_ORIGINS so the public API can be
+	// consumed cross-origin without another hardcoded literal.
+	corsOrigins := append([]string{"http://localhost:5173"}, cfg.PublicCORSOrigins...)
+
 	r := chi.NewRouter()
-	r.Use(middleware.SecurityHeaders)
-	r.Use(middleware.CORS("http://localhost:5173"))
+	// HSTS is flag-gated (HTTPS-only; invalid over plain HTTP), so it is off by
+	// default and enabled via HSTS_ENABLED in TLS-terminated deployments.
+	r.Use(middleware.SecurityHeadersWith(cfg.HSTSEnabled))
+	r.Use(middleware.CORS(corsOrigins...))
 	r.Get("/health", d.health.ServeHTTP)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", d.health.ServeHTTP)
+		d.registerPublicRoutes(r, pool, cfg.PublicRateLimitRPM)
 		d.registerAuthOnlyRoutes(r, authMW, adminPool)
 		d.registerAgreementRoutes(r, authMW)
 		d.registerProtectedRoutes(r, authMW, pool)
 	})
 
 	return r
+}
+
+// registerPublicRoutes mounts the unauthenticated, internet-facing public API
+// (S12.1). It runs on the NON-OWNER pool inside PublicCampusTx so RLS enforces
+// campus isolation from a validated, request-supplied campus_id — a fail-closed
+// safety net for a surface that has no auth token. A per-IP rate limiter sheds
+// abusive traffic before any DB work.
+func (d appDeps) registerPublicRoutes(r chi.Router, pool *pgxpool.Pool, rateLimitRPM int) {
+	r.Route("/public", func(r chi.Router) {
+		r.Use(middleware.PublicRateLimit(rateLimitRPM))
+		r.Use(middleware.PublicCampusValidator(d.campusRepo))
+		r.Use(middleware.PublicCampusTx(pool))
+		r.Get("/campaigns", d.public.ListCampaigns)
+		r.Post("/volunteer-signup", d.public.VolunteerSignup)
+	})
 }
 
 // registerAuthOnlyRoutes mounts routes needing auth but no provision/RBAC.

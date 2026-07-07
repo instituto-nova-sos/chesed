@@ -1,7 +1,68 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-06 (Session 39)
+2026-07-07 (Session 40)
+
+---
+
+## Session 40: Sprint 11 — E12 Integration & Hardening (2026-07-07)
+
+### What Was Delivered (branch `feat/sprint11-integration-hardening`, READY-FOR-PR)
+Sprint 11 completes E12 (the final Phase 3 epic), pairing two application features
+with the roadmap hardening tasks, parallelized across 11 workstreams over disjoint
+file sets with the orchestrator owning the shared route-wiring/schema seams.
+
+- **S12.1 — WordPress public API (RNF-20).** Unauthenticated `GET /api/v1/public/campaigns`
+  (active campaigns, lean no-PII projection) and `POST /api/v1/public/volunteer-signup`
+  (person + VOLUNTEER role + PENDING agreement + campus-scoped, actor-less audit with
+  captured IP/UA). Runs on the non-owner `chesed_app` pool inside a new `PublicCampusTx`
+  whose `app.current_campus` GUC comes from a request-supplied, validated `campus_id`, so
+  RLS `WITH CHECK` is a fail-closed safety net. New per-IP rate limiter (`go-chi/httprate`,
+  non-deprecated `LimitBy` keyed on the unspoofable RemoteAddr), env-driven CORS allowlist
+  (`PUBLIC_CORS_ORIGINS`), and a flag-gated HSTS header (`HSTS_ENABLED`, closing a real
+  pentest finding). The public-path middleware shares the transaction machinery with the
+  authenticated `CampusTx` via an extracted `campusSource`.
+- **S12.2 — Advanced (field-level) sync conflict resolution UI (RF-49).** The push
+  conflict response now carries a lean, non-PII `server_data` projection + `server_updated_at`
+  (person: full_name/email/phone; triage/attendance exclude clinical notes). A new Dexie v3
+  `conflicts` store persists the server snapshot (also on the pull path, which previously
+  discarded it). `ConflictDiff` presents each field's local vs server value; the operator
+  keeps-local / keeps-server / merges per field, and the resolution re-pushes or applies the
+  server value with no round-trip.
+- **S12.3 — Automated backup & DR (RNF-16).** `scripts/backup.sh` (pg_dump custom + sha256 +
+  retention prune), `scripts/restore.sh` (guarded `--confirm`), a `backup.sh drill` that
+  restores into a throwaway DB and smoke-asserts core tables, `make backup`/`backup-drill`,
+  and `docs/runbooks/backup-and-dr.md`.
+- **S12.4 — Password-recovery verification (RF-16).** Confirmed Keycloak owns recovery
+  (`realm-export.json` reset flow + prod `KC_SPI_EMAIL_SENDER_*` SMTP + Mailpit dev walkthrough)
+  in `docs/runbooks/password-recovery-verification.md`. No app code; event reminders deferred.
+- **S12.5 — Load testing (RNF-08).** `scripts/load-test/k6-public-and-sync.js` (100 VUs, ramps,
+  `p95<500ms`/`fail<1%`), Go `BenchmarkListActiveCampaigns`/`BenchmarkPushBatch`, `make load-test`
+  (NEEDS-K6 gated) + `make bench`.
+- **S12.6 — Security pentest (RNF-03).** `scripts/security-headers-check.sh` (asserts every
+  header incl. HSTS over HTTPS), `backend/.gosec.json` (injection rules kept enabled),
+  `docs/security-review-sprint11.md` (OWASP-aligned findings), `make security-scan`.
+- **S12.7 — Production deployment (RNF-16).** `docs/runbooks/production-deployment.md` +
+  `deploy/.env.prod.template` over the existing compose/deploy mechanics; cloud execution is
+  documented-manual (hard push boundary).
+
+### Bug Caught by Integration Tests (fixed)
+The public-signup integration test exposed a latent transaction-consistency defect:
+`PersonRoleRepository` and `VolunteerAgreementRepository` held a raw `*pgxpool.Pool` and
+ignored the request Querier, so their writes ran on a separate pooled connection **outside**
+the request transaction. Under `PublicCampusTx` this caused an FK violation against the
+not-yet-committed person, silently dropping the VOLUNTEER role + PENDING agreement (the
+handler only logged it, still returned 201). Fixed at the root: both repos now embed `base`
+and use `r.q(ctx)` like every other campus-scoped repo (`*pgxpool.Pool` satisfies `Querier`,
+so all callers compile unchanged). Unit mocks missed this; the real-Postgres integration test
+caught it — exactly the integration mandate's purpose.
+
+### Process & Verification
+- TDD per story; every new endpoint has a backend integration test (testcontainers Postgres),
+  every new API-client surface a frontend MSW test. `sync_service.go` conflict helpers were
+  extracted to `sync_conflict.go` to keep the file within the length budget.
+- Backend: build + all unit tests + `golangci-lint` clean; full integration suite green.
+  Frontend: typecheck + 353 unit tests + 65 integration tests + coverage + build clean.
 
 ---
 
