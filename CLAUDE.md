@@ -288,6 +288,7 @@ Types: feat, fix, refactor, test, docs, chore, ci
 - Clean code: `docs/quality/clean-code-guidelines.md`
 - Quality gates: `docs/quality/quality-gates.md`
 - Complexity: `docs/quality/complexity-guidelines.md`
+- ADRs: `docs/adr/` (e.g. `docs/adr/0001-audit-logging-durability.md`)
 
 ---
 

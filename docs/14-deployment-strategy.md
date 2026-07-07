@@ -13,7 +13,62 @@
 
 ## Hosting Options (Budget-Friendly)
 
-### Recommended: Railway or Render
+### Recommended (2026 cost-minimized): single VPS + Cloudflare free tiers
+
+> The decisive constraint is **Keycloak cannot scale to zero** — it holds sessions
+> in JVM heap and validates a token on every request, so it needs ~512MB–1GB RAM
+> running 24/7. This eliminates every "free tier that sleeps" (Render free web
+> services, Fly.io auto-stop, Railway usage-only trial) and every serverless model.
+> You are effectively paying for **one always-on box** (~2.5 vCPU / 2–3GB across the
+> whole compose stack). The PWA (static) and object storage (a few GB) are free on
+> Cloudflare regardless, so the only real cost is that one box.
+
+**Primary recommendation — ~€4/month, indefinitely, production-grade:**
+
+```
+PWA        → Cloudflare Pages          (free, unlimited bandwidth)
+Documents  → Cloudflare R2             (free tier: 10GB + zero egress fees)
+Postgres + Keycloak + Go API + TLS
+           → one ARM VPS running docker-compose.prod.yml
+             • Contabo Cloud VPS 10  (4 vCPU / 8GB)  ≈ €4/mo  ← safest RAM headroom
+             • Hetzner CAX11 (ARM)   (2 vCPU / 4GB)  ≈ €4/mo  ← cap Keycloak heap -Xmx512m
+TLS        → Caddy / nginx + Let's Encrypt on the box (free, auto-renew)
+
+Estimated monthly cost: ~€4 (≈ US$4–5). Confirm live VPS price at order time —
+Hetzner adjusted prices in Apr and Jun 2026.
+```
+
+**Runner-up — $0/month + Brazilian data residency:** Oracle Cloud **Always Free**
+(Ampere A1 ARM, **São Paulo / Vinhedo** region). Runs the whole stack for free
+forever and is the only free option physically in Brazil (LGPD win). Docked to
+runner-up because of A1 capacity scarcity, the June-2026 cut to 2 OCPU / 12GB,
+idle-reclamation policy, and no support — great if a technical volunteer owns the
+ops, risky if nobody can.
+
+**Non-profit credit bridge (year one free, then fall back to the €4 VPS):** the
+Instituto is Brazil-eligible for **Google for Nonprofits Cloud credits** and the
+**AWS Nonprofit Credit Program (up to $5,000/yr)** — both via TechSoup Global /
+Goodstack validation, both with a **São Paulo** region. Use these as runway, not as
+the permanent architecture (credits expire ~1 yr).
+
+**LGPD / data residency (practical):** LGPD does **not** require Brazilian data to
+stay in Brazil — international transfer is allowed with an adequate legal basis, so
+an EU VPS (Hetzner Germany/Finland) is compliant. Prefer a **São Paulo** region only
+when it is free/near-free via Oracle or a nonprofit credit (cleaner paperwork, lower
+latency); do not pay a premium for it.
+
+| Option | $/mo (all-in) | Pros | Cons |
+|---|---|---|---|
+| **Contabo 8GB VPS + CF Pages/R2** ⭐ | ~€4 | Cheapest with RAM headroom; full control | Self-managed; EU/US only (no BR region) |
+| **Hetzner CAX11 ARM + CF Pages/R2** | ~€4 | Reliable, great tooling, ARM efficiency | 4GB needs Keycloak heap cap; no BR region |
+| **Oracle Always Free A1 (São Paulo)** 🥈 | $0 | Free forever; **BR residency**; 12GB RAM | Capacity scarcity; idle-reclaim; no support |
+| **Railway / Render / Fly.io** | ~$25–45 | Zero ops, managed DB | 6–10× VPS cost (always-on Keycloak RAM) |
+| **AWS/GCP on nonprofit credit** | $0 yr 1, then market | São Paulo region; free first year | Credit expires (~1 yr); more setup |
+
+The PaaS options below remain valid if the Instituto prefers zero-ops over cost;
+they are 6–10× the VPS price purely because Keycloak must stay always-on.
+
+### Alternative (managed, higher cost): Railway or Render
 
 | Service | Free Tier | Paid Tier | Notes |
 |---------|-----------|-----------|-------|
