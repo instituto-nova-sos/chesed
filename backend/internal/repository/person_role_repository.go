@@ -9,17 +9,16 @@ import (
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PersonRoleRepository handles person_role persistence.
 type PersonRoleRepository struct {
-	pool *pgxpool.Pool
+	base
 }
 
 // NewPersonRoleRepository creates a new PersonRoleRepository.
-func NewPersonRoleRepository(pool *pgxpool.Pool) *PersonRoleRepository {
-	return &PersonRoleRepository{pool: pool}
+func NewPersonRoleRepository(pool Querier) *PersonRoleRepository {
+	return &PersonRoleRepository{base: base{pool: pool}}
 }
 
 // Create inserts a new person role.
@@ -30,7 +29,7 @@ func (r *PersonRoleRepository) Create(ctx context.Context, role domain.PersonRol
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING activated_at, created_at`
 
-	err := r.pool.QueryRow(ctx, query,
+	err := r.q(ctx).QueryRow(ctx, query,
 		role.ID, role.PersonID, role.RoleType, role.ProfessionalSpecialty,
 		role.IsActive, role.ActivatedBy, role.Notes,
 	).Scan(&role.ActivatedAt, &role.CreatedAt)
@@ -54,7 +53,7 @@ func (r *PersonRoleRepository) FindByPersonID(ctx context.Context, personID uuid
 		WHERE person_id = $1
 		ORDER BY activated_at`
 
-	rows, err := r.pool.Query(ctx, query, personID)
+	rows, err := r.q(ctx).Query(ctx, query, personID)
 	if err != nil {
 		return nil, fmt.Errorf("personRoleRepository.FindByPersonID: %w", err)
 	}
@@ -105,13 +104,13 @@ func (r *PersonRoleRepository) ToggleActive(ctx context.Context, roleID uuid.UUI
 	var err error
 
 	if isActive {
-		err = r.pool.QueryRow(ctx, query, roleID).Scan(
+		err = r.q(ctx).QueryRow(ctx, query, roleID).Scan(
 			&pr.ID, &pr.PersonID, &pr.RoleType, &pr.ProfessionalSpecialty,
 			&pr.IsActive, &pr.ActivatedAt, &pr.DeactivatedAt,
 			&pr.ActivatedBy, &pr.DeactivatedBy, &pr.Notes, &pr.CreatedAt,
 		)
 	} else {
-		err = r.pool.QueryRow(ctx, query, roleID, userID).Scan(
+		err = r.q(ctx).QueryRow(ctx, query, roleID, userID).Scan(
 			&pr.ID, &pr.PersonID, &pr.RoleType, &pr.ProfessionalSpecialty,
 			&pr.IsActive, &pr.ActivatedAt, &pr.DeactivatedAt,
 			&pr.ActivatedBy, &pr.DeactivatedBy, &pr.Notes, &pr.CreatedAt,

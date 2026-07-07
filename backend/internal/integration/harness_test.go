@@ -47,6 +47,12 @@ import (
 	"github.com/instituto-nova-sos/chesed/internal/service"
 )
 
+// publicRateLimitRPM is the per-IP request budget the shared harness router
+// grants the public routes. It is set high so happy-path/validation tests are
+// never throttled; the 429 path is asserted separately with a dedicated
+// low-limit router in public_test.go.
+const publicRateLimitRPM = 600
+
 // testHarness wires a real Postgres + the production stack so each test can
 // exercise the HTTP surface end-to-end without mocks.
 type testHarness struct {
@@ -173,6 +179,12 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	auditH := handler.NewAuditHandler(auditReadSvc)
 	adminH := handler.NewAdminHandler(retentionSvc)
 
+	campusRepo := repository.NewCampusRepository(pool)
+	personRoleRepo := repository.NewPersonRoleRepository(pool)
+	agreementRepo := repository.NewVolunteerAgreementRepository(pool)
+	publicSvc := service.NewPublicService(campaignRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
+	publicH := handler.NewPublicHandler(publicSvc)
+
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
 	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes/
@@ -184,6 +196,18 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	adminOnly := middleware.RequireRole(auditSvc, "ADMIN")
 
 	r := chi.NewRouter()
+	// Public routes (S12.1) mirror registerPublicRoutes in cmd/server/main.go:
+	// unauthenticated, validated campus, per-request campus transaction. Here
+	// they run on the owner `pool` (RLS-bypassed) so happy-path/validation/
+	// rate-limit assertions are exercised; the RLS fail-closed boundary is
+	// asserted separately in public_rls_test.go on the non-owner chesed_app pool.
+	r.Route("/api/v1/public", func(r chi.Router) {
+		r.Use(middleware.PublicRateLimit(publicRateLimitRPM))
+		r.Use(middleware.PublicCampusValidator(campusRepo))
+		r.Use(middleware.PublicCampusTx(pool))
+		r.Get("/campaigns", publicH.ListCampaigns)
+		r.Post("/volunteer-signup", publicH.VolunteerSignup)
+	})
 	r.Route("/api/v1/sync", func(r chi.Router) {
 		r.Post("/push", syncH.Push)
 		r.Get("/pull", syncH.Pull)

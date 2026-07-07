@@ -10,17 +10,16 @@ import (
 	"github.com/instituto-nova-sos/chesed/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // VolunteerAgreementRepository handles volunteer_agreement persistence.
 type VolunteerAgreementRepository struct {
-	pool *pgxpool.Pool
+	base
 }
 
 // NewVolunteerAgreementRepository creates a new VolunteerAgreementRepository.
-func NewVolunteerAgreementRepository(pool *pgxpool.Pool) *VolunteerAgreementRepository {
-	return &VolunteerAgreementRepository{pool: pool}
+func NewVolunteerAgreementRepository(pool Querier) *VolunteerAgreementRepository {
+	return &VolunteerAgreementRepository{base: base{pool: pool}}
 }
 
 // Create inserts a new volunteer agreement record.
@@ -33,7 +32,7 @@ func (r *VolunteerAgreementRepository) Create(ctx context.Context, agreement dom
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING created_at, updated_at`
 
-	err := r.pool.QueryRow(ctx, query,
+	err := r.q(ctx).QueryRow(ctx, query,
 		agreement.ID, agreement.PersonID, agreement.PersonRoleID,
 		agreement.CampusID, agreement.Status,
 		agreement.SignatureMethod, agreement.AgreementVersion, agreement.Notes,
@@ -61,7 +60,7 @@ func (r *VolunteerAgreementRepository) FindByPersonID(ctx context.Context, perso
 		WHERE person_id = $1
 		ORDER BY created_at DESC`
 
-	rows, err := r.pool.Query(ctx, query, personID)
+	rows, err := r.q(ctx).Query(ctx, query, personID)
 	if err != nil {
 		return nil, fmt.Errorf("volunteerAgreementRepository.FindByPersonID: %w", err)
 	}
@@ -96,7 +95,7 @@ func (r *VolunteerAgreementRepository) FindByPersonRoleID(ctx context.Context, p
 		FROM volunteer_agreement
 		WHERE person_role_id = $1`
 
-	row := r.pool.QueryRow(ctx, query, personRoleID)
+	row := r.q(ctx).QueryRow(ctx, query, personRoleID)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -120,7 +119,7 @@ func (r *VolunteerAgreementRepository) FindPendingByPersonID(ctx context.Context
 		WHERE person_id = $1 AND status = 'PENDING'
 		LIMIT 1`
 
-	row := r.pool.QueryRow(ctx, query, personID)
+	row := r.q(ctx).QueryRow(ctx, query, personID)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -141,7 +140,7 @@ func (r *VolunteerAgreementRepository) HasAcceptedAgreement(ctx context.Context,
 		)`
 
 	var exists bool
-	err := r.pool.QueryRow(ctx, query, personID).Scan(&exists)
+	err := r.q(ctx).QueryRow(ctx, query, personID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("volunteerAgreementRepository.HasAcceptedAgreement: %w", err)
 	}
@@ -167,7 +166,7 @@ func (r *VolunteerAgreementRepository) AcceptDigital(ctx context.Context, id uui
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
-	row := r.pool.QueryRow(ctx, query, id, userID, ip, userAgent)
+	row := r.q(ctx).QueryRow(ctx, query, id, userID, ip, userAgent)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -194,7 +193,7 @@ func (r *VolunteerAgreementRepository) Reject(ctx context.Context, id uuid.UUID,
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
-	row := r.pool.QueryRow(ctx, query, id, reason)
+	row := r.q(ctx).QueryRow(ctx, query, id, reason)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -224,7 +223,7 @@ func (r *VolunteerAgreementRepository) AcceptManualUpload(ctx context.Context, i
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
-	row := r.pool.QueryRow(ctx, query, id, documentPath, now, uploadedBy)
+	row := r.q(ctx).QueryRow(ctx, query, id, documentPath, now, uploadedBy)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
