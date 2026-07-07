@@ -19,25 +19,28 @@ export function useAttendanceReport(initial?: AttendanceReportParams) {
   });
 
   useEffect(() => {
-    if (!params) {
-      setState({ report: null, isLoading: false, error: null });
-      return;
-    }
+    const activeParams = params;
     let cancelled = false;
-    setState({ report: null, isLoading: true, error: null });
-    getAttendanceReport(params)
-      .then((report) => {
+    async function load() {
+      if (!activeParams) {
+        setState({ report: null, isLoading: false, error: null });
+        return;
+      }
+      setState({ report: null, isLoading: true, error: null });
+      try {
+        const report = await getAttendanceReport(activeParams);
         if (cancelled) return;
         setState({ report, isLoading: false, error: null });
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         setState({
           report: null,
           isLoading: false,
           error: err instanceof Error ? err.message : 'Falha ao gerar relatório',
         });
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };

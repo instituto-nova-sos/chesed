@@ -249,7 +249,7 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 | 8.2 | React: Report filters (type, team, campaign, period) | 8.1 | Done |
 | 8.3 | React: Chart components (Recharts) | 8.2 | Done |
 | 8.4 | React: Statistics dashboard (GET /reports/dashboard) | 8.3 | Done |
-| 8.5 | Follow-up workflow state (attendance reopen) | 3.2 | Done (delivered with attendance transitions; FOLLOW_UP is a valid transition target) |
+| 8.5 | Follow-up workflow state (attendance reopen) | 3.2 | Partial — cancel-with-reason (RF-35a) shipped via attendance transitions (S04.3); attendance *reopen* / `FOLLOW_UP` state (RF-35) is NOT implemented (`domain/attendance.go`: COMPLETED has no outgoing transitions, FOLLOW_UP explicitly deferred to Phase 2). Tracked as a known gap, not delivered. |
 
 **Phase 2 Milestone**: Full feature set operational except multi-region and compliance automation.
 
@@ -280,12 +280,12 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 
 | # | Task | Dependencies | Story | Status |
 |---|------|-------------|-------|--------|
-| 11.1 | WordPress public API (campaigns, volunteer signup) | Phase 2 | S12.1 | In progress |
-| 11.2 | Advanced sync conflict resolution UI | Phase 1 | S12.2 | In progress |
-| 11.3 | Automated backup and disaster recovery | Phase 2 | S12.3 | In progress |
-| 11.4 | Performance load testing (100 concurrent users) | Phase 2 | S12.5 | In progress |
-| 11.5 | Security penetration testing | Phase 2 | S12.6 | In progress |
-| 11.6 | Production deployment | All | S12.7 | In progress |
+| 11.1 | WordPress public API (campaigns, volunteer signup) | Phase 2 | S12.1 | Done |
+| 11.2 | Advanced sync conflict resolution UI | Phase 1 | S12.2 | Done |
+| 11.3 | Automated backup and disaster recovery | Phase 2 | S12.3 | Done |
+| 11.4 | Performance load testing (100 concurrent users) | Phase 2 | S12.5 | Done |
+| 11.5 | Security penetration testing | Phase 2 | S12.6 | Done |
+| 11.6 | Production deployment | All | S12.7 | Done |
 
 > Sprint 11 (E12) is delivered as committable artifacts plus runbooks validated by
 > `make deliver`; the cloud-execution portion of each ops task (11.3-11.6) is a documented

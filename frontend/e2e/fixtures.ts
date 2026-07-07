@@ -63,6 +63,13 @@ export interface E2EIdentity {
   email: string;
   roles: string[];
   campusId: string;
+  /**
+   * The person the seeded app_user is linked to, carried as the JWT `person_id`
+   * claim. Flows that record the acting user AS a person (e.g. attendance
+   * `professional_id → person(id)`) need this — an ADMIN without a linked person
+   * cannot submit them.
+   */
+  professionalPersonId: string;
   /** Unique per-test prefix for any data this test creates (cleanup scope). */
   dataPrefix: string;
 }
@@ -84,12 +91,32 @@ async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
 
 async function seedAppUser(identity: E2EIdentity): Promise<void> {
   await withClient(async (client) => {
+    // Seed the person the acting user IS, so flows that reference the actor as a
+    // person (attendance.professional_id → person(id)) can resolve it. Name is
+    // test-prefixed so cleanupTestData sweeps it with the rest.
+    //
+    // document_number MUST be unique and non-null: person defaults document_type
+    // to 'CPF' and has UNIQUE NULLS NOT DISTINCT (document_type, document_number),
+    // so a ('CPF', NULL) professional would collide with any form-created
+    // name-only person (also ('CPF', NULL)) and 409 the person-create. A unique
+    // synthetic document keeps this actor row out of that collision class.
     await client.query(
-      `INSERT INTO app_user (id, email, keycloak_subject_id, access_profile, campus_id, is_active)
-       VALUES ($1, $2, $3, 'ADMIN', $4, TRUE)
+      `INSERT INTO person (id, full_name, document_type, document_number, campus_id, is_active)
+       VALUES ($1, $2, 'OTHER', $3, $4, TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        identity.professionalPersonId,
+        `${identity.dataPrefix}Profissional`,
+        `E2EPRO-${identity.professionalPersonId.slice(0, 12)}`,
+        identity.campusId,
+      ],
+    );
+    await client.query(
+      `INSERT INTO app_user (id, email, keycloak_subject_id, access_profile, campus_id, person_id, is_active)
+       VALUES ($1, $2, $3, 'ADMIN', $4, $5, TRUE)
        ON CONFLICT (keycloak_subject_id) DO UPDATE
-         SET campus_id = EXCLUDED.campus_id, is_active = TRUE`,
-      [randomUUID(), identity.email, identity.subject, identity.campusId],
+         SET campus_id = EXCLUDED.campus_id, person_id = EXCLUDED.person_id, is_active = TRUE`,
+      [randomUUID(), identity.email, identity.subject, identity.campusId, identity.professionalPersonId],
     );
   });
 }
@@ -99,12 +126,33 @@ async function cleanupTestData(identity: E2EIdentity): Promise<void> {
     // Child rows first (FK to person) — triages/attendances created by the
     // offline slices reference the test persons scoped by the name prefix.
     const persons = `SELECT id FROM person WHERE full_name LIKE $1`;
+    // document / consent / volunteer_agreement FK person(id) without cascade, so
+    // they must be deleted before their attendance/person parents. document also
+    // FKs attendance(id), so it goes before the attendance delete below.
+    await client.query(
+      `DELETE FROM document WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
+    await client.query(
+      `DELETE FROM consent WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
+    await client.query(
+      `DELETE FROM volunteer_agreement WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
     await client.query(
       `DELETE FROM attendance WHERE person_id IN (${persons})`,
       [`${identity.dataPrefix}%`],
     );
     await client.query(
       `DELETE FROM triage WHERE person_id IN (${persons})`,
+      [`${identity.dataPrefix}%`],
+    );
+    // person_role FK person(id) without cascade; self-register / public-signup
+    // and role assignment create rows here scoped to the test persons.
+    await client.query(
+      `DELETE FROM person_role WHERE person_id IN (${persons})`,
       [`${identity.dataPrefix}%`],
     );
     // Donations created by this test (scoped by the unique notes prefix).
@@ -119,9 +167,17 @@ async function cleanupTestData(identity: E2EIdentity): Promise<void> {
       [`${identity.dataPrefix}%`],
     );
     await client.query(`DELETE FROM campaign WHERE name LIKE $1`, [`${identity.dataPrefix}%`]);
-    // Persons created by this test (scoped by the unique name prefix).
-    await client.query(`DELETE FROM person WHERE full_name LIKE $1`, [`${identity.dataPrefix}%`]);
+    // app_user before person: app_user.person_id → person(id), so the user row
+    // (linked to the seeded professional person) must go before the person delete.
     await client.query(`DELETE FROM app_user WHERE keycloak_subject_id = $1`, [identity.subject]);
+    // Persons created by this test (scoped by the unique name prefix) — includes
+    // the seeded professional person (`<prefix>Profissional`).
+    await client.query(`DELETE FROM person WHERE full_name LIKE $1`, [`${identity.dataPrefix}%`]);
+    // Test-created campuses go LAST — campus is referenced by nearly every table,
+    // so it is only deletable once its dependent rows above are gone. Scoped
+    // strictly by the test name prefix so the migration-seeded default campus
+    // (TEST_CAMPUS_ID) is never touched.
+    await client.query(`DELETE FROM campus WHERE name LIKE $1`, [`${identity.dataPrefix}%`]);
   });
 }
 
@@ -151,6 +207,7 @@ async function installOidcInterception(page: Page, identity: E2EIdentity): Promi
       email: identity.email,
       roles: identity.roles.join(','),
       campus_id: identity.campusId,
+      person_id: identity.professionalPersonId,
       nonce: capturedNonce,
     });
     const res = await fetch(`${OIDC_TOKEN_URL}?${params.toString()}`);
@@ -171,6 +228,7 @@ export const test = base.extend<E2EFixtures>({
       email: `e2e-${unique}@chesed.test`,
       roles: ['ADMIN'],
       campusId: TEST_CAMPUS_ID,
+      professionalPersonId: randomUUID(),
       // Title-derived + unique so concurrent/leftover data never collides.
       dataPrefix: `E2E_${testInfo.title.replace(/[^A-Za-z0-9]/g, '_').slice(0, 20)}_${unique}_`,
     };
@@ -193,5 +251,22 @@ export const test = base.extend<E2EFixtures>({
   },
 });
 
+/**
+ * Creates a person through the real create form (screen → API → Postgres) and
+ * returns its server-assigned id. Triage/attendance/consent/document create
+ * pages read the person from the URL (`?person_id=` / `:personId`) and have no
+ * in-page person search, so every flow that acts ON a person needs one created
+ * first. `name` must start with `identity.dataPrefix` so cleanup sweeps it.
+ */
+async function createPerson(page: Page, name: string): Promise<string> {
+  await page.goto('/persons/new');
+  await page.getByPlaceholder('Ex: Maria da Silva Santos').fill(name);
+  await page.getByRole('button', { name: 'Cadastrar Pessoa' }).click();
+  await page.waitForURL(/\/persons\/[0-9a-f-]{36}/);
+  const id = new URL(page.url()).pathname.split('/').pop();
+  if (!id) throw new Error('createPerson: could not parse person id from URL');
+  return id;
+}
+
 export { expect } from '@playwright/test';
-export { TEST_CAMPUS_ID, DATABASE_URL, withClient };
+export { TEST_CAMPUS_ID, DATABASE_URL, withClient, createPerson };

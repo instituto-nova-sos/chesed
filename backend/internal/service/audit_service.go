@@ -55,6 +55,20 @@ func (s *AuditService) LogAction(ctx context.Context, params AuditParams) error 
 	return nil
 }
 
+// LogRequired writes an audit entry whose persistence is mandatory: a failure is
+// returned to the caller so the per-request campus transaction rolls back the
+// mutation it accompanies. It is reserved for LGPD/compliance-critical actions
+// (erasure and export of personal data) where a mutation without its audit
+// record is a compliance liability, not a tolerable availability trade-off. See
+// docs/adr/0001-audit-logging-durability.md. Ordinary mutations must keep using
+// the best-effort per-service audit helpers instead.
+func (s *AuditService) LogRequired(ctx context.Context, params AuditParams) error {
+	if err := s.LogAction(ctx, params); err != nil {
+		return fmt.Errorf("auditService.LogRequired: %w", err)
+	}
+	return nil
+}
+
 func buildAuditEntry(ctx context.Context, params AuditParams) (domain.AuditLog, error) {
 	claims := auth.ClaimsFromContext(ctx)
 

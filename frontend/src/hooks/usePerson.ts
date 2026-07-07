@@ -22,9 +22,10 @@ export function usePerson(id: string | undefined) {
   }, []);
 
   useEffect(() => {
-    if (id) {
-      fetchPerson(id);
-    }
+    if (!id) return;
+    void (async () => {
+      await fetchPerson(id);
+    })();
   }, [id, fetchPerson]);
 
   const refresh = useCallback(() => {

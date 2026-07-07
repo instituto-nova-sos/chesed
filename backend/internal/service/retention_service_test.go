@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -62,6 +63,29 @@ func TestRetentionService_Run(t *testing.T) {
 		assert.Equal(t, 2, summary.Scanned)
 		assert.Equal(t, 2, summary.Anonymized)
 		anon.AssertNumberOfCalls(t, "Anonymize", 2)
+	})
+
+	t.Run("audit failure fails that person's anonymization and stops the sweep (LGPD fatal path)", func(t *testing.T) {
+		repo := new(mockRetentionRepo)
+		anon := new(retentionAnonymizerStub)
+		auditRepo := new(MockAuditRepository)
+		svc := NewRetentionService(repo, anon, NewAuditService(auditRepo))
+		ctx, claims := retentionCtx()
+
+		id1 := uuid.New()
+		repo.On("ListExpiredPersonIDs", mock.Anything, claims.CampusID, mock.AnythingOfType("time.Time")).
+			Return([]uuid.UUID{id1}, nil)
+		anon.On("Anonymize", mock.Anything, id1, claims.CampusID).Return(nil)
+		// The per-person anonymization audit is required: a persist failure must
+		// surface as an error so the request tx rolls the anonymization back,
+		// never leaving an anonymized record with no audit trail.
+		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).
+			Return(errors.New("audit_log unavailable"))
+
+		summary, err := svc.Run(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "audit_log unavailable")
+		assert.Equal(t, 0, summary.Anonymized)
 	})
 
 	t.Run("empty sweep returns zero summary", func(t *testing.T) {

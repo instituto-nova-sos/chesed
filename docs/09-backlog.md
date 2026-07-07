@@ -26,6 +26,7 @@
 ### Stories
 
 **S01.1 - Go project skeleton**
+- covers_requirements: [RNF-17]
 - As a developer, I need a Go project with standard layout so I can begin implementing features.
 - Acceptance criteria:
   - `cmd/server/main.go` with HTTP server startup
@@ -36,6 +37,7 @@
   - Configuration loading from environment variables
 
 **S01.2 - React project skeleton**
+- covers_requirements: [RNF-18, RNF-19]
 - As a developer, I need a React + TypeScript project with PWA capabilities.
 - Acceptance criteria:
   - Vite project with React 18+ and TypeScript
@@ -78,6 +80,7 @@
 - `internal/config` package loads from env with validation
 
 **S01.6 - Service type seed data**
+- covers_requirements: [RF-28]
 - As a developer, I need predefined service types loaded into the database.
 - Acceptance criteria:
   - Migration seeds: LEGAL, MEDICAL, NUTRITIONAL, PHYSIOTHERAPY, SOCIAL, EDUCATIONAL, PSYCHOLOGICAL, OTHER
@@ -93,6 +96,7 @@
 ### Stories
 
 **S02.1 - User registration (admin-initiated)**
+- covers_requirements: [RF-14, RF-18]
 - As an admin, I can create system users associated with registered persons so they can access the system.
 - Acceptance criteria:
   - `POST /api/v1/users` creates a user in Keycloak via Admin API and a local `app_user` record
@@ -103,6 +107,7 @@
   - Sends password setup email if SMTP is configured in Keycloak
 
 **S02.2 - Keycloak OIDC integration**
+- covers_requirements: [RF-15]
 - As a user, I am redirected to the Keycloak login page to authenticate.
 - Acceptance criteria:
   - React app uses `keycloak-js` adapter to redirect to Keycloak
@@ -113,6 +118,7 @@
   - On first login, Go API auto-creates local `app_user` record from `sub` claim
 
 **S02.3 - Token refresh (Keycloak-managed)**
+- covers_requirements: [RF-15]
 - As a user, my session stays active without re-entering credentials.
 - Acceptance criteria:
   - `keycloak-js` adapter handles silent token refresh automatically
@@ -121,6 +127,7 @@
   - For field workers, `offline_access` scope provides 14-day offline tokens
 
 **S02.4 - Password recovery (Keycloak-managed)**
+- covers_requirements: [RF-16]
 - As a user, I can reset my password if I forget it.
 - Acceptance criteria:
   - Keycloak built-in "Forgot Password" flow handles password reset
@@ -129,6 +136,7 @@
   - Keycloak sends reset email with secure link
 
 **S02.5 - RBAC middleware**
+- covers_requirements: [RF-17, RF-18, RF-50, RF-52, RNF-06]
 - As the system, I enforce role-based access on every request.
 - Acceptance criteria:
   - Go middleware validates Keycloak token via JWKS endpoint (`coreos/go-oidc`)
@@ -139,6 +147,7 @@
   - Unauthorized access creates audit log entry
 
 **S02.6 - Campus data isolation**
+- covers_requirements: [RNF-07, RNF-15]
 - As the system, I ensure users only see data from their campus.
 - Acceptance criteria:
   - All list/detail queries include `campus_id` filter from Keycloak token claims
@@ -146,6 +155,7 @@
   - Cross-campus access attempts are logged
 
 **S02.7 - React OIDC integration**
+- covers_requirements: [RF-15]
 - As a user, I am redirected to the Keycloak login page (themed with NGO branding).
 - Acceptance criteria:
   - `keycloak-js` adapter initialized on app startup
@@ -155,6 +165,7 @@
   - Token stored and managed by `keycloak-js` adapter
 
 **S02.8 - React auth context**
+- covers_requirements: [RF-15, RF-17]
 - As the frontend, I manage authentication state across the app.
 - Acceptance criteria:
   - Auth context wraps `keycloak-js` adapter
@@ -165,6 +176,7 @@
   - Protected route wrapper component
 
 **S02.9 - Keycloak realm configuration as code**
+- covers_requirements: [RF-17]
 - As the team, we have reproducible Keycloak configuration.
 - Acceptance criteria:
   - Realm configuration exported to `keycloak/realm-export.json`
@@ -173,6 +185,7 @@
   - Changes to realm config reviewed in pull requests
 
 **S02.10 - MFA for admin accounts**
+- covers_requirements: [RF-79]
 - As an admin, I am required to use TOTP two-factor authentication.
 - Acceptance criteria:
   - Keycloak conditional authentication flow requires TOTP for ADMIN role
@@ -188,6 +201,7 @@
 ### Stories
 
 **S03.1 - Create person**
+- covers_requirements: [RF-01, RF-02]
 - As a secretary or volunteer, I can register a new person.
 - Acceptance criteria:
   - `POST /api/v1/persons` with name, document_type, document_number, birth_date, phone, address, campus_id
@@ -196,6 +210,7 @@
   - Audit log entry created
 
 **S03.2 - Duplicate detection**
+- covers_requirements: [RF-03, RF-03a]
 - As the system, I prevent duplicate person registrations.
 - Acceptance criteria:
   - Check document_number uniqueness before creation
@@ -204,6 +219,7 @@
   - Client shows warning before allowing duplicate save
 
 **S03.3 - Search persons**
+- covers_requirements: [RF-01]
 - As a user, I can quickly find a person by name or document.
 - Acceptance criteria:
   - `GET /api/v1/persons?q=search_term` searches name and document_number
@@ -212,6 +228,7 @@
   - Results scoped to user's campus
 
 **S03.4 - Update person**
+- covers_requirements: [RF-04, RF-51]
 - As a secretary, I can update a person's information.
 - Acceptance criteria:
   - `PUT /api/v1/persons/:id` updates allowed fields
@@ -219,6 +236,7 @@
   - Cannot change document_number without admin role
 
 **S03.5 - Person detail with history**
+- covers_requirements: [RF-05, RF-31]
 - As a professional, I can view a person's complete profile and service history.
 - Acceptance criteria:
   - `GET /api/v1/persons/:id` returns person data
@@ -226,6 +244,7 @@
   - Includes role information
 
 **S03.6 - Person role assignment**
+- covers_requirements: [RF-09, RF-10, RF-11, RF-12, RF-13]
 - As a coordinator, I can assign roles (volunteer, assisted, professional) to a person.
 - Acceptance criteria:
   - `POST /api/v1/persons/:id/roles` adds a role
@@ -233,6 +252,7 @@
   - Audit log entry for role changes
 
 **S03.7 - React person list page**
+- covers_requirements: [RF-01, RNF-13, RNF-19]
 - Acceptance criteria:
   - Search bar with real-time filtering
   - Person cards showing name, document, phone, roles
@@ -241,6 +261,7 @@
   - Works on 320px-wide screens
 
 **S03.8 - React person form**
+- covers_requirements: [RF-02, RF-46, RF-47]
 - Acceptance criteria:
   - Form with all person fields
   - Duplicate warning before save
@@ -248,6 +269,7 @@
   - Works offline (saves to IndexedDB)
 
 **S03.9 - React person detail page**
+- covers_requirements: [RF-05, RF-31, RNF-19]
 - Acceptance criteria:
   - Profile card with person info
   - Attendance history timeline
@@ -271,7 +293,7 @@
 **S04.1 - Create triage**
 - status: done
 - depends_on: [S02.5, S03.1]
-- covers_requirements: [RF-22, RF-23, RF-24, RF-26]
+- covers_requirements: [RF-22, RF-23, RF-24, RF-25, RF-26]
 - parallel_with: [S04.2, S06.1]
 - size: M
 - offline: Triage form persists to IndexedDB with a client-generated UUID; the record is pushed via the sync queue when connectivity returns (see S05.3).
@@ -300,7 +322,7 @@
 **S04.3 - Attendance workflow transitions**
 - status: done
 - depends_on: [S04.2]
-- covers_requirements: [RF-32, RF-33, RF-34]
+- covers_requirements: [RF-32, RF-33, RF-34, RF-35a]
 - parallel_with: [S04.4, S04.5]
 - size: M
 - offline: Status transitions made offline are queued; the server re-validates the transition against current state on push and rejects illegal transitions per record.
@@ -1102,7 +1124,7 @@
 > boundary and no cloud access).
 
 **S12.1 - WordPress public API (campaign listings, volunteer signup)**
-- status: ready
+- status: done
 - depends_on: [S05.1]
 - covers_requirements: [RNF-20]
 - parallel_with: [S12.2, S12.3, S12.5, S12.6, S12.7]
@@ -1139,7 +1161,7 @@
   RLS-exempt).
 
 **S12.2 - Advanced sync conflict resolution UI**
-- status: ready
+- status: done
 - depends_on: [S05.1]
 - covers_requirements: [RF-49]
 - parallel_with: [S12.1, S12.3, S12.5, S12.6, S12.7]
@@ -1170,7 +1192,7 @@
   PII row.
 
 **S12.3 - Automated backup and disaster recovery**
-- status: ready
+- status: done
 - depends_on: [S11.1]
 - covers_requirements: [RNF-16]
 - parallel_with: [S12.1, S12.2, S12.5, S12.6, S12.7]
@@ -1196,7 +1218,7 @@
   sweep pattern. Off-site copy is an env-gated, documented-manual hook.
 
 **S12.4 - Password-recovery verification (Keycloak-owned)**
-- status: ready
+- status: done
 - depends_on: [S02.2]
 - covers_requirements: [RF-16]
 - parallel_with: [S12.1, S12.2, S12.3, S12.5, S12.6, S12.7]
@@ -1217,7 +1239,7 @@
   event reminders remain a future backlog item.
 
 **S12.5 - Performance load testing (100 concurrent users)**
-- status: ready
+- status: done
 - depends_on: [S12.1]
 - covers_requirements: [RNF-08]
 - parallel_with: [S12.2, S12.3, S12.6, S12.7]
@@ -1238,7 +1260,7 @@
   documented-manual ops step; the committable artifacts are the script, benchmarks, and make targets.
 
 **S12.6 - Security penetration testing**
-- status: ready
+- status: done
 - depends_on: [S12.1]
 - covers_requirements: [RNF-03]
 - parallel_with: [S12.2, S12.3, S12.5, S12.7]
@@ -1264,7 +1286,7 @@
   findings report.
 
 **S12.7 - Production deployment (runbook and config templates)**
-- status: ready
+- status: done
 - depends_on: [S12.3]
 - covers_requirements: [RNF-16]
 - parallel_with: [S12.1, S12.2, S12.5, S12.6]

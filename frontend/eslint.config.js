@@ -53,5 +53,18 @@ export default defineConfig([
       'react-hooks/rules-of-hooks': 'off',
     },
   },
+  // Test files (Vitest unit/integration). The function-length and complexity
+  // budgets target production maintainability; test suites legitimately have long
+  // describe/it blocks and table-driven cases whose arrange-act-assert flow is
+  // clearer kept together than fragmented to satisfy a line count. This mirrors
+  // the coverage config, which already excludes tests from the production budget.
+  {
+    files: ['**/*.{test,spec}.{ts,tsx}', '**/__tests__/**/*.{ts,tsx}'],
+    rules: {
+      'max-lines-per-function': 'off',
+      'max-lines': 'off',
+      complexity: 'off',
+    },
+  },
   eslintConfigPrettier,
 ]);

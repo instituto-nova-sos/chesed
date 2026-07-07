@@ -132,6 +132,31 @@ func TestComplianceReportService_ExportCSV(t *testing.T) {
 		auditRepo.AssertExpectations(t)
 	})
 
+	t.Run("EXPORT audit failure fails the export (compliance fatal path)", func(t *testing.T) {
+		svc, repo, _, auditRepo := newComplianceService()
+		ctx, claims := complianceTestContext()
+		start := mustParseDay(t, "2026-01-01")
+		end := mustParseDay(t, "2026-03-31")
+
+		report := &domain.ComplianceReport{
+			Period:         domain.ReportPeriod{Start: start, End: end},
+			ConsentsByType: map[string]int{"DATA_PROCESSING": 10},
+			DataSubjects:   40,
+		}
+		repo.On("BuildComplianceReport", mock.Anything, mock.MatchedBy(func(f domain.ComplianceReportFilter) bool {
+			return f.CampusID == claims.CampusID
+		})).Return(report, nil)
+		// An export of personal data that isn't audited defeats the compliance
+		// report's purpose: a failed EXPORT audit must fail the export.
+		auditRepo.On("Create", mock.Anything, mock.MatchedBy(func(entry domain.AuditLog) bool {
+			return entry.ActionType == "EXPORT"
+		})).Return(errors.New("audit_log unavailable"))
+
+		err := svc.ExportCSV(ctx, start, end, func(domain.ComplianceCSVRow) error { return nil })
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "audit_log unavailable")
+	})
+
 	t.Run("forbidden when no campus in context", func(t *testing.T) {
 		svc, _, _, _ := newComplianceService()
 		ctx := auth.NewContext(context.Background(), auth.AuthClaims{Subject: uuid.New().String()})

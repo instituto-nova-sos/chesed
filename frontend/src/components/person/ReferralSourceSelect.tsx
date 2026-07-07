@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { UseFormRegisterReturn } from 'react-hook-form';
 import { Select } from '../ui/Select';
 import { Input } from '../ui/Input';
@@ -11,30 +11,27 @@ interface ReferralSourceSelectProps {
   onValueChange?: (value: string) => void;
 }
 
+function isCustomSource(value?: string): boolean {
+  if (!value) return false;
+  return !REFERRAL_SOURCE_OPTIONS.some(
+    (o) => o.value === value && o.value !== 'Outros',
+  );
+}
+
 export function ReferralSourceSelect({
   registration,
   error,
   defaultValue,
   onValueChange,
 }: ReferralSourceSelectProps) {
-  const isPredefined = REFERRAL_SOURCE_OPTIONS.some(
-    (o) => o.value === defaultValue && o.value !== 'Outros',
-  );
-  const [isOther, setIsOther] = useState(
-    defaultValue ? !isPredefined : false,
-  );
-
-  // Sync state when defaultValue changes (e.g., form reset on edit)
-  useEffect(() => {
-    if (defaultValue) {
-      const predefined = REFERRAL_SOURCE_OPTIONS.some(
-        (o) => o.value === defaultValue && o.value !== 'Outros',
-      );
-      setIsOther(!predefined);
-    } else {
-      setIsOther(false);
-    }
-  }, [defaultValue]);
+  const [isOther, setIsOther] = useState(() => isCustomSource(defaultValue));
+  // Re-derive from defaultValue when it changes (e.g., form reset on edit),
+  // without an effect: adjust state during render on prop change.
+  const [prevDefault, setPrevDefault] = useState(defaultValue);
+  if (prevDefault !== defaultValue) {
+    setPrevDefault(defaultValue);
+    setIsOther(isCustomSource(defaultValue));
+  }
 
   const options = REFERRAL_SOURCE_OPTIONS.map((o) => ({
     value: o.value,

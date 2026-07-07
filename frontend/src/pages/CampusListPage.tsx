@@ -4,6 +4,67 @@ import { listAllCampuses, type Campus } from '../api/campuses';
 import { useAuth } from '../hooks/useAuth';
 import { Badge } from '../components/ui/Badge';
 
+function CampusRow({ campus }: { campus: Campus }) {
+  return (
+    <tr className="hover:bg-gray-50">
+      <td className="px-4 py-3 text-sm font-medium text-gray-900">{campus.name}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">{campus.region}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">
+        {[campus.city, campus.state].filter(Boolean).join(', ') || '—'}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-600">{campus.country}</td>
+      <td className="px-4 py-3">
+        <Badge
+          label={campus.is_active ? 'Ativo' : 'Inativo'}
+          variant={campus.is_active ? 'success' : 'neutral'}
+        />
+      </td>
+      <td className="px-4 py-3 text-right">
+        <Link
+          to={`/campuses/${campus.id}/edit`}
+          className="text-sm text-blue-600 hover:text-blue-800"
+        >
+          Editar
+        </Link>
+      </td>
+    </tr>
+  );
+}
+
+function CampusTable({ campuses }: { campuses: Campus[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Nome
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Região
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Cidade / Estado
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              País
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+              Status
+            </th>
+            <th className="px-4 py-3" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {campuses.map((campus) => (
+            <CampusRow key={campus.id} campus={campus} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function CampusListPage() {
   const { hasRole } = useAuth();
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -46,63 +107,7 @@ export function CampusListPage() {
           Nenhum campus cadastrado.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Nome
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Região
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Cidade / Estado
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  País
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
-              {campuses.map((campus) => (
-                <tr key={campus.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                    {campus.name}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {campus.region}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {[campus.city, campus.state].filter(Boolean).join(', ') ||
-                      '—'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {campus.country}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge
-                      label={campus.is_active ? 'Ativo' : 'Inativo'}
-                      variant={campus.is_active ? 'success' : 'neutral'}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      to={`/campuses/${campus.id}/edit`}
-                      className="text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      Editar
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <CampusTable campuses={campuses} />
       )}
     </div>
   );

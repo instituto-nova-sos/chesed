@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sort"
 	"time"
 
@@ -61,14 +60,17 @@ func (s *ComplianceReportService) ExportCSV(
 		}
 	}
 
-	if auditErr := s.auditSvc.LogAction(ctx, AuditParams{
+	// The EXPORT audit is required, not best-effort: an export of personal data
+	// that leaves no audit record defeats the compliance report's own purpose, so
+	// a failed audit fails the export (docs/adr/0001-audit-logging-durability.md).
+	if err := s.auditSvc.LogRequired(ctx, AuditParams{
 		ActionType:  "EXPORT",
 		EntityType:  "compliance_report",
 		Module:      "report",
 		Description: "compliance report exported",
 		Success:     true,
-	}); auditErr != nil {
-		slog.ErrorContext(ctx, "complianceReportService.ExportCSV: audit failed", "error", auditErr.Error())
+	}); err != nil {
+		return fmt.Errorf("complianceReportService.ExportCSV: %w", err)
 	}
 	return nil
 }

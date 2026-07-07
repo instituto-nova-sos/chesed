@@ -13,6 +13,8 @@ interface AddressSectionProps {
   form: UseFormReturn<any, any, any>;
 }
 
+type AddressForm = AddressSectionProps['form'];
+
 const stateOptions = BRAZIL_STATES.map((s) => ({
   value: s.code,
   label: s.name,
@@ -24,8 +26,74 @@ const countryOptions = COUNTRIES.map((c) => ({
   searchTerms: `${c.alpha2} ${c.code}`,
 }));
 
-export function AddressSection({ form }: AddressSectionProps) {
-  const { register, setValue, watch } = form;
+interface StateCityFieldsProps {
+  form: AddressForm;
+  isBrazil: boolean;
+  stateValue: string;
+  cityOptions: { value: string; label: string }[];
+  citiesLoading: boolean;
+}
+
+function StateCityFields({
+  form,
+  isBrazil,
+  stateValue,
+  cityOptions,
+  citiesLoading,
+}: StateCityFieldsProps) {
+  const { register } = form;
+
+  if (!isBrazil) {
+    return (
+      <>
+        <Input label="Estado / Província" registration={register('address.state')} />
+        <Input label="Cidade" registration={register('address.city')} />
+      </>
+    );
+  }
+
+  const cityPlaceholder = citiesLoading
+    ? 'Carregando...'
+    : stateValue
+      ? 'Selecione...'
+      : 'Selecione o estado primeiro';
+
+  return (
+    <>
+      <Select
+        label="Estado"
+        options={stateOptions}
+        registration={register('address.state')}
+        placeholder="Selecione..."
+      />
+      <div className="relative">
+        <Select
+          label="Cidade"
+          options={cityOptions}
+          registration={register('address.city')}
+          placeholder={cityPlaceholder}
+        />
+        {citiesLoading && (
+          <span className="absolute right-8 top-8 text-xs text-blue-600">
+            Carregando...
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
+interface AddressAutofillState {
+  country: string;
+  stateValue: string;
+  isBrazil: boolean;
+  cepLoading: boolean;
+  citiesLoading: boolean;
+  cityOptions: { value: string; label: string }[];
+}
+
+function useAddressAutofill(form: AddressForm): AddressAutofillState {
+  const { setValue, watch } = form;
   const { lookupCep, isLoading: cepLoading } = useCepLookup();
   const { cities, fetchCities, clearCities, isLoading: citiesLoading } =
     useCityLookup();
@@ -37,10 +105,7 @@ export function AddressSection({ form }: AddressSectionProps) {
   const zipCode = watch('address.zip_code') || '';
   const isBrazil = country === 'BRA';
 
-  const cityOptions = cities.map((c) => ({
-    value: c.name,
-    label: c.name,
-  }));
+  const cityOptions = cities.map((c) => ({ value: c.name, label: c.name }));
 
   const handleCepLookup = useCallback(
     async (cep: string) => {
@@ -117,6 +182,14 @@ export function AddressSection({ form }: AddressSectionProps) {
     }
   }, [stateValue, setValue]);
 
+  return { country, stateValue, isBrazil, cepLoading, citiesLoading, cityOptions };
+}
+
+export function AddressSection({ form }: AddressSectionProps) {
+  const { register, setValue } = form;
+  const { country, stateValue, isBrazil, cepLoading, citiesLoading, cityOptions } =
+    useAddressAutofill(form);
+
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-medium text-gray-900">Endereço</h3>
@@ -166,45 +239,13 @@ export function AddressSection({ form }: AddressSectionProps) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {isBrazil ? (
-          <Select
-            label="Estado"
-            options={stateOptions}
-            registration={register('address.state')}
-            placeholder="Selecione..."
-          />
-        ) : (
-          <Input
-            label="Estado / Província"
-            registration={register('address.state')}
-          />
-        )}
-        {isBrazil ? (
-          <div className="relative">
-            <Select
-              label="Cidade"
-              options={cityOptions}
-              registration={register('address.city')}
-              placeholder={
-                citiesLoading
-                  ? 'Carregando...'
-                  : stateValue
-                    ? 'Selecione...'
-                    : 'Selecione o estado primeiro'
-              }
-            />
-            {citiesLoading && (
-              <span className="absolute right-8 top-8 text-xs text-blue-600">
-                Carregando...
-              </span>
-            )}
-          </div>
-        ) : (
-          <Input
-            label="Cidade"
-            registration={register('address.city')}
-          />
-        )}
+        <StateCityFields
+          form={form}
+          isBrazil={isBrazil}
+          stateValue={stateValue}
+          cityOptions={cityOptions}
+          citiesLoading={citiesLoading}
+        />
       </div>
     </div>
   );

@@ -1,7 +1,141 @@
 # HANDOFF.md - Session History and Next Steps
 
 ## Last Updated
-2026-07-07 (Session 40)
+2026-07-07 (Session 42)
+
+---
+
+## Session 42: Final hardening — lint, E2E coverage, audit LGPD, traceability, cloud (2026-07-07)
+
+Branch `feat/final-hardening-e2e-audit-lgpd` (READY-FOR-PR; never pushed — hard boundary).
+Five workstreams, parallelized across disjoint file sets (two subagents + orchestrator),
+addressing the follow-ups the Session 41 production-readiness audit surfaced.
+
+### 1. Audit logging durability on LGPD paths (ADR 0001)
+Audit writes were uniformly best-effort (swallowed on failure) across all 16 mutation
+services. Since `LogAction` runs inside the request `CampusTx`, a failed audit can safely
+roll the mutation back. Added `AuditService.LogRequired(ctx, params) error` and made audit
+**fatal on the 3 LGPD/compliance-critical paths only** — consent-revocation anonymization
+(`consent_service.go`), retention-sweep anonymization (`retention_service.go`), and the
+compliance-report EXPORT (`compliance_report_service.go`). The other ~22 ordinary mutations
+stay best-effort. TDD (each new test failed first for the right reason). Decision recorded in
+`docs/adr/0001-audit-logging-durability.md` (establishes `docs/adr/`); CLAUDE.md doc index
+updated. Verified: build + unit tests + golangci-lint all green.
+
+### 2. Requirements traceability backfill (49 → 74 / 88 covered)
+Backfilled `covers_requirements` on the E01–E03 stories (predated the metadata convention)
+in `docs/09-backlog.md`. `validate-backlog` OK; E01–E03 correctly stay off the status board
+(no `status:` field, so no phantom rows). **Correctness finding:** RF-35 (attendance
+reopen / FOLLOW_UP) is marked "Done" in the roadmap but is **NOT implemented** —
+`domain/attendance.go` has COMPLETED→{} (no outgoing) and explicitly defers FOLLOW_UP to
+Phase 2. Did NOT fake-cover it; instead corrected the roadmap line to "Partial" and annotated
+only RF-35a (cancel-with-reason, which IS implemented) on S04.3. Remaining 14 genuine gaps
+are documented deferred/future items (RF-02a/b, RF-19/19a/19b/20/21 assisted extended
+profile, RF-35, RNF-02/05/10/11/12/14).
+
+### 3. E2E smoke coverage — all business flows (6 → 16 tests, 4 → 12 spec files)
+New Playwright @smoke specs (screen → real Go API → real Postgres, DB-level asserts):
+triage (+requested-service junction), attendance (SCHEDULED→IN_PROGRESS→COMPLETED walk +
+transition history), consent (with signature-canvas draw), document upload (PDF → MinIO +
+metadata row), campus management, campaign-team assignment, LGPD viewers (audit log +
+compliance report + EXPORT-enabled), and the unauthenticated public WordPress API
+(GET campaigns 400/200 + POST volunteer-signup → person + PENDING agreement). Extended
+`fixtures.ts`: cleanup for the new tables (document/consent/volunteer_agreement/person_role,
+campus last) + a reusable `createPerson` UI helper.
+**Two flows deliberately NOT auto-generated** (flagged materially harder, would be fragile):
+volunteer onboarding (needs a VOLUNTEER identity + mid-test re-auth with 2 forced logouts,
+which the ADMIN-only fixture can't do) and the sync-conflict UI (IndexedDB-only, no DB/HTTP
+seed — needs `page.evaluate` injection). Both are covered by unit/integration tests today;
+documented as the next E2E increment.
+
+### 4. Frontend lint — zero warnings (53 → 0)
+Eliminated every warning by genuine refactoring — no `eslint-disable`, no threshold changes.
+`max-lines-per-function`/`complexity` on ~14 pages/components/hooks fixed by extracting
+well-named sub-components and helper hooks (App route groups, AttendanceForm/AttendanceDetailPanels,
+CampusFields, ProfileCompletion sections, TriageForm, authStore `authenticatedState`/
+`installTokenRefresh`, etc.). Two `react-hooks/set-state-in-effect` false-positives fixed by
+deriving initial state (`useState(() => personID != null)`) instead of setting it in the effect.
+One `incompatible-library` on RHF `watch()` fixed idiomatically with `useWatch({ control, name })`.
+The ONE justified config change: an `eslint.config.js` override disabling function-length/complexity
+for `*.test`/`__tests__` files (test suites legitimately have long arrange-act-assert blocks;
+mirrors the coverage config that already excludes tests) — this is scoping, not silencing.
+Verified: `eslint .` exit 0 / 0 warnings, typecheck clean, 289 unit + 65 integration tests green.
+
+### 5. Cheapest cloud for a social institute (2026)
+Researched and recorded in `docs/14-deployment-strategy.md`. Key insight: **Keycloak can't
+scale to zero**, which eliminates every sleeping free tier — the only real cost is one
+always-on box. Recommendation: **~€4/mo ARM VPS (Contabo 8GB or Hetzner CAX11) running the
+compose stack + Cloudflare Pages (PWA) + R2 (documents), both free tier**. Runner-up:
+**Oracle Cloud Always Free (São Paulo) = $0/mo + Brazilian data residency**. Bridge: apply
+for Google-for-Nonprofits / AWS $5k nonprofit credits (both Brazil-eligible, São Paulo region)
+for a free year. LGPD does not mandate in-country data; an EU VPS is compliant.
+
+### Verification & next step
+Full local gate re-run at closeout (backend build/lint/unit/integration, frontend
+typecheck/lint/unit/integration/coverage/build, E2E smoke against the rebuilt compose stack).
+Next: human runs `git push` for PR (agent never pushes); then the manual cloud rollout per
+`docs/runbooks/production-deployment.md` on the chosen ~€4 VPS / Oracle free tier.
+
+---
+
+## Session 41: Final production-readiness validation (2026-07-07)
+
+No sprint remained to execute — Sprint 11 (E12) was the final sprint of the final
+epic of Phase 3 and is already merged to `main` (PR #40). Session 41 (a) fixed the
+stale backlog closeout metadata (the 7 E12 stories were left `status: ready` after
+merge → flipped to `done`; roadmap Sprint 11 table `In progress` → `Done`;
+`tasks/STATUS.md` regenerated, now 48/48 done) and (b) ran a full production-gate
+validation across every test tier plus a requirements/architecture conformance audit.
+
+### Validation results — ALL TEST TIERS GREEN
+Run locally (CI is paused; Docker was up so integration + E2E executed for real):
+- **Backend unit** (`make test`): all packages `ok`.
+- **Backend build + lint** (`go build`; `golangci-lint` via `GOTOOLCHAIN=go1.25.5`):
+  build ok, lint exit 0, **0 issues**.
+- **Backend integration** (`make test-integration`, testcontainers Postgres, all
+  migrations applied, full chi→service→repo stack): `ok` in 176s.
+- **Frontend typecheck** (`tsc --noEmit`): clean.
+- **Frontend lint** (`eslint .`): 0 errors, 53 warnings (pre-existing baseline;
+  eslint exit 0 — the pipeline does not gate on warnings).
+- **Frontend unit** (vitest): **289 passed / 51 files**.
+- **Frontend integration** (MSW, `test:integration`): **65 passed / 12 files**.
+- **Frontend coverage**: aggregate 47.35% stmts, but the ENFORCED per-glob floors
+  (`src/offline/**`, `useOfflineStatus`, `authStore` @ 80%) are green; the global
+  floor is deliberately 0 per the documented ratchet plan in `vite.config.ts`.
+- **Frontend build** (`tsc -b && vite build`): ok, PWA service worker generated.
+- **E2E smoke** (Playwright `@smoke` vs the real `docker-compose.e2e.yml` stack —
+  built FE → real Go API → real Postgres → OIDC token validation): **6/6 passed**
+  (campaign, donation, reports/dashboard, person offline create+drain, triage
+  offline create+drain). Stack torn down with `down -v` after.
+
+### Conformance audit (read-only, evidence-cited)
+- **Architecture guardrails — PASS.** All 8 MUST/MUST-NOT rules hold: `/api/v1/`
+  versioning, campus scoping via fail-closed PostgreSQL RLS (`app.current_campus`
+  GUC, non-owner `chesed_app` role), UUID PKs on every table, `email_verified` 403
+  check, no hardcoded secrets (2 grep sweeps, 0 hits), Keycloak-only auth (no JWT
+  issuance/password hashing), audit_log append-only (BEFORE UPDATE/DELETE trigger).
+- **Layering — PASS.** Handlers→services only (0 repo imports in handlers),
+  services→repository interfaces (0 pgx/repo imports in services), backend/frontend
+  separation clean, TS strict on, no `: any`.
+- **Migrations — PASS.** 000001–000032 contiguous, every up has a down.
+- **Project decisions — PASS.** `PublicCampusTx`/`campusSource` on non-owner pool
+  fail-closed; the PersonRole/VolunteerAgreement raw-pool-outside-tx bug is fixed
+  (both embed `base`, use `r.q(ctx)`).
+- **Requirements traceability — CONCERNS (docs-only, non-blocking).** No confirmed
+  functional gap for any Phase 1 "Must" requirement — every un-annotated foundational
+  RF/RNF has implementing code. But `covers_requirements` metadata was never
+  backfilled to the E01–E03 stories (predate the convention) nor RF-35 to Phase 2,
+  so the backlog understates coverage and can't serve as an honest coverage matrix.
+- **Observation (pre-existing, non-blocking): audit is best-effort.** All 16
+  mutation services swallow a failed `LogAction` (log + continue), including the
+  LGPD anonymization paths. The mutation is real; its audit entry is not a
+  transactional invariant. Uniform deliberate design, but undocumented as an ADR.
+
+### Verdict
+**GO for production, conditional on two docs-only follow-ups** (neither is code, neither
+blocks a deploy): (1) backfill `covers_requirements` for E01–E03 + RF-35; (2) record an
+ADR for the best-effort-audit decision (or make the LGPD-path audit fatal). The manual
+cloud rollout per `docs/runbooks/production-deployment.md` is the remaining operational step.
 
 ---
 

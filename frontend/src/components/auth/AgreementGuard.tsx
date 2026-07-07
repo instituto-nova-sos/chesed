@@ -21,22 +21,28 @@ export function AgreementGuard({ children }: AgreementGuardProps) {
   const isVolunteer = roles.includes('VOLUNTEER');
 
   useEffect(() => {
-    // Skip check for admins and non-volunteers
-    if (isAdmin || !isVolunteer || !personId) {
-      setChecking(false);
-      return;
-    }
-
-    getPersonAgreement(personId)
-      .then(({ agreements }) => {
-        const hasAccepted = agreements.some((a) => a.status === 'ACCEPTED');
-        setNeedsAgreement(!hasAccepted);
-      })
-      .catch(() => {
+    let cancelled = false;
+    async function check() {
+      // Skip check for admins and non-volunteers
+      if (isAdmin || !isVolunteer || !personId) {
+        setChecking(false);
+        return;
+      }
+      try {
+        const { agreements } = await getPersonAgreement(personId);
+        if (cancelled) return;
+        setNeedsAgreement(!agreements.some((a) => a.status === 'ACCEPTED'));
+      } catch {
         // On error, don't block — let the backend middleware handle it
-        setNeedsAgreement(false);
-      })
-      .finally(() => setChecking(false));
+        if (!cancelled) setNeedsAgreement(false);
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    }
+    void check();
+    return () => {
+      cancelled = true;
+    };
   }, [personId, isAdmin, isVolunteer]);
 
   if (checking) {

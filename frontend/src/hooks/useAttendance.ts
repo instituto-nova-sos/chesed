@@ -7,20 +7,23 @@ export function useAttendance(id: string | undefined) {
   const [isLoading, setIsLoading] = useState(Boolean(id));
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
+  const refetch = useCallback(async () => {
     if (!id) return;
     setIsLoading(true);
     setError(null);
-    getAttendance(id)
-      .then(setAttendance)
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Falha ao carregar atendimento');
-      })
-      .finally(() => setIsLoading(false));
+    try {
+      setAttendance(await getAttendance(id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar atendimento');
+    } finally {
+      setIsLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
-    refetch();
+    void (async () => {
+      await refetch();
+    })();
   }, [refetch]);
 
   return { attendance, isLoading, error, refetch };

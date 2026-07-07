@@ -20,6 +20,51 @@ interface PersonFormProps {
   emailReadOnly?: boolean;
 }
 
+type EditAddress = NonNullable<PersonDetail['addresses']>[number];
+
+function mapEditAddress(address: EditAddress) {
+  return {
+    zip_code: address.zip_code || '',
+    street: address.street || '',
+    number: address.number || '',
+    complement: address.complement || '',
+    neighborhood: address.neighborhood || '',
+    city: address.city || '',
+    state: address.state || '',
+    country: address.country || 'BRA',
+  };
+}
+
+function mapEditScalars(editData: PersonDetail) {
+  return {
+    full_name: editData.full_name,
+    document_type: editData.document_type as
+      | 'CPF'
+      | 'RG'
+      | 'SSN'
+      | 'EU_ID'
+      | 'PASSPORT'
+      | 'OTHER',
+    document_number: editData.document_number || '',
+    nationality: editData.nationality || 'BRA',
+    birth_date: editData.birth_date?.split('T')[0] || '',
+    gender:
+      (editData.gender as 'M' | 'F' | 'OTHER' | 'PREFER_NOT_TO_SAY') ||
+      undefined,
+    email: editData.email || '',
+    phone: editData.phone || '',
+    referral_source: editData.referral_source || '',
+  };
+}
+
+function editDataToFormValues(editData: PersonDetail) {
+  const address = editData.addresses?.[0];
+  return {
+    ...mapEditScalars(editData),
+    address: address ? mapEditAddress(address) : undefined,
+  };
+}
+
 export function PersonForm({ editData, emailReadOnly }: PersonFormProps) {
   const {
     form,
@@ -35,37 +80,7 @@ export function PersonForm({ editData, emailReadOnly }: PersonFormProps) {
 
   useEffect(() => {
     if (editData) {
-      reset({
-        full_name: editData.full_name,
-        document_type: editData.document_type as
-          | 'CPF'
-          | 'RG'
-          | 'SSN'
-          | 'EU_ID'
-          | 'PASSPORT'
-          | 'OTHER',
-        document_number: editData.document_number || '',
-        nationality: editData.nationality || 'BRA',
-        birth_date: editData.birth_date?.split('T')[0] || '',
-        gender:
-          (editData.gender as 'M' | 'F' | 'OTHER' | 'PREFER_NOT_TO_SAY') ||
-          undefined,
-        email: editData.email || '',
-        phone: editData.phone || '',
-        referral_source: editData.referral_source || '',
-        address: editData.addresses?.[0]
-          ? {
-              zip_code: editData.addresses[0].zip_code || '',
-              street: editData.addresses[0].street || '',
-              number: editData.addresses[0].number || '',
-              complement: editData.addresses[0].complement || '',
-              neighborhood: editData.addresses[0].neighborhood || '',
-              city: editData.addresses[0].city || '',
-              state: editData.addresses[0].state || '',
-              country: editData.addresses[0].country || 'BRA',
-            }
-          : undefined,
-      });
+      reset(editDataToFormValues(editData));
     }
   }, [editData, reset]);
 

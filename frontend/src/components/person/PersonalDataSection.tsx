@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -47,6 +47,137 @@ function errMsg(err: unknown): string | undefined {
   return undefined;
 }
 
+interface RgFields {
+  authority: string;
+  authorityCustom: string;
+  state: string;
+  number: string;
+}
+
+const EMPTY_RG: RgFields = { authority: '', authorityCustom: '', state: '', number: '' };
+
+// Parses a stored RG document_number into its sub-fields.
+// Supports the "SSP/BA 1234567" format and the legacy "SSP 1234567" (no slash).
+function parseRgValue(docNumber: string): RgFields {
+  const spaceIdx = docNumber.indexOf(' ');
+  if (spaceIdx <= 0) {
+    return { ...EMPTY_RG, number: docNumber };
+  }
+  const authorityPart = docNumber.substring(0, spaceIdx);
+  const number = docNumber.substring(spaceIdx + 1);
+  const slashIdx = authorityPart.indexOf('/');
+  if (slashIdx <= 0) {
+    return { authority: 'OTHER', authorityCustom: authorityPart, state: '', number };
+  }
+  const auth = authorityPart.substring(0, slashIdx);
+  const state = authorityPart.substring(slashIdx + 1);
+  const isKnown = RG_AUTHORITY_OPTIONS.some(
+    (o) => o.value === auth && o.value !== '' && o.value !== 'OTHER',
+  );
+  return {
+    authority: isKnown ? auth : 'OTHER',
+    authorityCustom: isKnown ? '' : auth,
+    state,
+    number,
+  };
+}
+
+function buildRgValue({ authority, authorityCustom, state, number }: RgFields): string {
+  const effectiveAuth = authority === 'OTHER' ? authorityCustom : authority;
+  if (effectiveAuth && state && number) return `${effectiveAuth}/${state} ${number}`;
+  if (effectiveAuth && number) return `${effectiveAuth} ${number}`;
+  return number || '';
+}
+
+interface RgDocumentFieldsProps {
+  initialValue: string;
+  error?: string;
+  onChange: (combined: string) => void;
+}
+
+function RgDocumentFields({ initialValue, error, onChange }: RgDocumentFieldsProps) {
+  const [rg, setRg] = useState<RgFields>(() =>
+    initialValue ? parseRgValue(initialValue) : EMPTY_RG,
+  );
+
+  const update = (patch: Partial<RgFields>) => {
+    const next = { ...rg, ...patch };
+    setRg(next);
+    onChange(buildRgValue(next));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Select
+          label="Órgão Emissor"
+          options={RG_AUTHORITY_OPTIONS}
+          value={rg.authority}
+          onChange={(e) => {
+            const authority = e.target.value;
+            update({
+              authority,
+              authorityCustom: authority === 'OTHER' ? rg.authorityCustom : '',
+            });
+          }}
+        />
+        {rg.authority === 'OTHER' && (
+          <Input
+            label="Órgão (especifique)"
+            value={rg.authorityCustom}
+            onChange={(e) => update({ authorityCustom: e.target.value.toUpperCase() })}
+            placeholder="IFP"
+          />
+        )}
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Select
+          label="Estado (UF)"
+          options={rgStateOptions}
+          value={rg.state}
+          onChange={(e) => update({ state: e.target.value })}
+        />
+        <Input
+          label="Número do RG"
+          value={rg.number}
+          onChange={(e) => update({ number: e.target.value })}
+          placeholder="1234567"
+          error={error}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface DocumentNumberFieldProps {
+  documentType: string;
+  docNumber: string;
+  error?: string;
+  setValue: UseFormReturn['setValue'];
+}
+
+function DocumentNumberField({ documentType, docNumber, error, setValue }: DocumentNumberFieldProps) {
+  const setDocNumber = (value: string) =>
+    setValue('document_number', value, { shouldValidate: true });
+
+  if (documentType === 'RG') {
+    return (
+      <RgDocumentFields initialValue={docNumber} error={error} onChange={setDocNumber} />
+    );
+  }
+  return (
+    <Input
+      label="Número do Documento"
+      error={error}
+      value={docNumber}
+      onChange={(e) =>
+        setDocNumber(documentType === 'CPF' ? formatCPF(e.target.value) : e.target.value)
+      }
+      placeholder={documentNumberPlaceholder(documentType)}
+    />
+  );
+}
+
 export function PersonalDataSection({ form }: PersonalDataSectionProps) {
   const {
     register,
@@ -58,79 +189,6 @@ export function PersonalDataSection({ form }: PersonalDataSectionProps) {
   const nationality = watch('nationality') || 'BRA';
   const documentType = watch('document_type');
   const docNumber = watch('document_number') || '';
-
-  // RG local state for three-field input
-  const [rgAuthority, setRgAuthority] = useState('');
-  const [rgAuthorityCustom, setRgAuthorityCustom] = useState('');
-  const [rgState, setRgState] = useState('');
-  const [rgNumber, setRgNumber] = useState('');
-
-  // Parse existing document_number into RG sub-fields on edit
-  // Supports both new format "SSP/BA 1234567" and legacy "SSP/BA 1234567"
-  useEffect(() => {
-    if (documentType === 'RG' && docNumber) {
-      const spaceIdx = docNumber.indexOf(' ');
-      if (spaceIdx > 0) {
-        const authorityPart = docNumber.substring(0, spaceIdx);
-        const numberPart = docNumber.substring(spaceIdx + 1);
-        const slashIdx = authorityPart.indexOf('/');
-        if (slashIdx > 0) {
-          const auth = authorityPart.substring(0, slashIdx);
-          const state = authorityPart.substring(slashIdx + 1);
-          const isKnown = RG_AUTHORITY_OPTIONS.some(
-            (o) => o.value === auth && o.value !== '' && o.value !== 'OTHER',
-          );
-          setRgAuthority(isKnown ? auth : 'OTHER');
-          setRgAuthorityCustom(isKnown ? '' : auth);
-          setRgState(state);
-        } else {
-          // Legacy format without slash
-          setRgAuthority('OTHER');
-          setRgAuthorityCustom(authorityPart);
-          setRgState('');
-        }
-        setRgNumber(numberPart);
-      } else {
-        setRgNumber(docNumber);
-      }
-    }
-    // Only parse when switching to RG type
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentType]);
-
-  const handleDocNumberChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value;
-      if (documentType === 'CPF') {
-        setValue('document_number', formatCPF(raw), { shouldValidate: true });
-      } else {
-        setValue('document_number', raw, { shouldValidate: true });
-      }
-    },
-    [documentType, setValue],
-  );
-
-  const buildRgValue = useCallback(
-    (authority: string, customAuth: string, state: string, number: string) => {
-      const effectiveAuth = authority === 'OTHER' ? customAuth : authority;
-      if (effectiveAuth && state && number) {
-        return `${effectiveAuth}/${state} ${number}`;
-      }
-      if (effectiveAuth && number) {
-        return `${effectiveAuth} ${number}`;
-      }
-      return number || '';
-    },
-    [],
-  );
-
-  const handleRgFieldChange = useCallback(
-    (authority: string, customAuth: string, state: string, number: string) => {
-      const combined = buildRgValue(authority, customAuth, state, number);
-      setValue('document_number', combined, { shouldValidate: true });
-    },
-    [setValue, buildRgValue],
-  );
 
   const documentTypeOptions = useMemo(
     () => getDocumentTypeOptions(nationality),
@@ -166,66 +224,12 @@ export function PersonalDataSection({ form }: PersonalDataSectionProps) {
         />
       </div>
 
-      {documentType === 'RG' ? (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select
-              label="Órgão Emissor"
-              options={RG_AUTHORITY_OPTIONS}
-              value={rgAuthority}
-              onChange={(e) => {
-                const val = e.target.value;
-                setRgAuthority(val);
-                if (val !== 'OTHER') setRgAuthorityCustom('');
-                handleRgFieldChange(val, val === 'OTHER' ? rgAuthorityCustom : '', rgState, rgNumber);
-              }}
-            />
-            {rgAuthority === 'OTHER' && (
-              <Input
-                label="Órgão (especifique)"
-                value={rgAuthorityCustom}
-                onChange={(e) => {
-                  const val = e.target.value.toUpperCase();
-                  setRgAuthorityCustom(val);
-                  handleRgFieldChange('OTHER', val, rgState, rgNumber);
-                }}
-                placeholder="IFP"
-              />
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select
-              label="Estado (UF)"
-              options={rgStateOptions}
-              value={rgState}
-              onChange={(e) => {
-                const val = e.target.value;
-                setRgState(val);
-                handleRgFieldChange(rgAuthority, rgAuthorityCustom, val, rgNumber);
-              }}
-            />
-            <Input
-              label="Número do RG"
-              value={rgNumber}
-              onChange={(e) => {
-                const val = e.target.value;
-                setRgNumber(val);
-                handleRgFieldChange(rgAuthority, rgAuthorityCustom, rgState, val);
-              }}
-              placeholder="1234567"
-              error={errMsg(errors.document_number)}
-            />
-          </div>
-        </div>
-      ) : (
-        <Input
-          label="Número do Documento"
-          error={errMsg(errors.document_number)}
-          value={docNumber}
-          onChange={handleDocNumberChange}
-          placeholder={documentNumberPlaceholder(documentType)}
-        />
-      )}
+      <DocumentNumberField
+        documentType={documentType}
+        docNumber={docNumber}
+        error={errMsg(errors.document_number)}
+        setValue={setValue}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input

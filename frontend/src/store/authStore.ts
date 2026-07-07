@@ -26,6 +26,43 @@ interface AuthState {
   setCampusTimezone: (timezone: string | null) => void;
 }
 
+type SetAuthState = (partial: Partial<AuthState>) => void;
+
+function authenticatedState(parsed: KeycloakTokenParsed | undefined): Partial<AuthState> {
+  const {
+    email = null,
+    email_verified: emailVerified = false,
+    realm_access: realmAccess,
+    person_id: personId = null,
+  } = parsed ?? {};
+  return {
+    isAuthenticated: true,
+    isLoading: false,
+    initialized: true,
+    email,
+    emailVerified,
+    roles: realmAccess?.roles ?? [],
+    campusId: null,
+    campusTimezone: null,
+    personId,
+    token: keycloak.token ?? null,
+  };
+}
+
+function installTokenRefresh(set: SetAuthState): void {
+  keycloak.onTokenExpired = () => {
+    keycloak
+      .updateToken(30)
+      .then((refreshed) => {
+        if (refreshed) set({ token: keycloak.token ?? null });
+      })
+      .catch(() => {
+        set({ isAuthenticated: false });
+        keycloak.login();
+      });
+  };
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: true,
@@ -48,32 +85,8 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       if (authenticated) {
         const parsed = keycloak.tokenParsed as KeycloakTokenParsed | undefined;
-        set({
-          isAuthenticated: true,
-          isLoading: false,
-          initialized: true,
-          email: parsed?.email ?? null,
-          emailVerified: parsed?.email_verified ?? false,
-          roles: parsed?.realm_access?.roles ?? [],
-          campusId: null,
-          campusTimezone: null,
-          personId: parsed?.person_id ?? null,
-          token: keycloak.token ?? null,
-        });
-
-        keycloak.onTokenExpired = () => {
-          keycloak
-            .updateToken(30)
-            .then((refreshed) => {
-              if (refreshed) {
-                set({ token: keycloak.token ?? null });
-              }
-            })
-            .catch(() => {
-              set({ isAuthenticated: false });
-              keycloak.login();
-            });
-        };
+        set(authenticatedState(parsed));
+        installTokenRefresh(set);
       } else {
         set({ isLoading: false, initialized: true });
       }

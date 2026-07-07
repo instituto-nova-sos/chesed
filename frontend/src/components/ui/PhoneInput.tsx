@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { PHONE_COUNTRY_CODES, getAlpha2ByPhoneCode } from '../../utils/countries';
 
@@ -61,43 +61,42 @@ function parseInitialValue(value: string, fallbackCode: string = '+55'): {
   return { code: fallbackCode, national: digits ? applyNationalMask(digits, alpha2) : '' };
 }
 
+function toE164(code: string, national: string): string {
+  const digits = national.replace(/\D/g, '');
+  if (digits.length === 0) return '';
+  const parsed = parsePhoneNumberFromString(`${code}${digits}`);
+  return parsed ? parsed.format('E.164') : `${code}${digits}`;
+}
+
 export function PhoneInput({ value, onChange, error, label }: PhoneInputProps) {
   const [initial] = useState(() => parseInitialValue(value));
   const [countryCode, setCountryCode] = useState(initial.code);
   const [nationalNumber, setNationalNumber] = useState(initial.national);
-  const isInternalChange = useRef(false);
 
-  // Sync internal state only when external value changes (e.g., form reset on edit)
-  useEffect(() => {
-    if (isInternalChange.current) {
-      isInternalChange.current = false;
-      return;
+  // Sync internal state when the external value changes (e.g., form reset on
+  // edit). Derived during render instead of in an effect. Updates that echo the
+  // component's own current E.164 output are skipped so user typing is not
+  // reformatted mid-edit.
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
+    if (value !== toE164(countryCode, nationalNumber)) {
+      if (value) {
+        const parsed = parseInitialValue(value, countryCode);
+        setCountryCode(parsed.code);
+        setNationalNumber(parsed.national);
+      } else {
+        setNationalNumber('');
+      }
     }
-    if (value) {
-      const parsed = parseInitialValue(value, countryCode);
-      setCountryCode(parsed.code);
-      setNationalNumber(parsed.national);
-    } else {
-      setNationalNumber('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }
 
   const handleNumberChange = useCallback(
     (raw: string) => {
       const digits = raw.replace(/\D/g, '');
       const alpha2 = getAlpha2ByPhoneCode(countryCode);
-      const formatted = applyNationalMask(digits, alpha2);
-      setNationalNumber(formatted);
-
-      // Store as E.164
-      isInternalChange.current = true;
-      if (digits.length > 0) {
-        const parsed = parsePhoneNumberFromString(`${countryCode}${digits}`);
-        onChange(parsed ? parsed.format('E.164') : `${countryCode}${digits}`);
-      } else {
-        onChange('');
-      }
+      setNationalNumber(applyNationalMask(digits, alpha2));
+      onChange(toE164(countryCode, digits));
     },
     [countryCode, onChange],
   );
@@ -109,9 +108,7 @@ export function PhoneInput({ value, onChange, error, label }: PhoneInputProps) {
       if (digits.length > 0) {
         const alpha2 = getAlpha2ByPhoneCode(newCode);
         setNationalNumber(applyNationalMask(digits, alpha2));
-        isInternalChange.current = true;
-        const parsed = parsePhoneNumberFromString(`${newCode}${digits}`);
-        onChange(parsed ? parsed.format('E.164') : `${newCode}${digits}`);
+        onChange(toE164(newCode, digits));
       }
     },
     [nationalNumber, onChange],

@@ -113,7 +113,9 @@ export function useOnlineSync(options: UseOnlineSyncOptions = {}): OnlineSyncSta
   }, [syncNow]);
 
   useEffect(() => {
-    void refreshCounts();
+    void (async () => {
+      await refreshCounts();
+    })();
   }, [refreshCounts]);
 
   useEffect(() => {

@@ -7,20 +7,23 @@ export function useTriage(id: string | undefined) {
   const [isLoading, setIsLoading] = useState(Boolean(id));
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
+  const refetch = useCallback(async () => {
     if (!id) return;
     setIsLoading(true);
     setError(null);
-    getTriage(id)
-      .then(setTriage)
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Falha ao carregar triagem');
-      })
-      .finally(() => setIsLoading(false));
+    try {
+      setTriage(await getTriage(id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar triagem');
+    } finally {
+      setIsLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
-    refetch();
+    void (async () => {
+      await refetch();
+    })();
   }, [refetch]);
 
   return { triage, isLoading, error, refetch };
