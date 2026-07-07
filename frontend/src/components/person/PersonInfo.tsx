@@ -62,55 +62,68 @@ export function PersonInfo({ person }: PersonInfoProps) {
         )}
       </div>
 
-      {person.roles.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {person.roles
-            .filter((r) => r.is_active)
-            .map((role) => (
-              <Badge
-                key={role.id}
-                label={roleLabels[role.role_type] || role.role_type}
-                variant={role.role_type}
-              />
-            ))}
-        </div>
-      )}
+      <RoleBadges roles={person.roles} />
+      <PersonDetailsGrid person={person} />
+      {address && <AddressBlock address={address} />}
+    </div>
+  );
+}
 
-      <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-        {person.birth_date && (
-          <InfoField
-            label="Data de Nascimento"
-            value={formatDateBR(person.birth_date)}
-          />
-        )}
-        {person.gender && (
-          <InfoField
-            label="Gênero"
-            value={genderLabels[person.gender] || person.gender}
-          />
-        )}
-        {person.email && <InfoField label="Email" value={person.email} />}
-        {person.phone && <InfoField label="Telefone" value={formatPhoneDisplay(person.phone)} />}
-        {person.referral_source && (
-          <InfoField label="Fonte de Encaminhamento" value={person.referral_source} />
-        )}
-      </div>
+type PersonAddress = NonNullable<PersonDetail['addresses']>[number];
 
-      {address && (
-        <div className="mt-4 border-t pt-3">
-          <h3 className="text-sm font-medium text-gray-900">Endereço</h3>
-          <p className="mt-1 text-sm text-gray-600">
-            {[address.street, address.number].filter(Boolean).join(', ')}
-            {address.complement && ` - ${address.complement}`}
-          </p>
-          <p className="text-sm text-gray-600">
-            {[address.neighborhood, address.city, address.state]
-              .filter(Boolean)
-              .join(' - ')}
-            {address.zip_code && ` | CEP: ${address.zip_code}`}
-          </p>
-        </div>
-      )}
+function RoleBadges({ roles }: { roles: PersonDetail['roles'] }) {
+  const active = roles.filter((r) => r.is_active);
+  if (active.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1">
+      {active.map((role) => (
+        <Badge
+          key={role.id}
+          label={roleLabels[role.role_type] || role.role_type}
+          variant={role.role_type}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PersonDetailsGrid({ person }: { person: PersonDetail }) {
+  const fields: { label: string; value: string }[] = [];
+  if (person.birth_date)
+    fields.push({ label: 'Data de Nascimento', value: formatDateBR(person.birth_date) });
+  if (person.gender)
+    fields.push({ label: 'Gênero', value: genderLabels[person.gender] || person.gender });
+  if (person.email) fields.push({ label: 'Email', value: person.email });
+  if (person.phone)
+    fields.push({ label: 'Telefone', value: formatPhoneDisplay(person.phone) });
+  if (person.referral_source)
+    fields.push({ label: 'Fonte de Encaminhamento', value: person.referral_source });
+
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+      {fields.map((f) => (
+        <InfoField key={f.label} label={f.label} value={f.value} />
+      ))}
+    </div>
+  );
+}
+
+function AddressBlock({ address }: { address: PersonAddress }) {
+  const line1 = [address.street, address.number].filter(Boolean).join(', ');
+  const line2 = [address.neighborhood, address.city, address.state]
+    .filter(Boolean)
+    .join(' - ');
+  return (
+    <div className="mt-4 border-t pt-3">
+      <h3 className="text-sm font-medium text-gray-900">Endereço</h3>
+      <p className="mt-1 text-sm text-gray-600">
+        {line1}
+        {address.complement && ` - ${address.complement}`}
+      </p>
+      <p className="text-sm text-gray-600">
+        {line2}
+        {address.zip_code && ` | CEP: ${address.zip_code}`}
+      </p>
     </div>
   );
 }

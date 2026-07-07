@@ -22,31 +22,33 @@ export function useTriages(initialParams: ListTriagesParams = {}) {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    listTriages(params)
-      .then((res) => {
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await listTriages(params);
         if (cancelled) return;
         setTriages(res.data);
         setPagination(res.pagination);
         void cacheTriageList(res.data);
-      })
-      .catch(async (err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         // Offline / network failure: serve the local cache (which includes
         // pending offline-created records) instead of an empty error state.
         if (!navigator.onLine || isNetworkError(err)) {
           const cached = await getCachedTriages();
+          if (cancelled) return;
           setTriages(cached);
           setPagination((p) => ({ ...p, total: cached.length }));
           setError(null);
         } else {
           setError(err instanceof Error ? err.message : 'Falha ao carregar triagens');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setIsLoading(false);
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };

@@ -19,18 +19,19 @@ export function useComplianceReport(initial?: ComplianceReportParams) {
   });
 
   useEffect(() => {
-    if (!params) {
-      setState({ report: null, isLoading: false, error: null });
-      return;
-    }
+    const activeParams = params;
     let cancelled = false;
-    setState({ report: null, isLoading: true, error: null });
-    getComplianceReport(params)
-      .then((report) => {
+    async function load() {
+      if (!activeParams) {
+        setState({ report: null, isLoading: false, error: null });
+        return;
+      }
+      setState({ report: null, isLoading: true, error: null });
+      try {
+        const report = await getComplianceReport(activeParams);
         if (cancelled) return;
         setState({ report, isLoading: false, error: null });
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         setState({
           report: null,
@@ -38,7 +39,9 @@ export function useComplianceReport(initial?: ComplianceReportParams) {
           error:
             err instanceof Error ? err.message : 'Falha ao gerar relatório',
         });
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };

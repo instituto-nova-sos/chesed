@@ -10,14 +10,91 @@ import { Button } from '../components/ui/Button';
 import { Alert } from '../components/ui/Alert';
 import { keycloak } from '../auth/keycloak';
 
-export function VolunteerAgreementPage() {
-  const { logout } = useAuth();
+function RejectedScreen({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
+        <div className="text-red-500 text-4xl mb-4">!</div>
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Termo Recusado</h2>
+        <p className="text-gray-600 mb-6">
+          Sem a aceite do termo de voluntario, o acesso a plataforma fica restrito.
+          Entre em contato com a coordenacao para mais informacoes.
+        </p>
+        <Button onClick={onLogout} variant="secondary">
+          Sair
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface RejectConfirmProps {
+  rejectReason: string;
+  onReasonChange: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}
+
+function RejectConfirmBlock({
+  rejectReason,
+  onReasonChange,
+  onConfirm,
+  onCancel,
+  submitting,
+}: RejectConfirmProps) {
+  return (
+    <div className="px-6 py-4 bg-red-50 border-t border-red-100">
+      <p className="text-sm text-red-700 font-medium mb-2">
+        Tem certeza que deseja recusar o termo?
+      </p>
+      <p className="text-sm text-red-600 mb-3">
+        Ao recusar, seu acesso a plataforma sera restrito.
+      </p>
+      <textarea
+        value={rejectReason}
+        onChange={(e) => onReasonChange(e.target.value)}
+        placeholder="Motivo da recusa (opcional)"
+        className="w-full border border-red-300 rounded-md p-2 text-sm mb-3 focus:ring-red-500 focus:border-red-500"
+        rows={3}
+      />
+      <div className="flex gap-3">
+        <Button onClick={onConfirm} variant="danger" disabled={submitting}>
+          {submitting ? 'Enviando...' : 'Confirmar Recusa'}
+        </Button>
+        <Button onClick={onCancel} variant="secondary" disabled={submitting}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface AgreementActionsProps {
+  onReject: () => void;
+  onAccept: () => void;
+  submitting: boolean;
+}
+
+function AgreementActions({ onReject, onAccept, submitting }: AgreementActionsProps) {
+  return (
+    <div className="px-6 py-4 border-t border-gray-200 flex justify-between">
+      <Button onClick={onReject} variant="secondary" disabled={submitting}>
+        Recusar
+      </Button>
+      <Button onClick={onAccept} disabled={submitting}>
+        {submitting ? 'Processando...' : 'Aceitar Termo'}
+      </Button>
+    </div>
+  );
+}
+
+function useVolunteerAgreement() {
   const [agreementText, setAgreementText] = useState('');
   const [version, setVersion] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejected, setRejected] = useState(false);
 
@@ -57,24 +134,38 @@ export function VolunteerAgreementPage() {
     }
   };
 
+  return {
+    agreementText,
+    version,
+    loading,
+    submitting,
+    error,
+    rejectReason,
+    setRejectReason,
+    rejected,
+    handleAccept,
+    handleReject,
+  };
+}
+
+export function VolunteerAgreementPage() {
+  const { logout } = useAuth();
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+  const {
+    agreementText,
+    version,
+    loading,
+    submitting,
+    error,
+    rejectReason,
+    setRejectReason,
+    rejected,
+    handleAccept,
+    handleReject,
+  } = useVolunteerAgreement();
+
   if (rejected) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
-          <div className="text-red-500 text-4xl mb-4">!</div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
-            Termo Recusado
-          </h2>
-          <p className="text-gray-600 mb-6">
-            Sem a aceite do termo de voluntario, o acesso a plataforma fica restrito.
-            Entre em contato com a coordenacao para mais informacoes.
-          </p>
-          <Button onClick={() => logout()} variant="secondary">
-            Sair
-          </Button>
-        </div>
-      </div>
-    );
+    return <RejectedScreen onLogout={() => logout()} />;
   }
 
   if (loading) {
@@ -114,58 +205,20 @@ export function VolunteerAgreementPage() {
             </div>
           )}
 
-          {/* Reject confirmation */}
-          {showRejectConfirm && (
-            <div className="px-6 py-4 bg-red-50 border-t border-red-100">
-              <p className="text-sm text-red-700 font-medium mb-2">
-                Tem certeza que deseja recusar o termo?
-              </p>
-              <p className="text-sm text-red-600 mb-3">
-                Ao recusar, seu acesso a plataforma sera restrito.
-              </p>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Motivo da recusa (opcional)"
-                className="w-full border border-red-300 rounded-md p-2 text-sm mb-3 focus:ring-red-500 focus:border-red-500"
-                rows={3}
-              />
-              <div className="flex gap-3">
-                <Button
-                  onClick={handleReject}
-                  variant="danger"
-                  disabled={submitting}
-                >
-                  {submitting ? 'Enviando...' : 'Confirmar Recusa'}
-                </Button>
-                <Button
-                  onClick={() => setShowRejectConfirm(false)}
-                  variant="secondary"
-                  disabled={submitting}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          {!showRejectConfirm && (
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-between">
-              <Button
-                onClick={() => setShowRejectConfirm(true)}
-                variant="secondary"
-                disabled={submitting}
-              >
-                Recusar
-              </Button>
-              <Button
-                onClick={handleAccept}
-                disabled={submitting}
-              >
-                {submitting ? 'Processando...' : 'Aceitar Termo'}
-              </Button>
-            </div>
+          {showRejectConfirm ? (
+            <RejectConfirmBlock
+              rejectReason={rejectReason}
+              onReasonChange={setRejectReason}
+              onConfirm={handleReject}
+              onCancel={() => setShowRejectConfirm(false)}
+              submitting={submitting}
+            />
+          ) : (
+            <AgreementActions
+              onReject={() => setShowRejectConfirm(true)}
+              onAccept={handleAccept}
+              submitting={submitting}
+            />
           )}
         </div>
       </div>

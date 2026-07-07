@@ -26,6 +26,53 @@ const methodLabels: Record<string, string> = {
   MANUAL_UPLOAD: 'Documento Enviado',
 };
 
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR');
+}
+
+function AgreementDetails({ agreement }: { agreement: VolunteerAgreement }) {
+  return (
+    <div className="space-y-1 text-sm text-gray-600">
+      {agreement.signature_method && (
+        <p>Metodo: {methodLabels[agreement.signature_method] ?? agreement.signature_method}</p>
+      )}
+      {agreement.accepted_at && <p>Aceito em: {formatDate(agreement.accepted_at)}</p>}
+      {agreement.rejected_at && <p>Recusado em: {formatDate(agreement.rejected_at)}</p>}
+      {agreement.rejection_reason && <p>Motivo: {agreement.rejection_reason}</p>}
+    </div>
+  );
+}
+
+interface AgreementActionsProps {
+  personId: string;
+  status: string;
+  hasDocument: boolean;
+  onUpload: () => void;
+}
+
+function AgreementActions({ personId, status, hasDocument, onUpload }: AgreementActionsProps) {
+  const canUpload = status === 'PENDING' || status === 'REJECTED';
+  return (
+    <div className="mt-3 flex gap-2">
+      {canUpload && (
+        <Button size="sm" variant="secondary" onClick={onUpload}>
+          Enviar Termo Assinado
+        </Button>
+      )}
+      {hasDocument && (
+        <a
+          href={downloadAgreementDocument(personId)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Baixar Documento
+        </a>
+      )}
+    </div>
+  );
+}
+
 export function AgreementStatusCard({ personId, hasVolunteerRole }: AgreementStatusCardProps) {
   const { hasMinRole } = useAuth();
   const [agreements, setAgreements] = useState<VolunteerAgreement[]>([]);
@@ -34,20 +81,25 @@ export function AgreementStatusCard({ personId, hasVolunteerRole }: AgreementSta
   const canManage = hasMinRole('COORDINATOR');
 
   useEffect(() => {
-    if (!hasVolunteerRole) {
-      setLoading(false);
-      return;
+    let cancelled = false;
+    async function load() {
+      if (!hasVolunteerRole || !canManage) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const { agreements: data } = await getPersonAgreement(personId);
+        if (!cancelled) setAgreements(data);
+      } catch {
+        if (!cancelled) setAgreements([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-
-    if (!canManage) {
-      setLoading(false);
-      return;
-    }
-
-    getPersonAgreement(personId)
-      .then(({ agreements: data }) => setAgreements(data))
-      .catch(() => setAgreements([]))
-      .finally(() => setLoading(false));
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [personId, hasVolunteerRole, canManage]);
 
   if (!hasVolunteerRole) return null;
@@ -75,41 +127,15 @@ export function AgreementStatusCard({ personId, hasVolunteerRole }: AgreementSta
         </span>
       </div>
 
-      {latestAgreement && (
-        <div className="space-y-1 text-sm text-gray-600">
-          {latestAgreement.signature_method && (
-            <p>Metodo: {methodLabels[latestAgreement.signature_method] ?? latestAgreement.signature_method}</p>
-          )}
-          {latestAgreement.accepted_at && (
-            <p>Aceito em: {new Date(latestAgreement.accepted_at).toLocaleDateString('pt-BR')}</p>
-          )}
-          {latestAgreement.rejected_at && (
-            <p>Recusado em: {new Date(latestAgreement.rejected_at).toLocaleDateString('pt-BR')}</p>
-          )}
-          {latestAgreement.rejection_reason && (
-            <p>Motivo: {latestAgreement.rejection_reason}</p>
-          )}
-        </div>
-      )}
+      {latestAgreement && <AgreementDetails agreement={latestAgreement} />}
 
       {canManage && (
-        <div className="mt-3 flex gap-2">
-          {(status === 'PENDING' || status === 'REJECTED') && (
-            <Button size="sm" variant="secondary" onClick={() => setShowUpload(true)}>
-              Enviar Termo Assinado
-            </Button>
-          )}
-          {latestAgreement?.document_path && (
-            <a
-              href={downloadAgreementDocument(personId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Baixar Documento
-            </a>
-          )}
-        </div>
+        <AgreementActions
+          personId={personId}
+          status={status}
+          hasDocument={Boolean(latestAgreement?.document_path)}
+          onUpload={() => setShowUpload(true)}
+        />
       )}
 
       {showUpload && (

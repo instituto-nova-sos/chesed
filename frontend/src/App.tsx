@@ -111,6 +111,96 @@ const SyncConflictsPage = lazy(() =>
   import('./pages/SyncConflictsPage').then((m) => ({ default: m.SyncConflictsPage })),
 );
 
+function OnboardingRoutes() {
+  return (
+    <>
+      {/* Email verification — requires auth only (no email guard) */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <Outlet />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="email-verification" element={<EmailVerificationPendingPage />} />
+      </Route>
+
+      {/* Profile completion + agreement — requires verified email */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <EmailVerifiedGuard>
+              <Outlet />
+            </EmailVerifiedGuard>
+          </ProtectedRoute>
+        }
+      >
+        <Route path="complete-profile" element={<ProfileCompletionPage />} />
+        <Route path="volunteer-agreement" element={<VolunteerAgreementPage />} />
+      </Route>
+    </>
+  );
+}
+
+function MainAppRoutes() {
+  return (
+    <Route
+      element={
+        <ProtectedRoute>
+          <EmailVerifiedGuard>
+            <OnboardingGuard>
+              <AppLayout />
+            </OnboardingGuard>
+          </EmailVerifiedGuard>
+        </ProtectedRoute>
+      }
+    >
+      <Route index element={<DashboardPage />} />
+      <Route path="persons" element={<PersonListPage />} />
+      <Route path="persons/new" element={<PersonCreatePage />} />
+      <Route path="persons/:id" element={<PersonDetailPage />} />
+      <Route path="persons/:id/edit" element={<PersonEditPage />} />
+      <Route path="persons/:personId/consents/new" element={<ConsentFormPage />} />
+      <Route path="campuses" element={<CampusListPage />} />
+      <Route path="campuses/new" element={<CampusFormPage />} />
+      <Route path="campuses/:id/edit" element={<CampusFormPage />} />
+      <Route path="triages" element={<TriageListPage />} />
+      <Route path="triages/new" element={<TriageCreatePage />} />
+      <Route path="triages/:id" element={<TriageDetailPage />} />
+      <Route path="attendances" element={<AttendanceListPage />} />
+      <Route path="attendances/new" element={<AttendanceCreatePage />} />
+      <Route path="attendances/:id" element={<AttendanceDetailPage />} />
+      <Route path="campaigns" element={<CampaignListPage />} />
+      <Route path="campaigns/new" element={<CampaignFormPage />} />
+      <Route path="campaigns/:id" element={<CampaignDetailPage />} />
+      <Route path="campaigns/:id/edit" element={<CampaignFormPage />} />
+      <Route path="donations" element={<DonationListPage />} />
+      <Route path="donations/new" element={<DonationFormPage />} />
+      <Route path="donations/:id" element={<DonationDetailPage />} />
+      <Route path="donations/:id/edit" element={<DonationFormPage />} />
+      <Route path="reports" element={<ReportsPage />} />
+      <Route
+        path="compliance"
+        element={
+          <ProtectedRoute requiredRoles={['COORDINATOR', 'ADMIN']}>
+            <CompliancePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="audit-logs"
+        element={
+          <ProtectedRoute requiredRoles={['ADMIN']}>
+            <AuditLogPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="sync/conflicts" element={<SyncConflictsPage />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Route>
+  );
+}
+
 export function App() {
   const { initialized, isLoading, initialize } = useAuthStore();
 
@@ -126,86 +216,8 @@ export function App() {
     <BrowserRouter>
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
-          {/* Email verification — requires auth only (no email guard) */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <Outlet />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="email-verification" element={<EmailVerificationPendingPage />} />
-          </Route>
-
-          {/* Profile completion + agreement — requires verified email */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <EmailVerifiedGuard>
-                  <Outlet />
-                </EmailVerifiedGuard>
-              </ProtectedRoute>
-            }
-          >
-            <Route path="complete-profile" element={<ProfileCompletionPage />} />
-            <Route path="volunteer-agreement" element={<VolunteerAgreementPage />} />
-          </Route>
-
-          {/* Main app — all guards: verified email + onboarding (profile + agreement) */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <EmailVerifiedGuard>
-                  <OnboardingGuard>
-                    <AppLayout />
-                  </OnboardingGuard>
-                </EmailVerifiedGuard>
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<DashboardPage />} />
-            <Route path="persons" element={<PersonListPage />} />
-            <Route path="persons/new" element={<PersonCreatePage />} />
-            <Route path="persons/:id" element={<PersonDetailPage />} />
-            <Route path="persons/:id/edit" element={<PersonEditPage />} />
-            <Route path="persons/:personId/consents/new" element={<ConsentFormPage />} />
-            <Route path="campuses" element={<CampusListPage />} />
-            <Route path="campuses/new" element={<CampusFormPage />} />
-            <Route path="campuses/:id/edit" element={<CampusFormPage />} />
-            <Route path="triages" element={<TriageListPage />} />
-            <Route path="triages/new" element={<TriageCreatePage />} />
-            <Route path="triages/:id" element={<TriageDetailPage />} />
-            <Route path="attendances" element={<AttendanceListPage />} />
-            <Route path="attendances/new" element={<AttendanceCreatePage />} />
-            <Route path="attendances/:id" element={<AttendanceDetailPage />} />
-            <Route path="campaigns" element={<CampaignListPage />} />
-            <Route path="campaigns/new" element={<CampaignFormPage />} />
-            <Route path="campaigns/:id" element={<CampaignDetailPage />} />
-            <Route path="campaigns/:id/edit" element={<CampaignFormPage />} />
-            <Route path="donations" element={<DonationListPage />} />
-            <Route path="donations/new" element={<DonationFormPage />} />
-            <Route path="donations/:id" element={<DonationDetailPage />} />
-            <Route path="donations/:id/edit" element={<DonationFormPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route
-              path="compliance"
-              element={
-                <ProtectedRoute requiredRoles={['COORDINATOR', 'ADMIN']}>
-                  <CompliancePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="audit-logs"
-              element={
-                <ProtectedRoute requiredRoles={['ADMIN']}>
-                  <AuditLogPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="sync/conflicts" element={<SyncConflictsPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
+          {OnboardingRoutes()}
+          {MainAppRoutes()}
         </Routes>
       </Suspense>
     </BrowserRouter>

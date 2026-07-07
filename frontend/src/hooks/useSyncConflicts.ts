@@ -89,7 +89,9 @@ export function useSyncConflicts(): UseSyncConflicts {
   );
 
   useEffect(() => {
-    void refresh();
+    void (async () => {
+      await refresh();
+    })();
   }, [refresh]);
 
   return {

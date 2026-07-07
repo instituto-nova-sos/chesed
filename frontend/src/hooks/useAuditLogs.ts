@@ -17,18 +17,19 @@ export function useAuditLogs(initial?: AuditLogFilters) {
   });
 
   useEffect(() => {
-    if (!filters) {
-      setState({ page: null, isLoading: false, error: null });
-      return;
-    }
+    const activeFilters = filters;
     let cancelled = false;
-    setState({ page: null, isLoading: true, error: null });
-    listAuditLogs(filters)
-      .then((page) => {
+    async function load() {
+      if (!activeFilters) {
+        setState({ page: null, isLoading: false, error: null });
+        return;
+      }
+      setState({ page: null, isLoading: true, error: null });
+      try {
+        const page = await listAuditLogs(activeFilters);
         if (cancelled) return;
         setState({ page, isLoading: false, error: null });
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         setState({
           page: null,
@@ -36,7 +37,9 @@ export function useAuditLogs(initial?: AuditLogFilters) {
           error:
             err instanceof Error ? err.message : 'Falha ao carregar registros',
         });
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };

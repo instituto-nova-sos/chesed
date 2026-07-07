@@ -22,31 +22,33 @@ export function useAttendances(initialParams: ListAttendancesParams = {}) {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    listAttendances(params)
-      .then((res) => {
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await listAttendances(params);
         if (cancelled) return;
         setAttendances(res.data);
         setPagination(res.pagination);
         void cacheAttendanceList(res.data);
-      })
-      .catch(async (err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
         // Offline / network failure: serve the local cache (which includes
         // pending offline-created records) instead of an empty error state.
         if (!navigator.onLine || isNetworkError(err)) {
           const cached = await getCachedAttendances();
+          if (cancelled) return;
           setAttendances(cached);
           setPagination((p) => ({ ...p, total: cached.length }));
           setError(null);
         } else {
           setError(err instanceof Error ? err.message : 'Falha ao carregar atendimentos');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setIsLoading(false);
-      });
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };

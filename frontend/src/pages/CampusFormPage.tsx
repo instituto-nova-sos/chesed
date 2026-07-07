@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormReturn } from 'react-hook-form';
 import {
   createCampus,
   updateCampus,
@@ -18,16 +18,68 @@ const REGIONS = [
   { value: 'EUROPE', label: 'Europa' },
 ];
 
-export function CampusFormPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const isEdit = Boolean(id);
+type CampusFormValues = CampusInput & { is_active: boolean };
 
+interface CampusFieldsProps {
+  form: UseFormReturn<CampusFormValues>;
+  isEdit: boolean;
+}
+
+function CampusFields({ form, isEdit }: CampusFieldsProps) {
+  const { register, formState } = form;
+  return (
+    <>
+      <Input
+        id="campus-name"
+        label="Nome *"
+        {...register('name', { required: 'Nome é obrigatório' })}
+        error={formState.errors.name?.message}
+      />
+
+      <Select
+        id="campus-region"
+        label="Região *"
+        options={REGIONS}
+        {...register('region', { required: 'Região é obrigatória' })}
+        error={formState.errors.region?.message}
+      />
+
+      <Input id="campus-city" label="Cidade" {...register('city')} />
+
+      <Input id="campus-state" label="Estado" {...register('state')} />
+
+      <Input
+        id="campus-country"
+        label="País (código ISO) *"
+        {...register('country', {
+          required: 'País é obrigatório',
+          maxLength: { value: 3, message: 'Máximo 3 caracteres' },
+        })}
+        error={formState.errors.country?.message}
+        placeholder="BRA"
+      />
+
+      {isEdit && (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            {...register('is_active')}
+            className="rounded border-gray-300 text-blue-600"
+          />
+          <span className="text-sm text-gray-700">Campus ativo</span>
+        </label>
+      )}
+    </>
+  );
+}
+
+function useCampusForm(id: string | undefined, isEdit: boolean) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const form = useForm<CampusInput & { is_active: boolean }>({
+  const form = useForm<CampusFormValues>({
     defaultValues: {
       name: '',
       region: 'BRAZIL',
@@ -55,7 +107,7 @@ export function CampusFormPage() {
       .finally(() => setLoading(false));
   }, [id, form]);
 
-  async function onSubmit(data: CampusInput & { is_active: boolean }) {
+  async function onSubmit(data: CampusFormValues) {
     setSubmitting(true);
     setError(null);
 
@@ -81,6 +133,14 @@ export function CampusFormPage() {
     }
   }
 
+  return { form, loading, submitting, error, onSubmit, navigate };
+}
+
+export function CampusFormPage() {
+  const { id } = useParams<{ id: string }>();
+  const isEdit = Boolean(id);
+  const { form, loading, submitting, error, onSubmit, navigate } = useCampusForm(id, isEdit);
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -105,43 +165,7 @@ export function CampusFormPage() {
         onSubmit={form.handleSubmit(onSubmit)}
         className="max-w-lg space-y-4"
       >
-        <Input
-          label="Nome *"
-          {...form.register('name', { required: 'Nome é obrigatório' })}
-          error={form.formState.errors.name?.message}
-        />
-
-        <Select
-          label="Região *"
-          options={REGIONS}
-          {...form.register('region', { required: 'Região é obrigatória' })}
-          error={form.formState.errors.region?.message}
-        />
-
-        <Input label="Cidade" {...form.register('city')} />
-
-        <Input label="Estado" {...form.register('state')} />
-
-        <Input
-          label="País (código ISO) *"
-          {...form.register('country', {
-            required: 'País é obrigatório',
-            maxLength: { value: 3, message: 'Máximo 3 caracteres' },
-          })}
-          error={form.formState.errors.country?.message}
-          placeholder="BRA"
-        />
-
-        {isEdit && (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              {...form.register('is_active')}
-              className="rounded border-gray-300 text-blue-600"
-            />
-            <span className="text-sm text-gray-700">Campus ativo</span>
-          </label>
-        )}
+        <CampusFields form={form} isEdit={isEdit} />
 
         <div className="flex items-center gap-3 pt-4">
           <Button type="submit" isLoading={submitting}>
