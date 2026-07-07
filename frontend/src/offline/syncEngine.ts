@@ -177,6 +177,28 @@ async function flagConflict(item: SyncQueueItem, result: SyncPushResult): Promis
   }
 }
 
+/**
+ * flagQueuedConflict marks the queued local edit for an entity as conflicted so
+ * a pull-detected conflict behaves like a push-detected one: it surfaces in the
+ * resolution UI and is excluded from the next drain (preventing a re-push that
+ * would overwrite the server change).
+ */
+async function flagQueuedConflict(
+  entityType: SyncEntityType,
+  entityId: string,
+): Promise<void> {
+  const items = await db.syncQueue
+    .where('entityId')
+    .equals(entityId)
+    .filter((item) => item.entityType === entityType && !item.conflicted)
+    .toArray();
+  for (const item of items) {
+    if (item.id !== undefined) {
+      await db.syncQueue.update(item.id, { conflicted: true, lastError: 'pull conflict' });
+    }
+  }
+}
+
 async function setCachedStatus(
   item: SyncQueueItem,
   status: 'synced' | 'conflict',
@@ -351,6 +373,11 @@ export async function mergePullRecords(records: PullRecord[]): Promise<MergeResu
         serverUpdatedAt: record.updated_at,
         capturedAt: new Date().toISOString(),
       });
+      // Flag the queued local edit as conflicted so it (a) surfaces in the
+      // resolution UI (getConflicts filters on `conflicted`) and (b) is excluded
+      // from the next drain — otherwise it would be re-pushed and last-write-wins
+      // would silently overwrite the server change.
+      await flagQueuedConflict(record.entity_type, record.id);
       conflicts += 1;
       continue;
     }

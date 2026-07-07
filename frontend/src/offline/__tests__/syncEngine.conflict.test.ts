@@ -4,6 +4,7 @@ import { db } from '../db';
 import {
   drainQueue,
   getConflictSnapshot,
+  getConflicts,
   mergePullRecords,
   resolveKeepLocal,
   resolveKeepServer,
@@ -88,6 +89,29 @@ describe('conflict snapshots (field-level resolution)', () => {
     const snap = await getConflictSnapshot('s3');
     expect(snap?.serverData.full_name).toBe('Server edit');
     expect(snap?.serverUpdatedAt).toBe('2026-03-01T00:00:00Z');
+  });
+
+  it('flags the queued item on a pull conflict so it is resolvable and not re-drained', async () => {
+    const queueId = await enqueue('s3b', { id: 's3b', full_name: 'Local edit' });
+    await mergePullRecords([
+      {
+        entity_type: 'person',
+        id: 's3b',
+        data: { id: 's3b', full_name: 'Server edit' },
+        updated_at: '2026-03-01T00:00:00Z',
+      },
+    ]);
+
+    // The queued item must be marked conflicted so (a) it surfaces in the
+    // resolution UI and (b) the next drain does not re-push it and clobber the
+    // server change (last-write-wins data loss).
+    const item = await db.syncQueue.get(queueId);
+    expect(item?.conflicted).toBe(true);
+    expect((await getConflicts()).map((c) => c.entityId)).toContain('s3b');
+
+    const push: PushFn = vi.fn(async () => ({ results: [], server_timestamp: '' }));
+    await drainQueue(push);
+    expect(push).not.toHaveBeenCalled();
   });
 
   it('resolveKeepServer applies the server data, clears the queue and snapshot', async () => {
