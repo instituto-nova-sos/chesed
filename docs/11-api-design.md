@@ -626,6 +626,73 @@ Campaign error responses:
 
 ---
 
+## Public Endpoints (Phase 3 — Sprint 11, S12.1)
+
+**Unauthenticated, internet-facing** surface consumed by the public WordPress site.
+These routes are mounted under `/api/v1/public/…` **before** the authenticated route
+groups and carry no `Authorization`. They are protected by, in order: a per-IP rate
+limiter, a `campus_id` validator (the campus must exist and be active), and a
+per-request campus transaction on the **non-owner** `chesed_app` connection whose
+`app.current_campus` GUC is the validated `campus_id` — so PostgreSQL RLS enforces
+campus isolation as a fail-closed safety net (a handler bug cannot cross campuses).
+
+| Method | Path | Auth | Rate limit (per IP) | Description |
+|--------|------|------|---------------------|-------------|
+| GET | `/public/campaigns?campus_id=` | No | ~60/min | List a campus's `ACTIVE` campaigns (lean projection) |
+| POST | `/public/volunteer-signup` | No | ~10/min | Register a prospective volunteer |
+
+CORS: only origins in the configured allowlist (`PUBLIC_CORS_ORIGINS`) receive an
+`Access-Control-Allow-Origin`. The WordPress origin is provided via env, not hardcoded.
+
+#### GET /public/campaigns?campus_id=&page=1&per_page=20
+Returns only `ACTIVE` campaigns for the given campus, using the same lean projection as
+the authenticated campaign list — **no** PII, coordinator, address, or team fields.
+```json
+// Response 200
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "March Social Action",
+      "campaign_type": "SOCIAL_ACTION",
+      "status": "ACTIVE",
+      "start_date": "2026-07-10T00:00:00Z",
+      "end_date": "2026-07-12T00:00:00Z",
+      "location_name": "Community Center - Jabaquara"
+    }
+  ],
+  "pagination": { "page": 1, "per_page": 20, "total": 3, "total_pages": 1 }
+}
+```
+
+#### POST /public/volunteer-signup
+Request body:
+- `full_name` (string, required, ≤200).
+- `email` (string, optional, valid email, ≤255).
+- `phone` (string, optional, ≤30).
+- `birth_date` (RFC3339 date, optional).
+- `referral_source` (string, optional, ≤200).
+- `campus_id` (uuid, required) — validated against an existing active campus.
+
+Creates a `person`, a `VOLUNTEER` `person_role`, and a `PENDING` volunteer agreement in
+that campus. Minimal PII by design (no document number for a public lead form). Writes an
+`audit_log` entry with the campus set, the client IP and user-agent captured, and a null
+actor (no authenticated subject).
+```json
+// Response 201
+{ "id": "uuid", "full_name": "Maria", "campus_id": "uuid", "created_at": "2026-07-06T09:00:00Z" }
+```
+
+Public error responses:
+| HTTP | Error | When |
+|------|-------|------|
+| 400 | `invalid_request` | Malformed JSON body or missing/invalid `campus_id` |
+| 400 | `validation_error` | Missing `full_name` or an invalid optional field |
+| 404 | `not_found` | `campus_id` does not match an existing active campus |
+| 429 | `rate_limited` | Per-IP rate exceeded (includes `Retry-After`) |
+
+---
+
 ## Donation Endpoints (Phase 2 — Sprint 7)
 
 **(Phase 2)** — Implemented in Sprint 7 (E09), except the receipt PDF (Phase 3, S11.5).
@@ -960,7 +1027,15 @@ Request body fields:
 {
   "results": [
     { "sync_id": "uuid", "status": "created", "server_id": "uuid" },
-    { "sync_id": "uuid", "status": "conflict", "message": "duplicate" },
+    {
+      "sync_id": "uuid",
+      "status": "conflict",
+      "message": "duplicate",
+      "server_id": "uuid",
+      "server_data": { "full_name": "Maria S.", "phone": "+55 11 90000-0000" },
+      "server_updated_at": "2026-07-06T09:00:00Z",
+      "conflicting_fields": ["phone"]
+    },
     { "sync_id": "uuid", "status": "error",   "message": "invalid person_id: ..." }
   ],
   "server_timestamp": "2026-04-02T10:40:00Z"
@@ -971,6 +1046,20 @@ Per-record `status`:
 - `created` — new server record (or idempotent return of the existing one).
 - `conflict` — DB constraint blocked the write (e.g., duplicate document).
 - `error` — payload validation or DB error specific to the record.
+
+On `conflict`, the server MAY return the current server row so the client can offer
+field-level resolution (S12.2):
+- `server_data` (object, optional) — a **lean, non-PII** projection of the existing
+  server record, limited to the same fields the client already holds for that entity.
+  It is never the full PII row (it travels to the offline client).
+- `server_updated_at` (RFC3339, optional) — the server row's last update timestamp,
+  for last-write-wins comparison.
+- `conflicting_fields` (string[], optional) — the fields that differ between the
+  client payload and the server row. Absent when the server cannot compute a diff;
+  the client may diff `server_data` against its local copy instead.
+
+These fields are omitted when no server row is resolvable (e.g., a validation-only
+conflict), preserving backward compatibility with the Phase 1 `{status, message}` shape.
 
 Error responses:
 | HTTP | Error | When |

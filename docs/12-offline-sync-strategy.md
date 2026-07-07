@@ -226,12 +226,47 @@ interface ConflictRecord {
 }
 ```
 
-### Phase 3: Manual Conflict Resolution UI
+### Phase 3 (Sprint 11, S12.2): Field-Level Conflict Resolution UI
 
-For Phase 3, add a conflict resolution interface:
-- Show side-by-side comparison of client vs. server version
-- Allow user to pick one or merge fields manually
-- Log resolution in audit trail
+Phase 3 upgrades the Phase 1 last-write-wins surfacing to a field-level resolution flow.
+
+**Server contract.** On a `conflict` result, `POST /sync/push` now returns a lean, non-PII
+`server_data` projection plus `server_updated_at` and optional `conflicting_fields` (see
+`docs/11-api-design.md`). This is the server value the UI needs to present a diff; it is
+never the full PII row (it travels to the offline client).
+
+**Client capture (Dexie v3).** An additive `conflicts` store persists the server snapshot so
+the value survives across sessions and is available offline:
+
+```typescript
+// Dexie v3 — additive upgrade from v2 (no data transform)
+this.version(3).stores({
+  conflicts: 'entityId, entityType',
+});
+
+interface ConflictSnapshot {
+  entityId: string;
+  entityType: SyncEntityType;      // 'person' | 'triage' | 'attendance'
+  serverData: Record<string, unknown>;
+  serverUpdatedAt?: string;
+  conflictFields?: string[];
+  capturedAt: string;
+}
+```
+
+The snapshot is written both on the push path (when the server returns `server_data`) and on
+the pull path — the pull-merge previously discarded the incoming server record on conflict; it
+now persists it into `conflicts`.
+
+**Resolution actions.** From the `/sync/conflicts` page, per conflicted record:
+- **Keep local** — re-push the local data (last-write-wins); clear the snapshot.
+- **Keep server** — apply `serverData` to the local cache as `synced`; delete the queue item
+  and snapshot; no network round-trip.
+- **Merge** — the operator picks per field (local vs server) in a side-by-side diff; the merged
+  payload replaces the queue item's `data`, retry is reset, and the record is re-pushed.
+
+Every resolution removes the snapshot and updates the unresolved-conflict count shown in the
+sync status banner. Resolutions are auditable server-side through the resulting push mutation.
 
 ---
 

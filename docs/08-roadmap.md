@@ -278,14 +278,19 @@ set is not yet `done` (see `.project-ai/rules/ready-definition.md`).
 
 ### Sprint 11: Integration and Hardening (Weeks 22-23)
 
-| # | Task | Dependencies |
-|---|------|-------------|
-| 11.1 | WordPress public API (campaigns, volunteer signup) | Phase 2 |
-| 11.2 | Advanced sync conflict resolution UI | Phase 1 |
-| 11.3 | Automated backup and disaster recovery | Phase 2 |
-| 11.4 | Performance load testing (100 concurrent users) | Phase 2 |
-| 11.5 | Security penetration testing | Phase 2 |
-| 11.6 | Production deployment | All |
+| # | Task | Dependencies | Story | Status |
+|---|------|-------------|-------|--------|
+| 11.1 | WordPress public API (campaigns, volunteer signup) | Phase 2 | S12.1 | In progress |
+| 11.2 | Advanced sync conflict resolution UI | Phase 1 | S12.2 | In progress |
+| 11.3 | Automated backup and disaster recovery | Phase 2 | S12.3 | In progress |
+| 11.4 | Performance load testing (100 concurrent users) | Phase 2 | S12.5 | In progress |
+| 11.5 | Security penetration testing | Phase 2 | S12.6 | In progress |
+| 11.6 | Production deployment | All | S12.7 | In progress |
+
+> Sprint 11 (E12) is delivered as committable artifacts plus runbooks validated by
+> `make deliver`; the cloud-execution portion of each ops task (11.3-11.6) is a documented
+> manual step (hard push boundary, no cloud access). Email notifications are scoped to
+> verifying Keycloak-owned password recovery (S12.4); event reminders are deferred.
 
 **Phase 3 Milestone**: Production-ready system with compliance, multi-region support, and integrations.
 
