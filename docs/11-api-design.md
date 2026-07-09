@@ -282,7 +282,8 @@ The `timezone` field (IANA string) is included in all campus responses (`GET /ca
 | Method | Path | Auth | Roles | Description |
 |--------|------|------|-------|-------------|
 | GET | `/volunteer-agreement/text` | Yes | All | Returns current agreement text and version |
-| POST | `/volunteer-agreement/accept` | Yes | All | Digital acceptance of agreement (self-service) |
+| POST | `/volunteer-agreement/accept` | Yes | All | Digital acceptance with a drawn signature (self-service) |
+| POST | `/volunteer-agreement/upload` | Yes | All | Self-service acceptance by attaching a signed document (self-service) |
 | POST | `/volunteer-agreement/reject` | Yes | All | Rejection with optional reason |
 
 #### GET /volunteer-agreement/text
@@ -298,7 +299,11 @@ The `timezone` field (IANA string) is included in all campus responses (`GET /ca
 
 #### POST /volunteer-agreement/accept
 ```json
-// Request (no body required — person identified from JWT claims)
+// Request — person identified from JWT claims. signature_data is the drawn
+// signature as a base64 PNG data URL and is REQUIRED for digital acceptance.
+{
+  "signature_data": "data:image/png;base64,iVBORw0KGgo..."
+}
 
 // Response 200
 {
@@ -309,7 +314,22 @@ The `timezone` field (IANA string) is included in all campus responses (`GET /ca
   "agreement_version": "1.0",
   "accepted_at": "2026-04-10T14:30:00Z"
 }
+
+// Response 400 — signature_data missing/empty
+{ "error": "validation", "message": "signature is required" }
 ```
+
+#### POST /volunteer-agreement/upload
+```
+// multipart/form-data; person identified from JWT claims (self-service).
+// field "document": the signed agreement file (PDF, JPEG, or PNG; max 10 MB).
+
+// Response 200 — status ACCEPTED, signature_method MANUAL_UPLOAD
+// Response 400 — missing file, invalid MIME type, or file too large
+```
+This is the volunteer-facing counterpart to the coordinator upload
+(`POST /persons/{id}/agreement/upload`); it takes the person from the token, so a
+volunteer can only submit their own agreement.
 
 #### POST /volunteer-agreement/reject
 ```json
