@@ -56,11 +56,23 @@ func (h *VolunteerAgreementHandler) Accept(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var body struct {
+		SignatureData string `json:"signature_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+
 	ip := extractIP(r)
 	userAgent := r.UserAgent()
 
-	agreement, err := h.svc.AcceptDigital(r.Context(), claims.PersonID, ip, userAgent)
+	agreement, err := h.svc.AcceptDigital(r.Context(), claims.PersonID, ip, userAgent, body.SignatureData)
 	if err != nil {
+		if errors.Is(err, domain.ErrValidation) {
+			writeError(w, http.StatusBadRequest, "validation", "signature is required")
+			return
+		}
 		if errors.Is(err, domain.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "no pending agreement found")
 			return
@@ -125,14 +137,31 @@ func (h *VolunteerAgreementHandler) GetPersonAgreement(w http.ResponseWriter, r 
 	writeJSON(w, http.StatusOK, map[string]any{"agreements": agreements})
 }
 
-// Upload handles POST /persons/{id}/agreement/upload.
+// Upload handles POST /persons/{id}/agreement/upload (coordinator uploads for a person).
 func (h *VolunteerAgreementHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	personID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "invalid person ID format")
 		return
 	}
+	h.handleUpload(w, r, personID)
+}
 
+// AcceptUpload handles POST /volunteer-agreement/upload (volunteer uploads their own
+// signed agreement). The person is taken from the token, never from the request, so a
+// volunteer can only submit their own agreement.
+func (h *VolunteerAgreementHandler) AcceptUpload(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims.PersonID == uuid.Nil {
+		writeError(w, http.StatusBadRequest, "no_person", "user has no linked person")
+		return
+	}
+	h.handleUpload(w, r, claims.PersonID)
+}
+
+// handleUpload parses a multipart agreement document, persists the file, and marks the
+// agreement ACCEPTED via manual upload. Shared by the coordinator and self-service paths.
+func (h *VolunteerAgreementHandler) handleUpload(w http.ResponseWriter, r *http.Request, personID uuid.UUID) {
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		writeError(w, http.StatusBadRequest, "file_too_large", "file exceeds 10MB limit")
 		return
@@ -158,14 +187,14 @@ func (h *VolunteerAgreementHandler) Upload(w http.ResponseWriter, r *http.Reques
 
 	filePath, err := saveUploadedFile(file, dirPath, ext)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "agreementHandler.Upload: save failed", "error", err.Error())
+		slog.ErrorContext(r.Context(), "agreementHandler.handleUpload: save failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to save document")
 		return
 	}
 
 	agreement, err := h.svc.UploadManual(r.Context(), personID, filePath)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "agreementHandler.Upload: service failed", "error", err.Error())
+		slog.ErrorContext(r.Context(), "agreementHandler.handleUpload: service failed", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to process agreement")
 		return
 	}

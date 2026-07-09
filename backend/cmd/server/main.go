@@ -254,6 +254,7 @@ func (d appDeps) registerAgreementRoutes(r chi.Router, authMW func(http.Handler)
 		r.Use(middleware.AutoProvision(d.userSvc))
 		r.Get("/volunteer-agreement/text", d.agreement.GetText)
 		r.Post("/volunteer-agreement/accept", d.agreement.Accept)
+		r.Post("/volunteer-agreement/upload", d.agreement.AcceptUpload)
 		r.Post("/volunteer-agreement/reject", d.agreement.Reject)
 	})
 }

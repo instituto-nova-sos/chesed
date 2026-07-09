@@ -32,6 +32,7 @@ type VolunteerAgreement struct {
 	AcceptedByUser   *uuid.UUID `json:"accepted_by_user,omitempty"`
 	IPAddress        net.IP     `json:"ip_address,omitempty"`
 	UserAgent        *string    `json:"user_agent,omitempty"`
+	SignatureData    *string    `json:"signature_data,omitempty"`
 	DocumentPath     *string    `json:"document_path,omitempty"`
 	UploadedAt       *time.Time `json:"uploaded_at,omitempty"`
 	UploadedBy       *uuid.UUID `json:"uploaded_by,omitempty"`

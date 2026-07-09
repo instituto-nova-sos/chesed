@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -185,6 +186,10 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	publicSvc := service.NewPublicService(campaignRepo, personRepo, personRoleRepo, agreementRepo, auditSvc)
 	publicH := handler.NewPublicHandler(publicSvc)
 
+	agreementSvc := service.NewVolunteerAgreementService(agreementRepo, personRoleRepo, auditSvc)
+	agreementUploadDir, _ := os.MkdirTemp("", "chesed-agreement-uploads-*")
+	agreementH := handler.NewVolunteerAgreementHandler(agreementSvc, agreementUploadDir)
+
 	allRoles := middleware.RequireRole(auditSvc, "VOLUNTEER", "SECRETARY", "PROFESSIONAL", "COORDINATOR", "ADMIN")
 	coordinatorUp := middleware.RequireRole(auditSvc, "COORDINATOR", "ADMIN")
 	// Role sets mirror registerTriageRoutes/registerAttendanceRoutes/
@@ -255,6 +260,11 @@ func buildRouter(pool *pgxpool.Pool, store service.ObjectStorage) chi.Router {
 	r.With(attendanceRoles).Post("/api/v1/attendances/{id}/documents", documentH.UploadForAttendance)
 	r.With(attendanceRoles).Get("/api/v1/attendances/{id}/documents", documentH.ListByAttendance)
 	r.With(attendanceRoles).Get("/api/v1/documents/{id}/download", documentH.Download)
+	// Volunteer agreement self-service routes mirror registerAgreementRoutes in
+	// cmd/server/main.go (authenticated, all roles, NOT behind RequireAgreement).
+	r.With(allRoles).Post("/api/v1/volunteer-agreement/accept", agreementH.Accept)
+	r.With(allRoles).Post("/api/v1/volunteer-agreement/upload", agreementH.AcceptUpload)
+	r.With(allRoles).Post("/api/v1/volunteer-agreement/reject", agreementH.Reject)
 	// A route guarded by RequireRole so integration tests can assert that a
 	// 403 denial is written to audit_log (security Finding 4). ADMIN-only.
 	r.With(middleware.RequireRole(auditSvc, "ADMIN")).

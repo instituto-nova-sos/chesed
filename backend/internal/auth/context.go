@@ -20,6 +20,10 @@ type AuthClaims struct {
 	Roles         []string
 	CampusID      uuid.UUID
 	PersonID      uuid.UUID
+	// AppUserID is the local app_user.id resolved by AutoProvision. It differs from
+	// Subject (the Keycloak subject) and is the value FK columns like
+	// volunteer_agreement.accepted_by_user reference.
+	AppUserID uuid.UUID
 }
 
 // NewContext stores AuthClaims in the context.

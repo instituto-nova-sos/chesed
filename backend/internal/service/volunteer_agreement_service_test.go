@@ -53,13 +53,23 @@ func TestVolunteerAgreementService_AcceptDigital(t *testing.T) {
 
 		agreementRepo.On("HasAcceptedAgreement", mock.Anything, claims.PersonID).Return(false, nil)
 		agreementRepo.On("FindPendingByPersonID", mock.Anything, claims.PersonID).Return(pending, nil)
-		agreementRepo.On("AcceptDigital", mock.Anything, pendingID, mock.AnythingOfType("uuid.UUID"), "127.0.0.1", "TestBrowser").Return(accepted, nil)
+		agreementRepo.On("AcceptDigital", mock.Anything, pendingID, mock.AnythingOfType("uuid.UUID"), "127.0.0.1", "TestBrowser", "data:image/png;base64,SIG").Return(accepted, nil)
 		auditRepo.On("Create", mock.Anything, mock.AnythingOfType("domain.AuditLog")).Return(nil)
 
-		result, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser")
+		result, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser", "data:image/png;base64,SIG")
 
 		require.NoError(t, err)
 		assert.Equal(t, domain.AgreementAccepted, result.Status)
+	})
+
+	t.Run("empty signature returns validation error", func(t *testing.T) {
+		svc, _, _, _ := newTestAgreementService()
+		ctx, claims := newAgreementTestContext()
+
+		_, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser", "")
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrValidation)
 	})
 
 	t.Run("already accepted returns error", func(t *testing.T) {
@@ -68,7 +78,7 @@ func TestVolunteerAgreementService_AcceptDigital(t *testing.T) {
 
 		agreementRepo.On("HasAcceptedAgreement", mock.Anything, claims.PersonID).Return(true, nil)
 
-		_, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser")
+		_, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser", "data:image/png;base64,SIG")
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, domain.ErrAgreementExists)
@@ -81,7 +91,7 @@ func TestVolunteerAgreementService_AcceptDigital(t *testing.T) {
 		agreementRepo.On("HasAcceptedAgreement", mock.Anything, claims.PersonID).Return(false, nil)
 		agreementRepo.On("FindPendingByPersonID", mock.Anything, claims.PersonID).Return(nil, domain.ErrNotFound)
 
-		_, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser")
+		_, err := svc.AcceptDigital(ctx, claims.PersonID, "127.0.0.1", "TestBrowser", "data:image/png;base64,SIG")
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, domain.ErrNotFound)

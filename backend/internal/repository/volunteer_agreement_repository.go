@@ -53,7 +53,7 @@ func (r *VolunteerAgreementRepository) FindByPersonID(ctx context.Context, perso
 	query := `
 		SELECT id, person_id, person_role_id, campus_id, status,
 		       signature_method, accepted_at, accepted_by_user,
-		       ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		       ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		       rejected_at, rejection_reason, agreement_version, notes,
 		       created_at, updated_at
 		FROM volunteer_agreement
@@ -89,7 +89,7 @@ func (r *VolunteerAgreementRepository) FindByPersonRoleID(ctx context.Context, p
 	query := `
 		SELECT id, person_id, person_role_id, campus_id, status,
 		       signature_method, accepted_at, accepted_by_user,
-		       ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		       ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		       rejected_at, rejection_reason, agreement_version, notes,
 		       created_at, updated_at
 		FROM volunteer_agreement
@@ -112,7 +112,7 @@ func (r *VolunteerAgreementRepository) FindPendingByPersonID(ctx context.Context
 	query := `
 		SELECT id, person_id, person_role_id, campus_id, status,
 		       signature_method, accepted_at, accepted_by_user,
-		       ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		       ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		       rejected_at, rejection_reason, agreement_version, notes,
 		       created_at, updated_at
 		FROM volunteer_agreement
@@ -148,8 +148,9 @@ func (r *VolunteerAgreementRepository) HasAcceptedAgreement(ctx context.Context,
 	return exists, nil
 }
 
-// AcceptDigital sets an agreement to ACCEPTED with digital signature metadata.
-func (r *VolunteerAgreementRepository) AcceptDigital(ctx context.Context, id uuid.UUID, userID uuid.UUID, ip string, userAgent string) (*domain.VolunteerAgreement, error) {
+// AcceptDigital sets an agreement to ACCEPTED with digital signature metadata,
+// storing the drawn signature (base64 PNG data URL) in signature_data.
+func (r *VolunteerAgreementRepository) AcceptDigital(ctx context.Context, id uuid.UUID, userID uuid.UUID, ip string, userAgent string, signatureData string) (*domain.VolunteerAgreement, error) {
 	query := `
 		UPDATE volunteer_agreement
 		SET status = 'ACCEPTED',
@@ -158,15 +159,16 @@ func (r *VolunteerAgreementRepository) AcceptDigital(ctx context.Context, id uui
 		    accepted_by_user = $2,
 		    ip_address = $3::inet,
 		    user_agent = $4,
+		    signature_data = $5,
 		    updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, person_id, person_role_id, campus_id, status,
 		          signature_method, accepted_at, accepted_by_user,
-		          ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		          ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
-	row := r.q(ctx).QueryRow(ctx, query, id, userID, ip, userAgent)
+	row := r.q(ctx).QueryRow(ctx, query, id, nilableUUID(userID), ip, userAgent, signatureData)
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -189,7 +191,7 @@ func (r *VolunteerAgreementRepository) Reject(ctx context.Context, id uuid.UUID,
 		WHERE id = $1
 		RETURNING id, person_id, person_role_id, campus_id, status,
 		          signature_method, accepted_at, accepted_by_user,
-		          ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		          ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
@@ -219,11 +221,11 @@ func (r *VolunteerAgreementRepository) AcceptManualUpload(ctx context.Context, i
 		WHERE id = $1
 		RETURNING id, person_id, person_role_id, campus_id, status,
 		          signature_method, accepted_at, accepted_by_user,
-		          ip_address, user_agent, document_path, uploaded_at, uploaded_by,
+		          ip_address, user_agent, signature_data, document_path, uploaded_at, uploaded_by,
 		          rejected_at, rejection_reason, agreement_version, notes,
 		          created_at, updated_at`
 
-	row := r.q(ctx).QueryRow(ctx, query, id, documentPath, now, uploadedBy)
+	row := r.q(ctx).QueryRow(ctx, query, id, documentPath, now, nilableUUID(uploadedBy))
 	a, err := scanAgreementRow(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -235,13 +237,22 @@ func (r *VolunteerAgreementRepository) AcceptManualUpload(ctx context.Context, i
 	return &a, nil
 }
 
+// nilableUUID returns nil for the zero UUID so a nullable FK column is bound as NULL
+// rather than the all-zero UUID, which would violate the app_user foreign key.
+func nilableUUID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
 // scanAgreement scans a volunteer_agreement row from pgx.Rows.
 func scanAgreement(rows pgx.Rows) (domain.VolunteerAgreement, error) {
 	var a domain.VolunteerAgreement
 	err := rows.Scan(
 		&a.ID, &a.PersonID, &a.PersonRoleID, &a.CampusID, &a.Status,
 		&a.SignatureMethod, &a.AcceptedAt, &a.AcceptedByUser,
-		&a.IPAddress, &a.UserAgent, &a.DocumentPath, &a.UploadedAt, &a.UploadedBy,
+		&a.IPAddress, &a.UserAgent, &a.SignatureData, &a.DocumentPath, &a.UploadedAt, &a.UploadedBy,
 		&a.RejectedAt, &a.RejectionReason, &a.AgreementVersion, &a.Notes,
 		&a.CreatedAt, &a.UpdatedAt,
 	)
@@ -254,7 +265,7 @@ func scanAgreementRow(row pgx.Row) (domain.VolunteerAgreement, error) {
 	err := row.Scan(
 		&a.ID, &a.PersonID, &a.PersonRoleID, &a.CampusID, &a.Status,
 		&a.SignatureMethod, &a.AcceptedAt, &a.AcceptedByUser,
-		&a.IPAddress, &a.UserAgent, &a.DocumentPath, &a.UploadedAt, &a.UploadedBy,
+		&a.IPAddress, &a.UserAgent, &a.SignatureData, &a.DocumentPath, &a.UploadedAt, &a.UploadedBy,
 		&a.RejectedAt, &a.RejectionReason, &a.AgreementVersion, &a.Notes,
 		&a.CreatedAt, &a.UpdatedAt,
 	)

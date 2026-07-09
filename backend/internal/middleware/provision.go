@@ -46,8 +46,11 @@ func AutoProvision(userSvc *service.UserService) func(http.Handler) http.Handler
 				return
 			}
 
-			// Enrich auth context with resolved campus
+			// Enrich auth context with resolved campus and local app_user id.
+			// AppUserID (not Subject) is what FK columns such as
+			// volunteer_agreement.accepted_by_user reference.
 			claims.CampusID = *appUser.CampusID
+			claims.AppUserID = appUser.ID
 			ctx := auth.NewContext(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
