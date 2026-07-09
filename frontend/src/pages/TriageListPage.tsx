@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTriages } from '../hooks/useTriages';
 import { useCampusTimezone } from '../hooks/useCampusTimezone';
 import { formatDateTime } from '../utils/formatDateTime';
+import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pagination } from '../components/ui/Pagination';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
@@ -19,6 +20,7 @@ export function TriageListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Triagens</h1>
+        <Button onClick={() => navigate('/triages/new')}>Nova Triagem</Button>
       </div>
 
       {error && <p className="text-center text-sm text-red-600">{error}</p>}
