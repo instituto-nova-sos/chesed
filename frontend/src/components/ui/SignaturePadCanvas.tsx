@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { Button } from '../ui/Button';
+import { Button } from './Button';
 
 interface SignaturePadCanvasProps {
   value?: string;

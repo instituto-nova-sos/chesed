@@ -10,7 +10,7 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Alert } from '../components/ui/Alert';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
-import { SignaturePadCanvas } from '../components/consents/SignaturePadCanvas';
+import { SignaturePadCanvas } from '../components/ui/SignaturePadCanvas';
 import { CONSENT_TYPE_LABELS, PURPOSE_PRESETS } from '../utils/consentLabels';
 import type { ConsentType, CreateConsentInput } from '../types/consent';
 

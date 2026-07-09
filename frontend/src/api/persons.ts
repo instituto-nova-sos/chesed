@@ -103,9 +103,20 @@ export function getAgreementText(version?: string): Promise<{ text: string; vers
   return apiClient(`/volunteer-agreement/text${qs}`);
 }
 
-export function acceptAgreement(): Promise<VolunteerAgreement> {
+export function acceptAgreement(signatureData: string): Promise<VolunteerAgreement> {
   return apiClient<VolunteerAgreement>('/volunteer-agreement/accept', {
     method: 'POST',
+    body: JSON.stringify({ signature_data: signatureData }),
+  });
+}
+
+/** Self-service upload: the volunteer attaches their own signed agreement (image/PDF). */
+export function uploadAgreementSelf(file: File): Promise<VolunteerAgreement> {
+  const formData = new FormData();
+  formData.append('document', file);
+  return apiClientRaw<VolunteerAgreement>('/volunteer-agreement/upload', {
+    method: 'POST',
+    body: formData,
   });
 }
 
