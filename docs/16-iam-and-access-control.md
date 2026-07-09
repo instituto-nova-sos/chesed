@@ -280,9 +280,10 @@ Roles are extracted from the `realm_access.roles` array in the JWT access token.
 | **Audit** |
 | View audit logs | No | No | No | No | Yes |
 | **Volunteer Agreement** |
-| Accept/reject own agreement | Yes | Yes | Yes | Yes | Yes |
+| Accept/reject own agreement (digital signature) | Yes | Yes | Yes | Yes | Yes |
+| Accept own agreement by uploading a signed document (self-service) | Yes | Yes | Yes | Yes | Yes |
 | View person's agreements | No | No | No | Yes | Yes |
-| Upload signed agreement | No | No | No | Yes | Yes |
+| Upload signed agreement for another person | No | No | No | Yes | Yes |
 | Download agreement document | No | No | No | Yes | Yes |
 | **Consent** |
 | Create consent | Yes | Yes | Yes | Yes | Yes |

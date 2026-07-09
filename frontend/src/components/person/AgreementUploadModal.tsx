@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { uploadAgreement } from '../../api/persons';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
+import { AGREEMENT_MAX_SIZE_MB, validateAgreementFile } from '../../utils/agreementFile';
 import type { VolunteerAgreement } from '../../types';
 
 interface AgreementUploadModalProps {
@@ -10,8 +11,7 @@ interface AgreementUploadModalProps {
   onUploaded: (agreement: VolunteerAgreement) => void;
 }
 
-const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
-const MAX_SIZE_MB = 10;
+const MAX_SIZE_MB = AGREEMENT_MAX_SIZE_MB;
 
 export function AgreementUploadModal({ personId, onClose, onUploaded }: AgreementUploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -24,12 +24,9 @@ export function AgreementUploadModal({ personId, onClose, onUploaded }: Agreemen
     const selected = e.target.files?.[0];
     if (!selected) return;
 
-    if (!ACCEPTED_TYPES.includes(selected.type)) {
-      setError('Formato invalido. Aceitos: PDF, JPEG, PNG.');
-      return;
-    }
-    if (selected.size > MAX_SIZE_MB * 1024 * 1024) {
-      setError(`Arquivo excede o limite de ${MAX_SIZE_MB}MB.`);
+    const validationError = validateAgreementFile(selected);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 

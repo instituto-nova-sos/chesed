@@ -59,6 +59,9 @@ tasks/STATUS.md
 # Go build output
 backend/bin/
 
+# Agreement/document uploads written at runtime by the upload handlers
+backend/uploads/
+
 # Playwright E2E artifacts (regenerated on each run)
 frontend/playwright-report/
 frontend/test-results/

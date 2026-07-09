@@ -181,6 +181,7 @@ CREATE TABLE volunteer_agreement (
     accepted_by_user  UUID,
     ip_address        INET,
     user_agent        TEXT,
+    signature_data    TEXT,
     document_path     VARCHAR(500),
     uploaded_at       TIMESTAMPTZ,
     uploaded_by       UUID,
@@ -202,6 +203,7 @@ CREATE UNIQUE INDEX uq_volunteer_agreement_role ON volunteer_agreement(person_ro
 
 **Migrations:**
 - `000015_create_volunteer_agreement` — Creates the `volunteer_agreement` table with all columns and indexes.
+- `000033_add_agreement_signature_data` — Adds `signature_data TEXT` (nullable) storing the drawn digital signature (base64 PNG data URL) for `DIGITAL` acceptances, mirroring `consent.signature_data`.
 - `000016_add_person_unique_constraints` — Adds unique constraints for email and phone per campus:
   - `uq_person_email_campus`: `UNIQUE (email, campus_id) WHERE email IS NOT NULL`
   - `uq_person_phone_campus`: `UNIQUE (phone, campus_id) WHERE phone IS NOT NULL`

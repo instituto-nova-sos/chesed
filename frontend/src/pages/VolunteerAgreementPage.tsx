@@ -4,99 +4,32 @@
  * - Reference: docs/12-offline-sync-strategy.md
  */
 import { useState, useEffect } from 'react';
-import { getAgreementText, acceptAgreement, rejectAgreement } from '../api/persons';
+import {
+  getAgreementText,
+  acceptAgreement,
+  uploadAgreementSelf,
+  rejectAgreement,
+} from '../api/persons';
 import { useAuth } from '../hooks/useAuth';
-import { Button } from '../components/ui/Button';
+import { useAcceptMethod } from '../hooks/useAcceptMethod';
 import { Alert } from '../components/ui/Alert';
+import {
+  RejectedScreen,
+  RejectConfirmBlock,
+  AgreementActions,
+  AcceptMethodBlock,
+} from '../components/agreement/AgreementComponents';
 import { keycloak } from '../auth/keycloak';
-
-function RejectedScreen({ onLogout }: { onLogout: () => void }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
-        <div className="text-red-500 text-4xl mb-4">!</div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Termo Recusado</h2>
-        <p className="text-gray-600 mb-6">
-          Sem a aceite do termo de voluntario, o acesso a plataforma fica restrito.
-          Entre em contato com a coordenacao para mais informacoes.
-        </p>
-        <Button onClick={onLogout} variant="secondary">
-          Sair
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-interface RejectConfirmProps {
-  rejectReason: string;
-  onReasonChange: (value: string) => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-  submitting: boolean;
-}
-
-function RejectConfirmBlock({
-  rejectReason,
-  onReasonChange,
-  onConfirm,
-  onCancel,
-  submitting,
-}: RejectConfirmProps) {
-  return (
-    <div className="px-6 py-4 bg-red-50 border-t border-red-100">
-      <p className="text-sm text-red-700 font-medium mb-2">
-        Tem certeza que deseja recusar o termo?
-      </p>
-      <p className="text-sm text-red-600 mb-3">
-        Ao recusar, seu acesso a plataforma sera restrito.
-      </p>
-      <textarea
-        value={rejectReason}
-        onChange={(e) => onReasonChange(e.target.value)}
-        placeholder="Motivo da recusa (opcional)"
-        className="w-full border border-red-300 rounded-md p-2 text-sm mb-3 focus:ring-red-500 focus:border-red-500"
-        rows={3}
-      />
-      <div className="flex gap-3">
-        <Button onClick={onConfirm} variant="danger" disabled={submitting}>
-          {submitting ? 'Enviando...' : 'Confirmar Recusa'}
-        </Button>
-        <Button onClick={onCancel} variant="secondary" disabled={submitting}>
-          Cancelar
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-interface AgreementActionsProps {
-  onReject: () => void;
-  onAccept: () => void;
-  submitting: boolean;
-}
-
-function AgreementActions({ onReject, onAccept, submitting }: AgreementActionsProps) {
-  return (
-    <div className="px-6 py-4 border-t border-gray-200 flex justify-between">
-      <Button onClick={onReject} variant="secondary" disabled={submitting}>
-        Recusar
-      </Button>
-      <Button onClick={onAccept} disabled={submitting}>
-        {submitting ? 'Processando...' : 'Aceitar Termo'}
-      </Button>
-    </div>
-  );
-}
 
 function useVolunteerAgreement() {
   const [agreementText, setAgreementText] = useState('');
   const [version, setVersion] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejected, setRejected] = useState(false);
+  const accept = useAcceptMethod();
 
   useEffect(() => {
     getAgreementText()
@@ -104,31 +37,36 @@ function useVolunteerAgreement() {
         setAgreementText(text);
         setVersion(v);
       })
-      .catch(() => setError('Erro ao carregar o termo. Tente novamente.'))
+      .catch(() => setSubmitError('Erro ao carregar o termo. Tente novamente.'))
       .finally(() => setLoading(false));
   }, []);
 
   const handleAccept = async () => {
+    if (!accept.canSubmit) return;
     setSubmitting(true);
-    setError(null);
+    setSubmitError(null);
     try {
-      await acceptAgreement();
+      if (accept.method === 'sign') {
+        await acceptAgreement(accept.signature as string);
+      } else {
+        await uploadAgreementSelf(accept.file as File);
+      }
       // Force re-login so token claims are refreshed
       await keycloak.logout({ redirectUri: window.location.origin });
     } catch {
-      setError('Erro ao aceitar o termo. Tente novamente.');
+      setSubmitError('Erro ao aceitar o termo. Tente novamente.');
       setSubmitting(false);
     }
   };
 
   const handleReject = async () => {
     setSubmitting(true);
-    setError(null);
+    setSubmitError(null);
     try {
       await rejectAgreement(rejectReason || undefined);
       setRejected(true);
     } catch {
-      setError('Erro ao recusar o termo. Tente novamente.');
+      setSubmitError('Erro ao recusar o termo. Tente novamente.');
     } finally {
       setSubmitting(false);
     }
@@ -139,36 +77,62 @@ function useVolunteerAgreement() {
     version,
     loading,
     submitting,
-    error,
+    error: submitError ?? accept.fileError,
     rejectReason,
     setRejectReason,
     rejected,
+    accept,
     handleAccept,
     handleReject,
   };
 }
 
+type AgreementState = ReturnType<typeof useVolunteerAgreement>;
+
+function AgreementFooter({ state }: { state: AgreementState }) {
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+  const { submitting, rejectReason, setRejectReason, accept, handleAccept, handleReject } = state;
+
+  if (showRejectConfirm) {
+    return (
+      <RejectConfirmBlock
+        rejectReason={rejectReason}
+        onReasonChange={setRejectReason}
+        onConfirm={handleReject}
+        onCancel={() => setShowRejectConfirm(false)}
+        submitting={submitting}
+      />
+    );
+  }
+  return (
+    <>
+      <AcceptMethodBlock
+        method={accept.method}
+        onSelectMethod={accept.selectMethod}
+        signature={accept.signature}
+        onSign={accept.setSignature}
+        onSelectFile={accept.selectFile}
+        disabled={submitting}
+      />
+      <AgreementActions
+        onReject={() => setShowRejectConfirm(true)}
+        onAccept={handleAccept}
+        submitting={submitting}
+        canSubmit={accept.canSubmit}
+      />
+    </>
+  );
+}
+
 export function VolunteerAgreementPage() {
   const { logout } = useAuth();
-  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
-  const {
-    agreementText,
-    version,
-    loading,
-    submitting,
-    error,
-    rejectReason,
-    setRejectReason,
-    rejected,
-    handleAccept,
-    handleReject,
-  } = useVolunteerAgreement();
+  const state = useVolunteerAgreement();
 
-  if (rejected) {
+  if (state.rejected) {
     return <RejectedScreen onLogout={() => logout()} />;
   }
 
-  if (loading) {
+  if (state.loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -180,46 +144,28 @@ export function VolunteerAgreementPage() {
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          {/* Header */}
           <div className="bg-blue-600 px-6 py-4">
-            <h1 className="text-xl font-semibold text-white">
-              Termo de Voluntario
-            </h1>
+            <h1 className="text-xl font-semibold text-white">Termo de Voluntario</h1>
             <p className="text-blue-100 text-sm mt-1">
-              Versao {version} - Leia com atencao antes de aceitar
+              Versao {state.version} - Leia com atencao antes de aceitar
             </p>
           </div>
 
-          {/* Agreement text */}
           <div className="px-6 py-4">
             <div className="prose prose-sm max-w-none max-h-96 overflow-y-auto border border-gray-200 rounded-md p-4 bg-gray-50">
               <div className="whitespace-pre-wrap text-sm text-gray-700">
-                {agreementText}
+                {state.agreementText}
               </div>
             </div>
           </div>
 
-          {error && (
+          {state.error && (
             <div className="px-6">
-              <Alert variant="error">{error}</Alert>
+              <Alert variant="error">{state.error}</Alert>
             </div>
           )}
 
-          {showRejectConfirm ? (
-            <RejectConfirmBlock
-              rejectReason={rejectReason}
-              onReasonChange={setRejectReason}
-              onConfirm={handleReject}
-              onCancel={() => setShowRejectConfirm(false)}
-              submitting={submitting}
-            />
-          ) : (
-            <AgreementActions
-              onReject={() => setShowRejectConfirm(true)}
-              onAccept={handleAccept}
-              submitting={submitting}
-            />
-          )}
+          <AgreementFooter state={state} />
         </div>
       </div>
     </div>

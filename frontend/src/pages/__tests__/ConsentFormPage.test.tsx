@@ -29,7 +29,7 @@ vi.mock('../../hooks/usePersons', () => ({
 
 // The pad's canvas contract is covered by SignaturePadCanvas.test.tsx; the
 // page test stubs it so signing is a deterministic click in jsdom.
-vi.mock('../../components/consents/SignaturePadCanvas', () => ({
+vi.mock('../../components/ui/SignaturePadCanvas', () => ({
   SignaturePadCanvas: (props: {
     onChange: (dataUrl: string | null) => void;
     disabled?: boolean;

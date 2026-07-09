@@ -66,6 +66,7 @@ export interface VolunteerAgreement {
   accepted_by_user?: string;
   ip_address?: string;
   user_agent?: string;
+  signature_data?: string | null;
   document_path?: string;
   uploaded_at?: string;
   uploaded_by?: string;

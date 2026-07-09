@@ -19,11 +19,88 @@ SMTP_PORT="${SMTP_PORT:-1025}"
 
 # --- Helper functions ---
 
+# Keycloak's realm export ships with sslRequired=EXTERNAL (correct for production).
+# When persisted in the DB, that value overrides start-dev's default of NONE, so admin
+# calls arriving through the host port mapping (localhost:8180) are treated as external
+# and rejected with "HTTPS required". Relax it to NONE for both realms via kcadm on the
+# container's internal loopback (exempt from the HTTPS requirement) before any HTTP call.
+# Production is unaffected: realm-export.json still declares EXTERNAL.
+relax_ssl_for_dev() {
+  local svc="${KC_COMPOSE_SERVICE:-keycloak}"
+  if ! docker compose exec -T "$svc" /opt/keycloak/bin/kcadm.sh config credentials \
+    --server http://localhost:8080 --realm master \
+    --user "$KC_ADMIN" --password "$KC_ADMIN_PASSWORD" >/dev/null 2>&1; then
+    echo "    WARNING: could not authenticate kcadm in '$svc' container; skipping sslRequired relax."
+    echo "             If the next step fails with 'HTTPS required', set sslRequired=NONE manually."
+    return 0
+  fi
+  local realm
+  for realm in master "$KC_REALM"; do
+    docker compose exec -T "$svc" /opt/keycloak/bin/kcadm.sh \
+      update "realms/$realm" -s sslRequired=NONE >/dev/null 2>&1 || true
+  done
+}
+
 get_admin_token() {
   curl -sf -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "grant_type=password&client_id=admin-cli&username=$KC_ADMIN&password=$KC_ADMIN_PASSWORD" \
     | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])"
+}
+
+# app_user.campus_id is resolved from the DB by the AutoProvision middleware, and is
+# populated for real users through the onboarding flow (person match by email).
+# The seeded test users have no matching person, so their app_user is provisioned with
+# campus_id = NULL and every authenticated request is rejected with 403 "missing campus
+# assignment". For dev we bind each test user to the default campus directly.
+#
+# app_user is a local projection created on a user's first login, so it may not exist
+# yet when this script runs. The upsert keyed on keycloak_subject_id therefore both
+# creates the projection (for users who have not logged in) and backfills the campus
+# (for users who logged in before this fix), making the step order-independent and
+# idempotent. Production is unaffected: real users get their campus from onboarding.
+assign_default_campus_to_test_users() {
+  local token="$1"
+  local db_svc="${KC_COMPOSE_SERVICE_DB:-db}"
+  local emails=(
+    "volunteer@chesed.test:VOLUNTEER"
+    "secretary@chesed.test:SECRETARY"
+    "professional@chesed.test:PROFESSIONAL"
+    "coordinator@chesed.test:COORDINATOR"
+    "admin@chesed.test:ADMIN"
+  )
+
+  local entry email profile subject
+  for entry in "${emails[@]}"; do
+    email="${entry%%:*}"
+    profile="${entry##*:}"
+    subject=$(curl -sf "$KC_URL/admin/realms/$KC_REALM/users?email=$email&exact=true" \
+      -H "Authorization: Bearer $token" \
+      | python3 -c "import sys,json;u=json.load(sys.stdin);print(u[0]['id'] if u else '')")
+
+    if [ -z "$subject" ]; then
+      echo "    $email — WARNING: no Keycloak user, cannot bind campus"
+      continue
+    fi
+
+    # gen_random_uuid() needs pgcrypto/pg16 core; available on postgres:16-alpine.
+    docker compose exec -T "$db_svc" psql -U chesed -d chesed -v ON_ERROR_STOP=1 -q -c "
+      INSERT INTO app_user (id, email, keycloak_subject_id, access_profile, campus_id, is_active)
+      VALUES (
+        gen_random_uuid(),
+        '$email',
+        '$subject',
+        '$profile',
+        (SELECT id FROM campus WHERE name = 'Instituto Nova SOS' LIMIT 1),
+        true
+      )
+      ON CONFLICT (keycloak_subject_id) DO UPDATE
+      SET campus_id = COALESCE(app_user.campus_id, EXCLUDED.campus_id),
+          updated_at = now();
+    " >/dev/null 2>&1 \
+      && echo "    $email — campus bound (default)" \
+      || echo "    $email — WARNING: could not bind campus (is the db service up?)"
+  done
 }
 
 create_user() {
@@ -86,7 +163,8 @@ create_user() {
 
 # --- Step 1: User Profile ---
 
-echo "==> [1/5] Configuring User Profile..."
+echo "==> [1/7] Configuring User Profile..."
+relax_ssl_for_dev
 TOKEN=$(get_admin_token)
 
 PROFILE=$(curl -sf "$KC_URL/admin/realms/$KC_REALM/users/profile" \
@@ -120,7 +198,7 @@ fi
 
 # --- Step 2: SMTP Configuration (Mailpit for dev) ---
 
-echo "==> [2/5] Configuring SMTP (Mailpit)..."
+echo "==> [2/7] Configuring SMTP (Mailpit)..."
 CURRENT_SMTP=$(curl -sf "$KC_URL/admin/realms/$KC_REALM" \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('smtpServer',{}).get('host',''))")
 
@@ -152,7 +230,7 @@ fi
 
 # --- Step 3: Disable conditional MFA for dev ---
 
-echo "==> [3/5] Disabling conditional MFA (dev mode)..."
+echo "==> [3/7] Disabling conditional MFA (dev mode)..."
 CURRENT_FLOW=$(curl -sf "$KC_URL/admin/realms/$KC_REALM" \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin).get('browserFlow',''))")
 
@@ -176,7 +254,7 @@ fi
 # realm-export.json has verifyEmail: true for production.
 # For dev, we disable it so test users can login immediately.
 
-echo "==> [4/5] Disabling email verification (dev mode)..."
+echo "==> [4/7] Disabling email verification (dev mode)..."
 VERIFY_EMAIL=$(curl -sf "$KC_URL/admin/realms/$KC_REALM" \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;print(json.load(sys.stdin).get('verifyEmail',False))")
 
@@ -199,7 +277,7 @@ fi
 
 # --- Step 5: Create test users ---
 
-echo "==> [5/5] Creating test users (password: $TEST_PASSWORD)..."
+echo "==> [5/7] Creating test users (password: $TEST_PASSWORD)..."
 TOKEN=$(get_admin_token)
 
 create_user "volunteer"    "volunteer@chesed.test"    "Test" "Volunteer"    "VOLUNTEER"    "$TOKEN"
@@ -209,7 +287,11 @@ create_user "coordinator"  "coordinator@chesed.test"  "Test" "Coordinator"  "COO
 create_user "admin"        "admin@chesed.test"        "Test" "Admin"        "ADMIN"        "$TOKEN"
 
 echo ""
-echo "==> [6/6] Enabling self-registration..."
+echo "==> [6/7] Binding test users to the default campus (dev)..."
+assign_default_campus_to_test_users "$TOKEN"
+
+echo ""
+echo "==> [7/7] Enabling self-registration..."
 TOKEN=$(get_admin_token)
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   "$KC_URL/admin/realms/$KC_REALM" \

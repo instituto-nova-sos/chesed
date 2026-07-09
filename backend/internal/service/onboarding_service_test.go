@@ -54,8 +54,8 @@ func (m *mockAgreementRepo) HasAcceptedAgreement(ctx context.Context, personID u
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *mockAgreementRepo) AcceptDigital(ctx context.Context, id, userID uuid.UUID, ip, ua string) (*domain.VolunteerAgreement, error) {
-	args := m.Called(ctx, id, userID, ip, ua)
+func (m *mockAgreementRepo) AcceptDigital(ctx context.Context, id, userID uuid.UUID, ip, ua, signatureData string) (*domain.VolunteerAgreement, error) {
+	args := m.Called(ctx, id, userID, ip, ua, signatureData)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

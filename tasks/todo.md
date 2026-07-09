@@ -1,73 +1,141 @@
-# Sprint 8 — E10: Advanced Reports and Dashboards (Phase 2, final epic)
+# Termo de Voluntário — Aceite por Assinatura Digital OU Documento Anexado (self-service)
 
-Branch: `feat/sprint8-reports-dashboards`
-Delivery: parallelized (2 write-capable subagents on disjoint file sets) → `make deliver` → READY-FOR-PR. NEVER push/PR/merge.
+## Objetivo
+Na própria tela do Termo de Voluntário, o voluntário escolhe **um** de dois caminhos para
+aceitar, ambos self-service:
+1. **Assinatura digital** desenhada (canvas → PNG base64), igual ao Consentimento.
+2. **Anexar documento** do termo assinado (imagem JPEG/PNG **ou** PDF).
 
-## Scope (docs/09-backlog.md E10; detailed AC deferred to this kickoff per phase-boundary rule)
+Escopo coberto por **RF-07** ("registering signed consents **and terms**; Digital signature
+capture on mobile"). O `volunteer_agreement` já modela `signature_method ∈ {DIGITAL,
+MANUAL_UPLOAD}` — hoje só o coordenador anexa (na ficha da pessoa) e o digital é um clique
+sem assinatura desenhada. Este trabalho torna os dois caminhos self-service e adiciona a
+assinatura desenhada real.
 
-- **S10.1** Reports by service type, team, campaign
-- **S10.2** Statistical charts (Recharts)
-- **S10.3** Dashboard with key metrics (`GET /reports/dashboard` — documented, unimplemented)
-- **S10.4** Report filter UI
+## Contexto verificado no código
+- `SignaturePadCanvas.tsx` (em `components/consents/`) é reutilizável (canvas hand-rolled →
+  `toDataURL('image/png')`). Consent persiste em `consent.signature_data TEXT`.
+- Aceite digital: `POST /volunteer-agreement/accept` (self-service, personID do token) →
+  `svc.AcceptDigital(personID, ip, ua)` → `repo.AcceptDigital` grava `signature_method=
+  'DIGITAL'` mas **não** guarda imagem. `volunteer_agreement` **não tem** coluna de imagem.
+- Upload manual: `POST /persons/{id}/agreement/upload` — **RBAC coordenador**, `{id}` da URL
+  (não serve p/ self-service seguro). Reusa `svc.UploadManual(personID, filePath)`; salva em
+  `uploadDir/{campus}/{person}/{uuid}{ext}`; MIME whitelist PDF/JPEG/PNG, 10 MB.
+- Última migration = `000032` → próxima = **000033**.
+- Guardrails: campus scoping OK (agreement é campus-bound via person); mutação já audita.
+  CI pausado → gates locais.
 
-## Key facts established from codebase (verified)
+## Plano (TDD: RED → GREEN → REFACTOR por camada)
 
-- Report stack already exists: attendance summary, CSV export, campaign metrics (backend + FE `ReportsPage`).
-- **No new tables/migrations needed.** `attendance` has `professional_id` (indexed), `campaign_id`, `service_type_id`, `status`, `attendance_date` — read-only aggregation over existing data.
-- `fetchByServiceType` groups by `service_type.category` (mirror that; `by_professional` joins `person prof`).
-- `campaign_team` exists (person↔campaign + `role_in_campaign`). **No generic team entity** → "by team" = group by `professional_id`.
-- **recharts is NOT installed** — S10.2 must add it.
-- **No report integration tests** exist (backend or FE) — mandate applies to `/reports/attendances` + `/reports/dashboard`.
-- RBAC: all report routes are **COORDINATOR+** (`main.go registerReportRoutes`). Dashboard must match.
-- `DashboardPage` today computes 4 KPI cards **client-side** via `listAttendances`/`listTriages` `per_page:1`. S10.3 replaces this with the server endpoint.
-- Review verdict line the gate greps: `### Verdict: APPROVE`. File: `tasks/review-feat/sprint8-reports-dashboards.md`.
+### Backend — persistência da assinatura desenhada
+- [ ] **Migration 000033** `add_agreement_signature_data`
+  - `.up.sql`: `ALTER TABLE volunteer_agreement ADD COLUMN signature_data TEXT;`
+  - `.down.sql`: `ALTER TABLE volunteer_agreement DROP COLUMN signature_data;`
+- [ ] **Domain** `volunteer_agreement.go`: `SignatureData *string json:"signature_data"`.
+- [ ] **Repository** `volunteer_agreement_repository.go`:
+  - `AcceptDigital(..., signatureData string)`: grava `signature_data`; incluir no
+    `RETURNING`.
+  - Adicionar `signature_data` a todos os `SELECT`/`RETURNING` e aos scanners
+    (`scanAgreement`, `scanAgreementRow`).
+- [ ] **Service** `AcceptDigital(ctx, personID, ip, ua, signatureData)`:
+  - Validar `signatureData` não-vazio → `ErrValidation`. Audit `NewValues` **sem** a imagem.
 
-## Kickoff decisions (pragmatic defaults, phase-boundary rule)
+### Backend — upload self-service (voluntário anexa o próprio termo)
+- [ ] **Novo handler** `AcceptUpload` → `POST /volunteer-agreement/upload` (multipart
+  `document`), **personID do token** (não da URL), mesmas validações do `Upload` existente
+  (MIME PDF/JPEG/PNG, 10 MB, path seguro). Reusa `svc.UploadManual(personID, filePath)`.
+  - `claims.PersonID == Nil` → 400. Salvar em `uploadDir/{campus}/{person}/...`.
+- [ ] **Rota**: registrar em `registerAgreementRoutes` (grupo self-service, sem
+  `RequireAgreement`), ao lado de `/accept` e `/reject`.
+- [ ] **Endpoint do coordenador permanece intacto** (`/persons/{id}/agreement/upload`).
 
-1. **S10.3 Dashboard** — `GET /reports/dashboard` per docs/11 (campus-scoped KPIs: total persons, attendances this month, by-status snapshot, upcoming scheduled, active campaigns, recent-months trend). Coordinator+. Replaces client-side KPI computation in `DashboardPage`.
-2. **S10.1 By team/professional** — enrich `/reports/attendances`: add `by_professional` breakdown + optional `service_type_id`, `campaign_id`, `professional_id` filters. No new endpoint. Campaign metrics endpoint already covers "by campaign".
-3. **S10.2 Charts** — add `recharts`; render `by_month` (bar/line), `by_status` (donut), `by_service_type` (bar) in `ReportsPage` + dashboard trend. Charts degrade to existing lists when offline/empty.
-4. **S10.4 Filter UI** — extend `ReportFilters` with service-type select (`/service-types`), campaign select (`/campaigns`), professional filter; wire into `useAttendanceReport` params + query string.
-5. **Docs first** — update docs/11-api-design.md (dashboard body + new attendance filters + `by_professional`) before implementing.
+### Backend — handler accept (assinatura no body)
+- [ ] `Accept`: decodificar `{ "signature_data": string }`, `validateStruct`; vazio → 400.
+  Repassar ao service.
 
----
+### Tests backend (RED primeiro)
+- [ ] `volunteer_agreement_service_test.go`: accept com assinatura persiste; sem → validação.
+- [ ] **Novo** `handler/volunteer_agreement_test.go`: accept 400 sem assinatura / 200 com;
+  upload self-service 200 / 400 sem person / 400 MIME inválido.
+- [ ] **Integração** `internal/integration/volunteer_agreement_test.go`
+  (`//go:build integration`): assinatura gravada no DB; 400 sem assinatura; upload
+  self-service grava `document_path` + `signature_method='MANUAL_UPLOAD'`; 409 já aceito;
+  404 sem pending; campus boundary. (Mandato de integração do CLAUDE.md.)
 
-## Parallelization plan (disjoint file sets)
+### Frontend
+- [ ] **Reuso**: mover `SignaturePadCanvas` → `components/ui/SignaturePadCanvas.tsx`
+  (genérico); reapontar import em `ConsentFormPage.tsx` + seus testes.
+- [ ] **Types** `types/person.ts`: `VolunteerAgreement.signature_data?: string | null`.
+- [ ] **API client** `api/persons.ts`:
+  - `acceptAgreement(signatureData: string)` → body `{ signature_data }`.
+  - **Nova** `uploadAgreementSelf(file: File)` → `POST /volunteer-agreement/upload`
+    (multipart, via `apiClientRaw`).
+- [ ] **Página** `VolunteerAgreementPage.tsx` — seletor de método (rádio/toggle):
+  - **Assinar digitalmente**: `SignaturePadCanvas`; "Aceitar Termo" desabilitado até assinar;
+    `acceptAgreement(signature)`.
+  - **Anexar documento**: input de arquivo (JPEG/PNG/PDF, ≤10 MB, validação client-side igual
+    ao `AgreementUploadModal`); "Aceitar Termo" desabilitado até escolher arquivo;
+    `uploadAgreementSelf(file)`.
+  - Ambos os sucessos: forçar re-login Keycloak (como hoje) p/ refrescar claims.
+- [ ] Reusar validação de arquivo do `AgreementUploadModal` (extrair helper compartilhado se
+  reduzir duplicação; senão, replicar mínimo).
 
-### Orchestrator (me) — shared/coupled files + RED→GREEN sequencing
-- `docs/11-api-design.md`, `docs/09-backlog.md` (E10 → done), `docs/08-roadmap.md`, `HANDOFF.md`
-- `backend/cmd/server/main.go` (dashboard route wiring)
-- `backend/internal/integration/harness_test.go` (only if shared wiring needed)
-- `frontend/src/types/index.ts`, `frontend/src/types/report.ts` (shared types)
-- `frontend/src/__integration__/server.ts` (shared MSW handlers)
-- RED (test-only) commit before each GREEN feat commit, per story
-- Final `make deliver` + independent reviewer agent → `tasks/review-feat/sprint8-reports-dashboards.md`
-- E2E `@smoke` slice + rebuild e2e stack before smoke
+### Tests frontend (RED primeiro)
+- [ ] **Novo** `pages/__tests__/VolunteerAgreementPage.test.tsx`:
+  - método "assinar": bloqueia aceite sem assinatura; envia `signature_data`.
+  - método "anexar": bloqueia sem arquivo; rejeita MIME inválido; chama `uploadAgreementSelf`.
+  - alternância entre métodos limpa o estado do outro.
+- [ ] Integração `__integration__/`: `acceptAgreement` serializa `signature_data`;
+  `uploadAgreementSelf` monta multipart no endpoint certo.
 
-### Subagent A — Backend (new/owned files)
-- `backend/internal/domain/report.go` — add `DashboardMetrics`, `ProfessionalCount`; extend `AttendanceReportFilter` (ServiceTypeID, CampaignID, ProfessionalID *uuid.UUID)
-- `backend/internal/repository/report_repository.go` — `BuildDashboard`, `fetchByProfessional`, optional-filter WHERE extensions
-- `backend/internal/service/report_service.go` — `GetDashboard`, extended filter validation
-- `backend/internal/handler/report.go` — `Dashboard` handler + parse new query params
-- `backend/internal/service/report_service_test.go`, `backend/internal/handler/report_test.go` (extend, table-driven)
-- `backend/internal/integration/report_test.go` (NEW): dashboard happy path + DB assertions, campus boundary, RBAC 403 (VOLUNTEER), attendance filter contract, by_professional aggregation
+### Docs
+- [ ] `docs/11-api-design.md`: body de `/volunteer-agreement/accept` (`signature_data`
+  obrigatório p/ DIGITAL) + novo `POST /volunteer-agreement/upload` self-service.
+- [ ] `docs/10-data-model.md`: `signature_data` no DDL + nota migration 000033.
+- [ ] `docs/16-iam-and-access-control.md`: registrar que upload passa a ter também um caminho
+  self-service (personID do token) além do endpoint do coordenador.
 
-### Subagent B — Frontend (new/owned files)
-- `frontend/package.json` — add `recharts`
-- `frontend/src/api/reports.ts` — `getDashboard`; extend `getAttendanceReport` params (service_type_id, campaign_id, professional_id)
-- `frontend/src/hooks/useDashboard.ts` (NEW); extend `useAttendanceReport`
-- `frontend/src/pages/ReportsPage.tsx` — charts + extended filters
-- `frontend/src/pages/DashboardPage.tsx` — server KPIs + trend chart
-- `frontend/src/components/charts/` (NEW): Recharts wrappers (Bar, Donut, Trend) with light/dark + empty/offline fallback
-- `frontend/src/pages/__tests__/*`, `frontend/src/api/reports.test.ts` (extend)
-- `frontend/src/__integration__/reports.integration.test.tsx` (NEW): dashboard + report happy path, error mapping, filter query-string contract
+## Fora de escopo
+- Não mexer no endpoint de upload do coordenador nem no `AgreementGuard` (dead code).
+- Não corrigir doc-drift pré-existente de `volunteer_agreement` (só anotar).
+- Não alterar índice UNIQUE nem política RLS.
 
-### E2E (orchestrator, after both merge locally)
-- `frontend/e2e/` `@smoke`: Coordinator loads dashboard (KPI + chart visible); generates a filtered report.
-- `docker compose -f docker-compose.e2e.yml up -d --build` before smoke.
+## Verificação (gates locais — CI pausado)
+- [ ] Backend: `make migrate-up`, `make build`, `make lint`, `make test`,
+      `make test-integration`.
+- [ ] Frontend: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`.
+- [ ] Smoke manual na stack local: aceitar via assinatura (checar `signature_data` no DB) e
+      via anexo (checar `document_path` + arquivo salvo); audit log em ambos.
 
-## Verification gate
-`make deliver` → validate-backlog → backend build/lint/test/integration → FE typecheck/lint/test/integration/coverage/build → e2e smoke → critical-review APPROVE → DoD → READY-FOR-PR.
+## Review section
 
-## Review
-(to be filled at closeout)
+**Delivered.** Volunteer agreement now accepts either a drawn digital signature OR a
+self-service document upload (image/PDF), mirroring the consent flow. RF-07.
+
+Backend:
+- Migration `000033` adds nullable `signature_data TEXT` (up+down, roundtrip-verified).
+- Domain/repo/service/handler thread the drawn signature; accept requires a non-empty
+  signature (400 otherwise). New self-service `POST /volunteer-agreement/upload` takes the
+  person from the token (coordinator endpoint untouched).
+
+Pre-existing bug FIXED (surfaced by the first agreement integration test): `accepted_by_user`
+/`uploaded_by` are FKs to `app_user.id`, but the code wrote the Keycloak subject → FK 23503
+→ 500 in prod. Threaded `app_user.id` into `AuthClaims` via `AutoProvision`; repo binds NULL
+for the zero UUID. Only `volunteer_agreement` had actor FKs to `app_user`, so scope stayed
+contained. Locked by integration assertions.
+
+Frontend:
+- `SignaturePadCanvas` moved `components/consents/` → `components/ui/` (generic; consent
+  repointed). New `useAcceptMethod` hook + `AgreementComponents` + shared `agreementFile`
+  validator. Page has a method selector; "Aceitar Termo" disabled until signed or file chosen.
+
+Verification (all green): backend build/lint/`go test ./...`/full integration suite (171s);
+frontend typecheck/lint/364 tests/build; migration up/down roundtrip; **real-stack smoke**:
+accept без assinatura→400, com assinatura→200 with `signature_data` persisted and
+`accepted_by_user = app_user.id` (FK fix proven E2E); direct-grant reverted, smoke data +
+Keycloak attribute cleaned up. Added `backend/uploads/` to `.gitignore` (runtime artifact).
+
+Also in this branch (prior dev fixes): `init-realm.sh` sslRequired + campus guards, README
+Docker build-flow section, "Nova Triagem" button.
+
+NOT pushed (hard boundary). READY for a human to push/PR.

@@ -22,7 +22,7 @@ type VolunteerAgreementRepository interface {
 	FindByPersonRoleID(ctx context.Context, personRoleID uuid.UUID) (*domain.VolunteerAgreement, error)
 	FindPendingByPersonID(ctx context.Context, personID uuid.UUID) (*domain.VolunteerAgreement, error)
 	HasAcceptedAgreement(ctx context.Context, personID uuid.UUID) (bool, error)
-	AcceptDigital(ctx context.Context, id uuid.UUID, userID uuid.UUID, ip string, userAgent string) (*domain.VolunteerAgreement, error)
+	AcceptDigital(ctx context.Context, id uuid.UUID, userID uuid.UUID, ip string, userAgent string, signatureData string) (*domain.VolunteerAgreement, error)
 	Reject(ctx context.Context, id uuid.UUID, reason *string) (*domain.VolunteerAgreement, error)
 	AcceptManualUpload(ctx context.Context, id uuid.UUID, documentPath string, uploadedBy uuid.UUID) (*domain.VolunteerAgreement, error)
 }
@@ -54,8 +54,14 @@ func (s *VolunteerAgreementService) GetAgreementText(version string) (string, st
 }
 
 // AcceptDigital digitally accepts the volunteer agreement for the authenticated user.
-func (s *VolunteerAgreementService) AcceptDigital(ctx context.Context, personID uuid.UUID, ip string, userAgent string) (*domain.VolunteerAgreement, error) {
+// signatureData is the drawn signature as a base64 PNG data URL and is mandatory for
+// digital acceptance (mirrors the consent signature flow).
+func (s *VolunteerAgreementService) AcceptDigital(ctx context.Context, personID uuid.UUID, ip string, userAgent string, signatureData string) (*domain.VolunteerAgreement, error) {
 	claims := auth.ClaimsFromContext(ctx)
+
+	if signatureData == "" {
+		return nil, fmt.Errorf("volunteerAgreementService.AcceptDigital: signature required: %w", domain.ErrValidation)
+	}
 
 	// Check if already accepted
 	accepted, err := s.agreementRepo.HasAcceptedAgreement(ctx, personID)
@@ -72,13 +78,7 @@ func (s *VolunteerAgreementService) AcceptDigital(ctx context.Context, personID 
 		return nil, fmt.Errorf("volunteerAgreementService.AcceptDigital: find pending: %w", err)
 	}
 
-	userID := parseUserID(claims.Subject)
-	var uid uuid.UUID
-	if userID != nil {
-		uid = *userID
-	}
-
-	result, err := s.agreementRepo.AcceptDigital(ctx, pending.ID, uid, ip, userAgent)
+	result, err := s.agreementRepo.AcceptDigital(ctx, pending.ID, claims.AppUserID, ip, userAgent, signatureData)
 	if err != nil {
 		return nil, fmt.Errorf("volunteerAgreementService.AcceptDigital: accept: %w", err)
 	}
@@ -130,11 +130,7 @@ func (s *VolunteerAgreementService) Reject(ctx context.Context, personID uuid.UU
 // UploadManual uploads a manually signed agreement for a person.
 func (s *VolunteerAgreementService) UploadManual(ctx context.Context, personID uuid.UUID, documentPath string) (*domain.VolunteerAgreement, error) {
 	claims := auth.ClaimsFromContext(ctx)
-	uploaderID := parseUserID(claims.Subject)
-	var uid uuid.UUID
-	if uploaderID != nil {
-		uid = *uploaderID
-	}
+	uid := claims.AppUserID
 
 	// Find existing pending or create one if missing
 	pending, err := s.agreementRepo.FindPendingByPersonID(ctx, personID)
