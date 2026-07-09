@@ -51,8 +51,8 @@ chesed/
 ## Getting Started
 
 ### Prerequisites
-- Docker and Docker Compose
-- Go 1.22+ (for running backend outside Docker)
+- Docker and Docker Compose (v2, the `docker compose` plugin)
+- Go 1.25+ (for running backend outside Docker)
 - Node.js 20+ (for running frontend outside Docker)
 - [golang-migrate CLI](https://github.com/golang-migrate/migrate) (`brew install golang-migrate`)
 
@@ -75,6 +75,74 @@ cd backend && make migrate-up
 open http://localhost:5173
 ```
 
+### Docker Compose Build Flow
+
+`docker compose up -d` starts six services. Two of them — `api` and `frontend` — are
+built locally from Dockerfiles; the rest (`db`, `keycloak`, `minio`, `mailpit`) run
+from published images. Only the two built services need rebuilding, and only when
+their **dependency manifests** change.
+
+| Service | Build context | Dockerfile | Run mode | Source mount |
+|---------|---------------|------------|----------|--------------|
+| `api` | `./backend` | `Dockerfile.dev` | `air` hot reload | `./backend:/app` (full) |
+| `frontend` | `./frontend` | `Dockerfile` | `vite --host` dev server | `./frontend/src` + `index.html` only |
+
+#### How each image is built
+
+Both dev images bake their dependencies at **build time** and then copy the source in:
+
+- **Backend** (`backend/Dockerfile.dev`): `COPY go.mod go.sum` → `go mod download` →
+  `COPY . .`, then runs `air` for hot reload. Because compose mounts the whole
+  `./backend` directory over `/app`, edits to Go source hot-reload live with **no
+  rebuild**. A change to `go.mod` / `go.sum` (new dependency) is **not** picked up by
+  the mount and requires a rebuild.
+- **Frontend** (`frontend/Dockerfile`): `COPY package.json package-lock.json` →
+  `npm ci` → `COPY . .`, then runs the Vite dev server. Compose mounts **only**
+  `./frontend/src` and `index.html`, so `node_modules` and `package.json` live inside
+  the image. Editing files under `src/` hot-reloads live; **adding or upgrading an npm
+  dependency requires a rebuild** so the new `node_modules` is baked in.
+
+> **Rule of thumb:** application code hot-reloads; dependency changes
+> (`go.mod`/`go.sum`, `package.json`/`package-lock.json`) require rebuilding the
+> affected image.
+
+#### Common build commands
+
+```bash
+# Build both locally-built services without starting them
+docker compose build api frontend
+
+# Rebuild after a dependency change and recreate the container in one step
+docker compose up -d --build frontend          # e.g. after adding an npm package
+docker compose up -d --build api               # e.g. after changing go.mod
+
+# Force a clean rebuild (ignore layer cache) if a build looks stale
+docker compose build --no-cache frontend
+
+# Rebuild everything and recreate changed containers
+docker compose up -d --build
+```
+
+#### Production images
+
+The compose stack builds **dev** images (hot reload, dev servers). Optimized,
+multi-stage **production** images live alongside them and are built directly with
+`docker build` (they are not wired into `docker-compose.yml`):
+
+```bash
+# Backend: static Go binary + golang-migrate on a minimal alpine base
+docker build -f backend/Dockerfile -t chesed-api:prod ./backend
+
+# Frontend: Vite production build served by nginx.
+# Vite env vars are baked at build time, so pass them as --build-arg.
+docker build -f frontend/Dockerfile.prod -t chesed-frontend:prod \
+  --build-arg VITE_KEYCLOAK_URL=https://auth.example.org \
+  --build-arg VITE_KEYCLOAK_REALM=chesed \
+  --build-arg VITE_KEYCLOAK_CLIENT_ID=chesed-pwa \
+  --build-arg VITE_API_BASE_URL=https://api.example.org \
+  ./frontend
+```
+
 ### Test Users
 
 All test users share the password **`Test1234!`** and belong to the default campus (Instituto Nova SOS).
@@ -95,6 +163,7 @@ All test users share the password **`Test1234!`** and belong to the default camp
 | API | http://localhost:8080/api/v1/health |
 | Keycloak Admin | http://localhost:8180/admin (admin/admin) |
 | Mailpit (email) | http://localhost:8025 |
+| MinIO Console (S3) | http://localhost:9001 (chesed/chesed-dev-secret) |
 | PostgreSQL | localhost:5432 (chesed/chesed) |
 
 ### Running Tests
@@ -131,7 +200,7 @@ This repository is designed for AI-assisted development. See:
 - [`CLAUDE.md`](CLAUDE.md) — Rules for Claude Code
 - [`CODEX.md`](CODEX.md) — Rules for any AI coding agent
 - [`HANDOFF.md`](HANDOFF.md) — Session continuity and next steps
-- [`.project-ai/`](.project-ai/) — Delivery operating model with 49 artifacts (skills, agents, hooks, rules, playbooks, templates, checklists, workflows)
+- [`.project-ai/`](.project-ai/) — Delivery operating model with 100+ artifacts (skills, agents, hooks, rules, playbooks, templates, checklists, workflows)
 
 ## Origin
 
