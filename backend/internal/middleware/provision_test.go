@@ -193,6 +193,29 @@ func TestAutoProvision_NewUserProvisioned(t *testing.T) {
 	userRepo.AssertExpectations(t)
 }
 
+func TestAutoProvision_ResolvesPersonIDFromDB(t *testing.T) {
+	userRepo, auditRepo, mw := newProvisionTest()
+	campusID := uuid.New()
+	personID := uuid.New()
+	claims := volunteerClaims("test@chesed.test")
+	existing := &domain.AppUser{ID: uuid.New(), Email: claims.Email, CampusID: &campusID, PersonID: &personID}
+	userRepo.On("FindByKeycloakSubject", mock.Anything, claims.Subject).Return(existing, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, existing.ID).Return(nil)
+	auditRepo.On("Create", mock.Anything, mock.Anything).Return(nil)
+
+	var got auth.AuthClaims
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req = req.WithContext(auth.NewContext(req.Context(), claims))
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = auth.ClaimsFromContext(r.Context())
+	})).ServeHTTP(rec, req)
+
+	// person_id must come from app_user, not the (empty) token claim.
+	assert.Equal(t, personID, got.PersonID)
+	userRepo.AssertExpectations(t)
+}
+
 func TestAutoProvision_NilCampusForbidden(t *testing.T) {
 	userRepo, auditRepo, mw := newProvisionTest()
 	claims := volunteerClaims("test@chesed.test")
