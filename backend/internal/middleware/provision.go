@@ -51,6 +51,15 @@ func AutoProvision(userSvc *service.UserService) func(http.Handler) http.Handler
 			// volunteer_agreement.accepted_by_user reference.
 			claims.CampusID = *appUser.CampusID
 			claims.AppUserID = appUser.ID
+
+			// Resolve person_id from the DB (app_user), same as campus above.
+			// Self-registration links app_user.person_id but cannot update the
+			// Keycloak token, so the JWT person_id claim is unreliable for a
+			// user who registered after their token was issued. The DB is the
+			// source of truth for the person link.
+			if appUser.PersonID != nil {
+				claims.PersonID = *appUser.PersonID
+			}
 			ctx := auth.NewContext(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
