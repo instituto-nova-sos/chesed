@@ -482,7 +482,7 @@ This repository (`instituto-nova-sos/chesed`) is the canonical home for the rebu
 - **49 `.project-ai/` files verified**: all exist and are properly structured
 - **551 cross-references checked**: 100% valid (456 to `docs/`, 95 internal)
 - **16 documentation files referenced**: all exist
-- **Special case**: `docs/adrs/` referenced in `workflows/architecture-change.md` does not exist yet (by design — created when first ADR is written)
+- **Special case**: `docs/adr/` referenced in `workflows/architecture-change.md` exists, with the first ADR at `docs/adr/0001-audit-logging-durability.md`
 
 ---
 

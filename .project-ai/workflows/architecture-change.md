@@ -161,8 +161,8 @@ The tech-lead agent evaluates:
 ## Step 5: Accept Decision
 
 1. Update ADR status from `PROPOSED` to `ACCEPTED`
-2. Store the ADR in `docs/adrs/` (create directory if it does not exist)
-3. Name the file: `docs/adrs/ADR-NNN-short-title.md`
+2. Store the ADR in `docs/adr/` (create directory if it does not exist)
+3. Name the file: `docs/adr/ADR-NNN-short-title.md`
 4. Commit the ADR:
    ```
    docs: ADR-NNN <short title>
@@ -222,6 +222,6 @@ The ADR serves as the design document — reference it in the feature spec and c
 Skills:  maintain-docs, review-security (if security-related)
 Agents:  tech-lead (primary), security-engineer (if security-related)
 Template: adr (ADR template)
-Storage: docs/adrs/ADR-NNN-short-title.md
+Storage: docs/adr/ADR-NNN-short-title.md
 Commit:  docs: ADR-NNN <short title>
 ```
